@@ -4,6 +4,9 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-03
+First public release.
+
 ### Changed (license)
 - PosturaNet is licensed under the Functional Source License 1.1 with an Apache 2.0 future license (`FSL-1.1-ALv2`, see `LICENSE.md`): free to use, read and change; no competing commercial products; each release becomes Apache 2.0 two years after it ships.
 
