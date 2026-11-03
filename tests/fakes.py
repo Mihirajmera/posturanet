@@ -108,6 +108,50 @@ class FakeTerraform:
         return TfResult(True, ""), plan_for(before, after, extra=self.extra_changes)
 
 
+class ConfigTerraform(FakeTerraform):
+    """Plans an attribute fix: `after` is read from the patched HCL, `before` is given."""
+
+    def __init__(
+        self,
+        address: str,
+        rtype: str,
+        paths: list[str],
+        *,
+        before: dict[str, Any] | None = None,
+        extra_after: dict[str, Any] | None = None,
+        **kw: Any,
+    ) -> None:
+        super().__init__(**kw)
+        self.address, self.rtype, self.paths = address, rtype, paths
+        self.before = before or {}
+        self.extra_after = extra_after or {}
+
+    def plan_json(self, workdir: Path, state: Path | None) -> tuple[TfResult, dict[str, Any]]:
+        from posturanet.configfix.hcl_attrs import ABSENT, BLOCK, lookup
+
+        self.calls.append("plan")
+        name = self.address.rsplit(".", 1)[-1]
+        block = find_resource_block(workdir, self.rtype, name)
+        assert block is not None
+        text = block.file.read_text(encoding="utf-8")
+        after: dict[str, Any] = {**self.before, **self.extra_after}
+        for path in self.paths:
+            value = lookup(text, block.line, path)
+            if value is ABSENT or value is BLOCK:
+                continue
+            *parents, leaf = path.split(".")
+            node: Any = {leaf: value}
+            for p in reversed(parents):
+                node = {p: [node]}
+            after.update(node)
+        change = {"actions": ["update"], "before": self.before, "after": after}
+        rc = {"address": self.address, "mode": "managed", "type": self.rtype, "change": change}
+        return TfResult(True, ""), {
+            "format_version": "1.2",
+            "resource_changes": [rc, *(self.extra_changes or [])],
+        }
+
+
 class FakeGitHub:
     """In-memory GitHub REST API behind httpx.MockTransport. Records every write."""
 

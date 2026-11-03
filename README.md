@@ -26,6 +26,16 @@ This reads a synthetic finding, finds the Terraform block and its owner, builds 
 
 With a read-only role: drop `--dry-run` to read flow logs and run `terraform plan`, then add `--open-pr`. Before changing security group ingress, run `posturanet contract check --plan plan.json`, or `--source` for an offline check of the edited HCL (exit 5 means BLOCK).
 
+## What it fixes
+- **Security group ingress** (EC2.13, 14, 18, 19, 53, 54): replaces open rules with the sources seen in VPC flow logs, checked with Z3 against a behavior contract.
+- **52 more controls** as attribute fixes: settings that remove no access, like RDS deletion protection, DynamoDB point-in-time recovery, KMS key rotation, CloudTrail log validation and the IAM password policy. No evidence needed; same plan-scope checks.
+
+```bash
+posturanet fixes list               # every control and what it changes
+posturanet fixes show RDS.8         # one control in detail
+posturanet fix tests/fixtures/findings/rds_deletion_protection.json --dry-run --repo tests/fixtures/tf/config
+```
+
 ## Project docs
 | Doc | Purpose |
 |---|---|
