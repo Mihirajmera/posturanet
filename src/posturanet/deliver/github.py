@@ -181,14 +181,56 @@ def deliver(
     local_originals: dict[str, str | None],
     run_id: str,
 ) -> Delivery:
+    message = f"fix(security): {p.finding.control_id} {p.location.address} [posturanet]"
+    writes = [(fc.path, fc.new_content, message) for fc in p.diff.files]
+    if p.contract_text is not None:
+        writes.append((p.contract_file, p.contract_text, f"docs(contract): {p.location.address}"))
+    return push_pr(
+        gh,
+        PullRequest(
+            finding_id=p.finding.finding_id,
+            key=p.idempotency_key,
+            branch=branch_name(p),
+            title=pr_body.title(p),
+            body=pr_body.body(p, run_id=run_id),
+            labels=pr_body.labels(p, labels),
+            writes=writes,
+        ),
+        base=base,
+        max_open=max_open,
+        local_originals=local_originals,
+    )
+
+
+@dataclass
+class PullRequest:
+    """Everything a fix PR needs, independent of the fix type."""
+
+    finding_id: str
+    key: str  # idempotency key (FR-28)
+    branch: str  # used only when no PR exists for this finding yet
+    title: str
+    body: str  # must contain idempotency.markers(key, finding_id)
+    labels: list[str]
+    writes: list[tuple[str, str, str]]  # (path, content, commit message)
+
+
+def push_pr(
+    gh: GitHub,
+    pr_in: PullRequest,
+    *,
+    base: str,
+    max_open: int,
+    local_originals: dict[str, str | None],
+) -> Delivery:
     prs = gh.open_prs()
     ours = [
         pr for pr in prs if any(lbl.get("name") == "posturanet" for lbl in pr.get("labels", []))
     ]
-    tag = finding_tag(p.finding.finding_id)
+    tag = finding_tag(pr_in.finding_id)
     existing = next((pr for pr in prs if finding_in(pr.get("body")) == tag), None)
 
-    if existing is not None and key_in(existing.get("body")) == p.idempotency_key:
+    if existing is not None and key_in(existing.get("body")) == pr_in.key:
         return Delivery(
             existing["html_url"], int(existing["number"]), "unchanged", existing["head"]["ref"]
         )
@@ -210,22 +252,16 @@ def deliver(
             )
 
     base_sha = gh.ref_sha(base)
-    branch = existing["head"]["ref"] if existing is not None else branch_name(p)
+    branch = existing["head"]["ref"] if existing is not None else pr_in.branch
     gh.set_branch(branch, base_sha, exists=existing is not None)
 
-    message = f"fix(security): {p.finding.control_id} {p.location.address} [posturanet]"
-    for fc in p.diff.files:
-        gh.put_file(fc.path, branch, fc.new_content, message)
-    if p.contract_text is not None:
-        gh.put_file(
-            p.contract_file, branch, p.contract_text, f"docs(contract): {p.location.address}"
-        )
+    for path, content, message in pr_in.writes:
+        gh.put_file(path, branch, content, message)
 
-    t, b = pr_body.title(p), pr_body.body(p, run_id=run_id)
     if existing is not None:
-        gh.update_pr(int(existing["number"]), t, b)
-        gh.add_labels(int(existing["number"]), pr_body.labels(p, labels))
+        gh.update_pr(int(existing["number"]), pr_in.title, pr_in.body)
+        gh.add_labels(int(existing["number"]), pr_in.labels)
         return Delivery(existing["html_url"], int(existing["number"]), "updated", branch)
-    pr = gh.create_pr(t, b, branch, base)
-    gh.add_labels(int(pr["number"]), pr_body.labels(p, labels))
+    pr = gh.create_pr(pr_in.title, pr_in.body, branch, base)
+    gh.add_labels(int(pr["number"]), pr_in.labels)
     return Delivery(pr["html_url"], int(pr["number"]), "opened", branch)

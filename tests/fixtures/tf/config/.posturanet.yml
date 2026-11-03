@@ -1,0 +1,6 @@
+version: 1
+terraform:
+  root: .
+  backend: local
+  # Synthetic state, named so the repo's *.tfstate ignore rule stays in force.
+  state_path: state.fixture.json

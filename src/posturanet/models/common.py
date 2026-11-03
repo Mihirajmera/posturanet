@@ -15,6 +15,7 @@ class FixType(StrEnum):
     SG_INGRESS = "sg_ingress"
     S3_PUBLIC = "s3_public"
     IAM_LEAST_PRIVILEGE = "iam_least_privilege"
+    CONFIG_ATTRIBUTE = "config_attribute"
     UNSUPPORTED = "unsupported"
 
 

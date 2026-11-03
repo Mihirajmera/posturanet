@@ -5,6 +5,7 @@ Never guesses. Anything ambiguous or outside the supported layout stops the run 
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -12,7 +13,13 @@ from posturanet.errors import StageStop
 from posturanet.locate.backend import S3Fetch, find_s3_backend
 from posturanet.locate.codeowners import find_codeowners, owners_for
 from posturanet.locate.hcl_index import find_module_source, find_resource_block, is_local_source
-from posturanet.locate.tfstate import StateMatch, find_resource, load_state, parse_state
+from posturanet.locate.tfstate import (
+    StateMatch,
+    find_by_type,
+    find_resource,
+    load_state,
+    parse_state,
+)
 from posturanet.models import Confidence, Config, Finding, Location
 
 
@@ -32,11 +39,41 @@ def locate_match(
     config: Config,
     state_path: Path | None = None,
     s3_fetch: S3Fetch | None = None,
+    *,
+    resource_types: Sequence[str] = (),
+    account_scope: bool = False,
 ) -> tuple[Location, StateMatch]:
+    """`resource_types` narrows the match, first type preferred. With `account_scope`, the
+    finding names the account, so the match is the one resource of that type in state."""
     tf_root = (repo / config.terraform.root).resolve()
     state, state_label = _load_state(repo, tf_root, config, state_path, s3_fetch)
 
-    matches = find_resource(state, finding.resource.id, finding.resource.arn)
+    if account_scope:
+        matches, how = _by_type(state, resource_types), "type matched in state"
+        if not matches:
+            raise StageStop(
+                "locate",
+                f"no {' or '.join(resource_types)} in the Terraform state",
+                [
+                    "this fix edits an existing resource; adding a new one is not an attribute fix",
+                    "add the resource by hand, or check you pointed at the right state",
+                ],
+            )
+    else:
+        matches = find_resource(state, finding.resource.id, finding.resource.arn)
+        how = "id matched in state"
+        if resource_types:
+            matches = _prefer(matches, resource_types)
+            if not matches:
+                raise StageStop(
+                    "locate",
+                    f"{finding.resource.id} is not in the Terraform state as "
+                    + " or ".join(resource_types),
+                    [
+                        "check that this resource is managed by Terraform in this repo",
+                        "if it was created in the console, codifying it comes in a later release",
+                    ],
+                )
     if not matches:
         raise StageStop(
             "locate",
@@ -54,7 +91,7 @@ def locate_match(
             ["tell PosturaNet which address owns it (coming in R1), or fix the duplicate state"],
         )
     match = matches[0]
-    reasoning = [f"id matched in state {state_label}"]
+    reasoning = [f"{how} {state_label}"]
 
     directory = tf_root
     for name in match.module_names:
@@ -103,6 +140,22 @@ def locate_match(
         reasoning=[r for r in reasoning if r],
     )
     return loc, match
+
+
+def _prefer(matches: list[StateMatch], types: Sequence[str]) -> list[StateMatch]:
+    for rtype in types:
+        found = [m for m in matches if m.type == rtype]
+        if found:
+            return found
+    return []
+
+
+def _by_type(state: dict[str, Any], types: Sequence[str]) -> list[StateMatch]:
+    for rtype in types:
+        found = find_by_type(state, rtype)
+        if found:
+            return found
+    return []
 
 
 def _load_state(

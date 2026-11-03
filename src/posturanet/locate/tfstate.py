@@ -77,6 +77,22 @@ def find_resource(
     return sorted(matches, key=lambda m: m.address)
 
 
+def find_by_type(state: dict[str, Any], rtype: str) -> list[StateMatch]:
+    """Every managed instance of `rtype`. For account-wide settings with no resource id."""
+    matches = [
+        StateMatch(
+            address=_address(res, inst.get("index_key")),
+            module=str(res.get("module", "")),
+            type=rtype,
+            name=str(res["name"]),
+        )
+        for res in state.get("resources", [])
+        if isinstance(res, dict) and res.get("mode") == "managed" and res.get("type") == rtype
+        for inst in res.get("instances", [])
+    ]
+    return sorted(matches, key=lambda m: m.address)
+
+
 def _address(res: dict[str, Any], index_key: Any) -> str:
     base = f"{res['type']}.{res['name']}"
     if res.get("module"):

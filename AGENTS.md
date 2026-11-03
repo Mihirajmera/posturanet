@@ -40,7 +40,7 @@ Build only what's in the current release in PRD §5. **Don't build:**
 - dashboards, web UIs, hosted services or databases;
 - multi-cloud, CloudFormation, CDK, Pulumi or Terragrunt support;
 - detection rules beyond re-checking a known finding;
-- a fourth fix type;
+- a fourth evidence-backed fix type (adding rows to the attribute-fix catalog, `configfix/catalog.json`, is in scope: see architecture §14.1);
 - auto-apply or auto-merge (auto-merge is a later, licensed, policy-gated feature).
 
 If a task seems to need any of these, stop and ask the human.
@@ -83,6 +83,8 @@ Installing packages downloads from PyPI. Confirm with the human the first time i
 
 ### 1.8 Adding a fix type
 Follow architecture doc §14 exactly. A fix type isn't done without its evidence collector, contract kind, invariants, re-check function and benchmark cases.
+
+An attribute fix (a catalog row) follows §14.1 instead. Only add a row if the setting can't remove access or traffic; anything that can (network rules, policies, auth that refuses unsigned clients without review) needs evidence, or `risk: medium` and a note.
 
 ### 1.9 Git and collaboration
 - Don't commit, push, open PRs or change branches unless the human asks.

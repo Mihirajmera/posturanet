@@ -101,3 +101,40 @@ def test_version() -> None:
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
     assert __version__ in result.output
+
+
+def test_fixes_list_and_show() -> None:
+    res = runner.invoke(app, ["fixes", "list", "--format", "json"])
+    assert res.exit_code == 0
+    rows = json.loads(res.stdout)
+    assert len({r["control"] for r in rows}) >= 55
+    assert {"evidence", "config"} == {r["kind"] for r in rows}
+
+    rds = runner.invoke(app, ["fixes", "list", "--service", "rds"])
+    assert rds.exit_code == 0 and "RDS.8" in rds.stdout and "DynamoDB" not in rds.stdout
+
+    show = runner.invoke(app, ["fixes", "show", "KMS.4"])
+    assert show.exit_code == 0
+    assert "enable_key_rotation = true" in show.stdout
+    assert "customer_master_key_spec is absent, SYMMETRIC_DEFAULT" in show.stdout
+
+    assert runner.invoke(app, ["fixes", "show", "EC2.19"]).exit_code == 0
+    assert runner.invoke(app, ["fixes", "show", "Nope.1"]).exit_code == 2
+
+
+def test_attribute_fix_dry_run_cli() -> None:
+    fixtures = Path(__file__).parent.parent / "fixtures"
+    res = runner.invoke(
+        app,
+        [
+            "fix",
+            str(fixtures / "findings" / "rds_deletion_protection.json"),
+            "--dry-run",
+            "--repo",
+            str(fixtures / "tf" / "config"),
+            "--ascii",
+        ],
+    )
+    assert res.exit_code == 0, res.stdout
+    assert "[ok] fix         RDS.8 - deletion_protection = true" in res.stdout
+    assert "+  deletion_protection = true" in res.stdout

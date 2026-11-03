@@ -1,0 +1,54 @@
+{
+  "version": 4,
+  "terraform_version": "1.9.0",
+  "serial": 1,
+  "lineage": "00000000-0000-0000-0000-000000000001",
+  "outputs": {},
+  "resources": [
+    {
+      "mode": "managed",
+      "type": "aws_db_instance",
+      "name": "orders",
+      "provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+      "instances": [
+        {
+          "schema_version": 2,
+          "attributes": {
+            "id": "db-ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+            "arn": "arn:aws:rds:us-east-1:123456789012:db:orders",
+            "identifier": "orders"
+          }
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "aws_dynamodb_table",
+      "name": "events",
+      "provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+      "instances": [
+        {
+          "schema_version": 1,
+          "attributes": {
+            "id": "events",
+            "arn": "arn:aws:dynamodb:us-east-1:123456789012:table/events"
+          }
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "aws_iam_account_password_policy",
+      "name": "strict",
+      "provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "id": "iam-account-password-policy"
+          }
+        }
+      ]
+    }
+  ]
+}

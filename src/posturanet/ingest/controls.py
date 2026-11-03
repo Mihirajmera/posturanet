@@ -14,4 +14,9 @@ def _control_map() -> dict[str, FixType]:
 
 
 def fix_type_for(control_id: str) -> FixType:
-    return _control_map().get(control_id, FixType.UNSUPPORTED)
+    found = _control_map().get(control_id)
+    if found is not None:
+        return found
+    from posturanet.configfix.catalog import fixes_for
+
+    return FixType.CONFIG_ATTRIBUTE if fixes_for(control_id) else FixType.UNSUPPORTED

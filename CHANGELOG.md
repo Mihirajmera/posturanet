@@ -4,6 +4,16 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Added (R1.6: attribute fixes)
+- New fix type `config_attribute`: 54 catalog rows covering 52 Security Hub controls (`configfix/catalog.json`), e.g. RDS.8 deletion protection, DynamoDB.2 point-in-time recovery, KMS.4 key rotation, CloudTrail.4 log validation, ECR.1 scan on push, EKS.8 audit logs, IAM.7/15/16 password policy, GuardDuty.1, Config.1, EC2.7 EBS default encryption (FR-48).
+- HCL attribute editor: sets or inserts literal attributes and nested blocks in place, fmt-aligned, CRLF-preserving. Stops on variables, expressions, `dynamic` or repeated blocks, heredocs, `lifecycle.ignore_changes`, `count`/`for_each` and already-compliant code (drift).
+- Validation for attribute fixes: guardrails, fmt, init/validate, plan scope, re-check of the edited code, and `plan_matches` (planned values meet the control; nothing else on the target changes).
+- `posturanet fixes list [--service rds] [--format json]` and `posturanet fixes show <control>` (FR-49).
+- Account-wide controls (CloudTrail.1, EC2.7, GuardDuty.1, Config.1, Macie.1, IAM password policy) locate the one resource of that type in state.
+
+### Changed
+- PR delivery is shared by every fix type (`deliver.github.push_pr`). SG fix PRs are unchanged.
+
 ## [0.1.0] - 2026-11-03
 First public release.
 
