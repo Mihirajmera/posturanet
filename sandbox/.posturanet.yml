@@ -1,0 +1,20 @@
+# PosturaNet config for the sandbox. Replace the two <...> values.
+version: 1
+aws:
+  region: us-east-1
+  # Leave role_arn unset and run with AWS_PROFILE=posturanet-sandbox (see README), so that
+  # PosturaNet AND `terraform plan` both use the read-only role.
+terraform:
+  root: .
+  backend: local
+  state_path: terraform.tfstate
+evidence:
+  flow_logs:
+    log_group: /posturanet-sandbox/vpc-flow-logs
+  window_days: 90
+  min_confidence_for_pr: medium
+delivery:
+  github:
+    repo: <your-github-user>/posturanet-sandbox
+    base: main
+  max_open_prs: 2

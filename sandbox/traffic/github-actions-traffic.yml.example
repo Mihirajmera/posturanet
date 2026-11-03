@@ -1,0 +1,14 @@
+# Optional: copy to .github/workflows/traffic.yml in the sandbox repo.
+# GitHub runners use a different public IP almost every run, so this produces the
+# "rare / irregular public source" case. Set the BASTION_IP repository variable.
+name: sandbox traffic
+on:
+  schedule:
+    - cron: "17 3 * * 1,4" # twice a week
+  workflow_dispatch:
+permissions: {}
+jobs:
+  connect:
+    runs-on: ubuntu-latest
+    steps:
+      - run: timeout 3 bash -c "</dev/tcp/${{ vars.BASTION_IP }}/22" || true

@@ -1,0 +1,35 @@
+# Copy to .github/workflows/posturanet-check.yml in your Terraform repo.
+# Adds a "PosturaNet contract" check to every PR that touches Terraform or a contract.
+name: PosturaNet contract check
+on:
+  pull_request:
+    paths: ["**/*.tf", "posturanet/contracts/**"]
+
+permissions:
+  contents: read
+  checks: write        # publish the "PosturaNet contract" check run
+  id-token: write      # only for the AWS OIDC role below
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Option A (exact): check the real plan. Needs terraform and a READ-ONLY role.
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.POSTURANET_READONLY_ROLE_ARN }}
+          aws-region: us-east-1
+      - uses: Mihirajmera/posturanet/action@v0.1.0
+        with:
+          command: check
+
+      # Option B (offline): no terraform, no AWS. Delete the three steps above and use:
+      # - uses: Mihirajmera/posturanet/action@v0.1.0
+      #   with:
+      #     command: check
+      #     source-only: "true"

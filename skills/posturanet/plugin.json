@@ -1,0 +1,17 @@
+{
+  "name": "posturanet",
+  "description": "Evidence-backed Terraform fixes for AWS security group findings, and a contract check on every security group edit. Read-only in AWS.",
+  "version": "0.1.0",
+  "license": "FSL-1.1-ALv2",
+  "mcpServers": {
+    "posturanet": { "command": "posturanet", "args": ["mcp"] }
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [{ "type": "command", "command": "posturanet hook claude-code", "timeout": 30 }]
+      }
+    ]
+  }
+}

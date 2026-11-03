@@ -1,0 +1,17 @@
+{
+  "_comment": "Security Hub control id -> PosturaNet fix type. Anything not listed is 'unsupported'.",
+  "EC2.2": "sg_ingress",
+  "EC2.13": "sg_ingress",
+  "EC2.14": "sg_ingress",
+  "EC2.18": "sg_ingress",
+  "EC2.19": "sg_ingress",
+  "EC2.53": "sg_ingress",
+  "EC2.54": "sg_ingress",
+  "S3.1": "s3_public",
+  "S3.2": "s3_public",
+  "S3.3": "s3_public",
+  "S3.8": "s3_public",
+  "S3.19": "s3_public",
+  "IAM.1": "iam_least_privilege",
+  "IAM.21": "iam_least_privilege"
+}

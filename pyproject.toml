@@ -1,0 +1,81 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "posturanet"
+version = "0.1.0"
+description = "Evidence-backed remediation agent for AWS + Terraform. Fixes cloud security issues without breaking prod."
+readme = "README.md"
+license = "FSL-1.1-ALv2"
+license-files = ["LICENSE.md"]
+requires-python = ">=3.11"
+authors = [{ name = "PosturaNet" }]
+keywords = ["aws", "terraform", "security-groups", "remediation", "cloud-security", "mcp", "z3"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Intended Audience :: System Administrators",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Security",
+  "Topic :: System :: Systems Administration",
+  "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://www.posturanet.com"
+Source = "https://github.com/Mihirajmera/posturanet"
+Issues = "https://github.com/Mihirajmera/posturanet/issues"
+Changelog = "https://github.com/Mihirajmera/posturanet/blob/main/CHANGELOG.md"
+dependencies = [
+  "pydantic>=2.6,<3",
+  "typer>=0.12",
+  "rich>=13.7",
+  "ruamel.yaml>=0.18",
+  "z3-solver>=4.12",
+  "boto3>=1.34",
+  "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+mcp = ["mcp>=2.0,<3"]
+dev = ["pytest>=8", "ruff>=0.5", "mypy>=1.10", "hypothesis>=6.100", "boto3-stubs[ec2,logs,s3]>=1.34"]
+
+[project.scripts]
+posturanet = "posturanet.cli.app:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/posturanet"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/posturanet", "tests", "README.md", "CHANGELOG.md", "LICENSE.md", "pyproject.toml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+# CLI output snapshots must match real line lengths.
+"tests/**" = ["E501"]  # long synthetic fixture data
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+mypy_path = "src"
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["z3", "z3.*"]
+ignore_missing_imports = true
