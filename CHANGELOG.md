@@ -4,6 +4,9 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Added
+- Benchmark v0 (`python -m bench`): 12 synthetic security group cases with written ground truth, scoring PosturaNet's real pipeline against three baseline fixes (revoke, private ranges only, allow all observed). Results and PosturaNet's open misses are in `bench/README.md` and `bench/RESULTS.md`.
+
 ## [0.1.0] - 2026-11-03
 First public release.
 

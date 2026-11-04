@@ -1,0 +1,901 @@
+{
+  "bastion-ci-vpn": [
+    {
+      "broken": [],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "risk low \u00b7 disruption none",
+      "rules": [
+        "10.0.4.12/32:22/tcp",
+        "10.0.4.37/32:22/tcp",
+        "10.0.9.12/32:22/tcp"
+      ],
+      "status": "FIXED",
+      "tool": "PosturaNet",
+      "total_addresses": 3,
+      "verdict": "CORRECT"
+    },
+    {
+      "broken": [
+        "10.0.4.12:22 (CI runner)",
+        "10.0.4.37:22 (CI runner)",
+        "10.0.9.12:22 (VPN)"
+      ],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "",
+      "rules": [],
+      "status": "FIXED",
+      "tool": "Revoke open rule",
+      "total_addresses": 0,
+      "verdict": "OUTAGE"
+    },
+    {
+      "broken": [],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "",
+      "rules": [
+        "10.0.0.0/8:22/tcp",
+        "172.16.0.0/12:22/tcp",
+        "192.168.0.0/16:22/tcp"
+      ],
+      "status": "FIXED",
+      "tool": "Private ranges only",
+      "total_addresses": 17891328,
+      "verdict": "CORRECT"
+    },
+    {
+      "broken": [],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "",
+      "rules": [
+        "10.0.4.12/32:22/tcp",
+        "10.0.4.37/32:22/tcp",
+        "10.0.9.12/32:22/tcp"
+      ],
+      "status": "FIXED",
+      "tool": "Allow all observed",
+      "total_addresses": 3,
+      "verdict": "CORRECT"
+    }
+  ],
+  "ci-fleet-70": [
+    {
+      "broken": [],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "the solver did not finish in time (result unknown)",
+      "rules": [],
+      "status": "STOPPED",
+      "tool": "PosturaNet",
+      "total_addresses": 0,
+      "verdict": "STOPPED"
+    },
+    {
+      "broken": [
+        "10.0.50.10:22 (CI runner)",
+        "10.0.50.11:22 (CI runner)",
+        "10.0.50.12:22 (CI runner)",
+        "10.0.50.13:22 (CI runner)",
+        "10.0.50.14:22 (CI runner)",
+        "10.0.50.15:22 (CI runner)",
+        "10.0.50.16:22 (CI runner)",
+        "10.0.50.17:22 (CI runner)",
+        "10.0.50.18:22 (CI runner)",
+        "10.0.50.19:22 (CI runner)",
+        "10.0.50.20:22 (CI runner)",
+        "10.0.50.21:22 (CI runner)",
+        "10.0.50.22:22 (CI runner)",
+        "10.0.50.23:22 (CI runner)",
+        "10.0.50.24:22 (CI runner)",
+        "10.0.50.25:22 (CI runner)",
+        "10.0.50.26:22 (CI runner)",
+        "10.0.50.27:22 (CI runner)",
+        "10.0.50.28:22 (CI runner)",
+        "10.0.50.29:22 (CI runner)",
+        "10.0.50.30:22 (CI runner)",
+        "10.0.50.31:22 (CI runner)",
+        "10.0.50.32:22 (CI runner)",
+        "10.0.50.33:22 (CI runner)",
+        "10.0.50.34:22 (CI runner)",
+        "10.0.50.35:22 (CI runner)",
+        "10.0.50.36:22 (CI runner)",
+        "10.0.50.37:22 (CI runner)",
+        "10.0.50.38:22 (CI runner)",
+        "10.0.50.39:22 (CI runner)",
+        "10.0.50.40:22 (CI runner)",
+        "10.0.50.41:22 (CI runner)",
+        "10.0.50.42:22 (CI runner)",
+        "10.0.50.43:22 (CI runner)",
+        "10.0.50.44:22 (CI runner)",
+        "10.0.50.45:22 (CI runner)",
+        "10.0.50.46:22 (CI runner)",
+        "10.0.50.47:22 (CI runner)",
+        "10.0.50.48:22 (CI runner)",
+        "10.0.50.49:22 (CI runner)",
+        "10.0.50.50:22 (CI runner)",
+        "10.0.50.51:22 (CI runner)",
+        "10.0.50.52:22 (CI runner)",
+        "10.0.50.53:22 (CI runner)",
+        "10.0.50.54:22 (CI runner)",
+        "10.0.50.55:22 (CI runner)",
+        "10.0.50.56:22 (CI runner)",
+        "10.0.50.57:22 (CI runner)",
+        "10.0.50.58:22 (CI runner)",
+        "10.0.50.59:22 (CI runner)",
+        "10.0.50.60:22 (CI runner)",
+        "10.0.50.61:22 (CI runner)",
+        "10.0.50.62:22 (CI runner)",
+        "10.0.50.63:22 (CI runner)",
+        "10.0.50.64:22 (CI runner)",
+        "10.0.50.65:22 (CI runner)",
+        "10.0.50.66:22 (CI runner)",
+        "10.0.50.67:22 (CI runner)",
+        "10.0.50.68:22 (CI runner)",
+        "10.0.50.69:22 (CI runner)",
+        "10.0.50.70:22 (CI runner)",
+        "10.0.50.71:22 (CI runner)",
+        "10.0.50.72:22 (CI runner)",
+        "10.0.50.73:22 (CI runner)",
+        "10.0.50.74:22 (CI runner)",
+        "10.0.50.75:22 (CI runner)",
+        "10.0.50.76:22 (CI runner)",
+        "10.0.50.77:22 (CI runner)",
+        "10.0.50.78:22 (CI runner)",
+        "10.0.50.79:22 (CI runner)"
+      ],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "",
+      "rules": [],
+      "status": "FIXED",
+      "tool": "Revoke open rule",
+      "total_addresses": 0,
+      "verdict": "OUTAGE"
+    },
+    {
+      "broken": [],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "",
+      "rules": [
+        "10.0.0.0/8:22/tcp",
+        "172.16.0.0/12:22/tcp",
+        "192.168.0.0/16:22/tcp"
+      ],
+      "status": "FIXED",
+      "tool": "Private ranges only",
+      "total_addresses": 17891328,
+      "verdict": "CORRECT"
+    },
+    {
+      "broken": [],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "70 rules exceed the 60-rule quota; AWS rejects it",
+      "rules": [
+        "10.0.50.10/32:22/tcp",
+        "10.0.50.11/32:22/tcp",
+        "10.0.50.12/32:22/tcp",
+        "10.0.50.13/32:22/tcp",
+        "10.0.50.14/32:22/tcp",
+        "10.0.50.15/32:22/tcp",
+        "10.0.50.16/32:22/tcp",
+        "10.0.50.17/32:22/tcp",
+        "10.0.50.18/32:22/tcp",
+        "10.0.50.19/32:22/tcp",
+        "10.0.50.20/32:22/tcp",
+        "10.0.50.21/32:22/tcp",
+        "10.0.50.22/32:22/tcp",
+        "10.0.50.23/32:22/tcp",
+        "10.0.50.24/32:22/tcp",
+        "10.0.50.25/32:22/tcp",
+        "10.0.50.26/32:22/tcp",
+        "10.0.50.27/32:22/tcp",
+        "10.0.50.28/32:22/tcp",
+        "10.0.50.29/32:22/tcp",
+        "10.0.50.30/32:22/tcp",
+        "10.0.50.31/32:22/tcp",
+        "10.0.50.32/32:22/tcp",
+        "10.0.50.33/32:22/tcp",
+        "10.0.50.34/32:22/tcp",
+        "10.0.50.35/32:22/tcp",
+        "10.0.50.36/32:22/tcp",
+        "10.0.50.37/32:22/tcp",
+        "10.0.50.38/32:22/tcp",
+        "10.0.50.39/32:22/tcp",
+        "10.0.50.40/32:22/tcp",
+        "10.0.50.41/32:22/tcp",
+        "10.0.50.42/32:22/tcp",
+        "10.0.50.43/32:22/tcp",
+        "10.0.50.44/32:22/tcp",
+        "10.0.50.45/32:22/tcp",
+        "10.0.50.46/32:22/tcp",
+        "10.0.50.47/32:22/tcp",
+        "10.0.50.48/32:22/tcp",
+        "10.0.50.49/32:22/tcp",
+        "10.0.50.50/32:22/tcp",
+        "10.0.50.51/32:22/tcp",
+        "10.0.50.52/32:22/tcp",
+        "10.0.50.53/32:22/tcp",
+        "10.0.50.54/32:22/tcp",
+        "10.0.50.55/32:22/tcp",
+        "10.0.50.56/32:22/tcp",
+        "10.0.50.57/32:22/tcp",
+        "10.0.50.58/32:22/tcp",
+        "10.0.50.59/32:22/tcp",
+        "10.0.50.60/32:22/tcp",
+        "10.0.50.61/32:22/tcp",
+        "10.0.50.62/32:22/tcp",
+        "10.0.50.63/32:22/tcp",
+        "10.0.50.64/32:22/tcp",
+        "10.0.50.65/32:22/tcp",
+        "10.0.50.66/32:22/tcp",
+        "10.0.50.67/32:22/tcp",
+        "10.0.50.68/32:22/tcp",
+        "10.0.50.69/32:22/tcp",
+        "10.0.50.70/32:22/tcp",
+        "10.0.50.71/32:22/tcp",
+        "10.0.50.72/32:22/tcp",
+        "10.0.50.73/32:22/tcp",
+        "10.0.50.74/32:22/tcp",
+        "10.0.50.75/32:22/tcp",
+        "10.0.50.76/32:22/tcp",
+        "10.0.50.77/32:22/tcp",
+        "10.0.50.78/32:22/tcp",
+        "10.0.50.79/32:22/tcp"
+      ],
+      "status": "INVALID",
+      "tool": "Allow all observed",
+      "total_addresses": 70,
+      "verdict": "INVALID"
+    }
+  ],
+  "logs-10-days": [
+    {
+      "broken": [],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "confidence low (10 days, 100% coverage); needs medium",
+      "rules": [],
+      "status": "STOPPED",
+      "tool": "PosturaNet",
+      "total_addresses": 0,
+      "verdict": "STOPPED"
+    },
+    {
+      "broken": [
+        "10.0.4.12:22 (CI runner)",
+        "10.0.30.8:22 (patch job)"
+      ],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "",
+      "rules": [],
+      "status": "FIXED",
+      "tool": "Revoke open rule",
+      "total_addresses": 0,
+      "verdict": "OUTAGE"
+    },
+    {
+      "broken": [],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "",
+      "rules": [
+        "10.0.0.0/8:22/tcp",
+        "172.16.0.0/12:22/tcp",
+        "192.168.0.0/16:22/tcp"
+      ],
+      "status": "FIXED",
+      "tool": "Private ranges only",
+      "total_addresses": 17891328,
+      "verdict": "CORRECT"
+    },
+    {
+      "broken": [
+        "10.0.30.8:22 (patch job)"
+      ],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "",
+      "rules": [
+        "10.0.4.12/32:22/tcp"
+      ],
+      "status": "FIXED",
+      "tool": "Allow all observed",
+      "total_addresses": 1,
+      "verdict": "OUTAGE"
+    }
+  ],
+  "monthly-patch-job": [
+    {
+      "broken": [],
+      "exposed": [],
+      "flagged": [
+        "10.0.30.8/32:22"
+      ],
+      "internet_addresses": 0,
+      "note": "risk medium \u00b7 disruption none",
+      "rules": [
+        "10.0.30.8/32:22/tcp",
+        "10.0.4.12/32:22/tcp"
+      ],
+      "status": "FIXED",
+      "tool": "PosturaNet",
+      "total_addresses": 2,
+      "verdict": "CORRECT"
+    },
+    {
+      "broken": [
+        "10.0.4.12:22 (CI runner)",
+        "10.0.30.8:22 (patch job)"
+      ],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "",
+      "rules": [],
+      "status": "FIXED",
+      "tool": "Revoke open rule",
+      "total_addresses": 0,
+      "verdict": "OUTAGE"
+    },
+    {
+      "broken": [],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "",
+      "rules": [
+        "10.0.0.0/8:22/tcp",
+        "172.16.0.0/12:22/tcp",
+        "192.168.0.0/16:22/tcp"
+      ],
+      "status": "FIXED",
+      "tool": "Private ranges only",
+      "total_addresses": 17891328,
+      "verdict": "CORRECT"
+    },
+    {
+      "broken": [],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "",
+      "rules": [
+        "10.0.30.8/32:22/tcp",
+        "10.0.4.12/32:22/tcp"
+      ],
+      "status": "FIXED",
+      "tool": "Allow all observed",
+      "total_addresses": 2,
+      "verdict": "CORRECT"
+    }
+  ],
+  "no-flow-logs": [
+    {
+      "broken": [],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "no network interfaces use this security group \u00b7 confidence none",
+      "rules": [],
+      "status": "STOPPED",
+      "tool": "PosturaNet",
+      "total_addresses": 0,
+      "verdict": "STOPPED"
+    },
+    {
+      "broken": [
+        "10.0.4.12:22 (CI runner)"
+      ],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "",
+      "rules": [],
+      "status": "FIXED",
+      "tool": "Revoke open rule",
+      "total_addresses": 0,
+      "verdict": "OUTAGE"
+    },
+    {
+      "broken": [],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "",
+      "rules": [
+        "10.0.0.0/8:22/tcp",
+        "172.16.0.0/12:22/tcp",
+        "192.168.0.0/16:22/tcp"
+      ],
+      "status": "FIXED",
+      "tool": "Private ranges only",
+      "total_addresses": 17891328,
+      "verdict": "CORRECT"
+    },
+    {
+      "broken": [
+        "10.0.4.12:22 (CI runner)"
+      ],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "",
+      "rules": [],
+      "status": "FIXED",
+      "tool": "Allow all observed",
+      "total_addresses": 0,
+      "verdict": "OUTAGE"
+    }
+  ],
+  "office-public-ip": [
+    {
+      "broken": [],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 1,
+      "note": "risk low \u00b7 disruption none",
+      "rules": [
+        "203.0.113.10/32:22/tcp"
+      ],
+      "status": "FIXED",
+      "tool": "PosturaNet",
+      "total_addresses": 1,
+      "verdict": "CORRECT"
+    },
+    {
+      "broken": [
+        "203.0.113.10:22 (office NAT)"
+      ],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "",
+      "rules": [],
+      "status": "FIXED",
+      "tool": "Revoke open rule",
+      "total_addresses": 0,
+      "verdict": "OUTAGE"
+    },
+    {
+      "broken": [
+        "203.0.113.10:22 (office NAT)"
+      ],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "",
+      "rules": [
+        "10.0.0.0/8:22/tcp",
+        "172.16.0.0/12:22/tcp",
+        "192.168.0.0/16:22/tcp"
+      ],
+      "status": "FIXED",
+      "tool": "Private ranges only",
+      "total_addresses": 17891328,
+      "verdict": "OUTAGE"
+    },
+    {
+      "broken": [],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 1,
+      "note": "",
+      "rules": [
+        "203.0.113.10/32:22/tcp"
+      ],
+      "status": "FIXED",
+      "tool": "Allow all observed",
+      "total_addresses": 1,
+      "verdict": "CORRECT"
+    }
+  ],
+  "persistent-scanner": [
+    {
+      "broken": [],
+      "exposed": [
+        "198.51.100.99:22 (scanner)"
+      ],
+      "flagged": [],
+      "internet_addresses": 1,
+      "note": "risk low \u00b7 disruption none",
+      "rules": [
+        "10.0.4.12/32:22/tcp",
+        "198.51.100.99/32:22/tcp"
+      ],
+      "status": "FIXED",
+      "tool": "PosturaNet",
+      "total_addresses": 2,
+      "verdict": "STILL EXPOSED"
+    },
+    {
+      "broken": [
+        "10.0.4.12:22 (CI runner)"
+      ],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "",
+      "rules": [],
+      "status": "FIXED",
+      "tool": "Revoke open rule",
+      "total_addresses": 0,
+      "verdict": "OUTAGE"
+    },
+    {
+      "broken": [],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "",
+      "rules": [
+        "10.0.0.0/8:22/tcp",
+        "172.16.0.0/12:22/tcp",
+        "192.168.0.0/16:22/tcp"
+      ],
+      "status": "FIXED",
+      "tool": "Private ranges only",
+      "total_addresses": 17891328,
+      "verdict": "CORRECT"
+    },
+    {
+      "broken": [],
+      "exposed": [
+        "198.51.100.99:22 (scanner)"
+      ],
+      "flagged": [],
+      "internet_addresses": 1,
+      "note": "",
+      "rules": [
+        "10.0.4.12/32:22/tcp",
+        "198.51.100.99/32:22/tcp"
+      ],
+      "status": "FIXED",
+      "tool": "Allow all observed",
+      "total_addresses": 2,
+      "verdict": "STILL EXPOSED"
+    }
+  ],
+  "postgres-open": [
+    {
+      "broken": [],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 1,
+      "note": "risk low \u00b7 disruption none",
+      "rules": [
+        "10.0.12.21/32:5432/tcp",
+        "10.0.12.22/32:5432/tcp",
+        "203.0.113.80/32:5432/tcp"
+      ],
+      "status": "FIXED",
+      "tool": "PosturaNet",
+      "total_addresses": 3,
+      "verdict": "CORRECT"
+    },
+    {
+      "broken": [
+        "10.0.12.21:5432 (app server)",
+        "10.0.12.22:5432 (app server)",
+        "203.0.113.80:5432 (BI SaaS egress)"
+      ],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "",
+      "rules": [],
+      "status": "FIXED",
+      "tool": "Revoke open rule",
+      "total_addresses": 0,
+      "verdict": "OUTAGE"
+    },
+    {
+      "broken": [
+        "203.0.113.80:5432 (BI SaaS egress)"
+      ],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "",
+      "rules": [
+        "10.0.0.0/8:5432/tcp",
+        "172.16.0.0/12:5432/tcp",
+        "192.168.0.0/16:5432/tcp"
+      ],
+      "status": "FIXED",
+      "tool": "Private ranges only",
+      "total_addresses": 17891328,
+      "verdict": "OUTAGE"
+    },
+    {
+      "broken": [],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 1,
+      "note": "",
+      "rules": [
+        "10.0.12.21/32:5432/tcp",
+        "10.0.12.22/32:5432/tcp",
+        "203.0.113.80/32:5432/tcp"
+      ],
+      "status": "FIXED",
+      "tool": "Allow all observed",
+      "total_addresses": 3,
+      "verdict": "CORRECT"
+    }
+  ],
+  "quarterly-dr-drill": [
+    {
+      "broken": [
+        "10.0.40.5:22 (DR drill)"
+      ],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "risk low \u00b7 disruption none",
+      "rules": [
+        "10.0.4.12/32:22/tcp"
+      ],
+      "status": "FIXED",
+      "tool": "PosturaNet",
+      "total_addresses": 1,
+      "verdict": "OUTAGE"
+    },
+    {
+      "broken": [
+        "10.0.4.12:22 (CI runner)",
+        "10.0.40.5:22 (DR drill)"
+      ],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "",
+      "rules": [],
+      "status": "FIXED",
+      "tool": "Revoke open rule",
+      "total_addresses": 0,
+      "verdict": "OUTAGE"
+    },
+    {
+      "broken": [],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "",
+      "rules": [
+        "10.0.0.0/8:22/tcp",
+        "172.16.0.0/12:22/tcp",
+        "192.168.0.0/16:22/tcp"
+      ],
+      "status": "FIXED",
+      "tool": "Private ranges only",
+      "total_addresses": 17891328,
+      "verdict": "CORRECT"
+    },
+    {
+      "broken": [
+        "10.0.40.5:22 (DR drill)"
+      ],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "",
+      "rules": [
+        "10.0.4.12/32:22/tcp"
+      ],
+      "status": "FIXED",
+      "tool": "Allow all observed",
+      "total_addresses": 1,
+      "verdict": "OUTAGE"
+    }
+  ],
+  "rdp-jump-host": [
+    {
+      "broken": [],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 1,
+      "note": "risk low \u00b7 disruption none",
+      "rules": [
+        "10.0.9.12/32:3389/tcp",
+        "203.0.113.55/32:3389/tcp"
+      ],
+      "status": "FIXED",
+      "tool": "PosturaNet",
+      "total_addresses": 2,
+      "verdict": "CORRECT"
+    },
+    {
+      "broken": [
+        "10.0.9.12:3389 (VPN)",
+        "203.0.113.55:3389 (admin home IP)"
+      ],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "",
+      "rules": [],
+      "status": "FIXED",
+      "tool": "Revoke open rule",
+      "total_addresses": 0,
+      "verdict": "OUTAGE"
+    },
+    {
+      "broken": [
+        "203.0.113.55:3389 (admin home IP)"
+      ],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "",
+      "rules": [
+        "10.0.0.0/8:3389/tcp",
+        "172.16.0.0/12:3389/tcp",
+        "192.168.0.0/16:3389/tcp"
+      ],
+      "status": "FIXED",
+      "tool": "Private ranges only",
+      "total_addresses": 17891328,
+      "verdict": "OUTAGE"
+    },
+    {
+      "broken": [],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 1,
+      "note": "",
+      "rules": [
+        "10.0.9.12/32:3389/tcp",
+        "203.0.113.55/32:3389/tcp"
+      ],
+      "status": "FIXED",
+      "tool": "Allow all observed",
+      "total_addresses": 2,
+      "verdict": "CORRECT"
+    }
+  ],
+  "scanner-noise": [
+    {
+      "broken": [],
+      "exposed": [
+        "198.51.100.23:22 (scanner)",
+        "198.51.100.77:22 (scanner)"
+      ],
+      "flagged": [
+        "198.51.100.23/32:22",
+        "198.51.100.77/32:22"
+      ],
+      "internet_addresses": 2,
+      "note": "risk medium \u00b7 disruption none",
+      "rules": [
+        "10.0.4.12/32:22/tcp",
+        "198.51.100.23/32:22/tcp",
+        "198.51.100.77/32:22/tcp"
+      ],
+      "status": "FIXED",
+      "tool": "PosturaNet",
+      "total_addresses": 3,
+      "verdict": "STILL EXPOSED"
+    },
+    {
+      "broken": [
+        "10.0.4.12:22 (CI runner)"
+      ],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "",
+      "rules": [],
+      "status": "FIXED",
+      "tool": "Revoke open rule",
+      "total_addresses": 0,
+      "verdict": "OUTAGE"
+    },
+    {
+      "broken": [],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "",
+      "rules": [
+        "10.0.0.0/8:22/tcp",
+        "172.16.0.0/12:22/tcp",
+        "192.168.0.0/16:22/tcp"
+      ],
+      "status": "FIXED",
+      "tool": "Private ranges only",
+      "total_addresses": 17891328,
+      "verdict": "CORRECT"
+    },
+    {
+      "broken": [],
+      "exposed": [
+        "198.51.100.23:22 (scanner)",
+        "198.51.100.77:22 (scanner)"
+      ],
+      "flagged": [],
+      "internet_addresses": 2,
+      "note": "",
+      "rules": [
+        "10.0.4.12/32:22/tcp",
+        "198.51.100.23/32:22/tcp",
+        "198.51.100.77/32:22/tcp"
+      ],
+      "status": "FIXED",
+      "tool": "Allow all observed",
+      "total_addresses": 3,
+      "verdict": "STILL EXPOSED"
+    }
+  ],
+  "unused-rule": [
+    {
+      "broken": [],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "risk low \u00b7 disruption none",
+      "rules": [],
+      "status": "FIXED",
+      "tool": "PosturaNet",
+      "total_addresses": 0,
+      "verdict": "CORRECT"
+    },
+    {
+      "broken": [],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "",
+      "rules": [],
+      "status": "FIXED",
+      "tool": "Revoke open rule",
+      "total_addresses": 0,
+      "verdict": "CORRECT"
+    },
+    {
+      "broken": [],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "",
+      "rules": [
+        "10.0.0.0/8:22/tcp",
+        "172.16.0.0/12:22/tcp",
+        "192.168.0.0/16:22/tcp"
+      ],
+      "status": "FIXED",
+      "tool": "Private ranges only",
+      "total_addresses": 17891328,
+      "verdict": "CORRECT"
+    },
+    {
+      "broken": [],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "",
+      "rules": [],
+      "status": "FIXED",
+      "tool": "Allow all observed",
+      "total_addresses": 0,
+      "verdict": "CORRECT"
+    }
+  ]
+}
