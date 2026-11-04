@@ -10,6 +10,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from posturanet.models.finding import Finding
 from posturanet.models.location import Location
 from posturanet.models.observations import Observations
+from posturanet.models.outcome import Outcome
+from posturanet.models.s3 import S3Evidence
 from posturanet.models.validation import Diff, ValidationReport
 
 
@@ -43,10 +45,12 @@ class RunRecord(BaseModel):
     finding: Finding | None = None
     location: Location | None = None
     observations: Observations | None = None
+    s3_evidence: S3Evidence | None = None  # S3 public-access fixes only
     contract_file: str | None = None
     diff: Diff | None = None
     validation: ValidationReport | None = None
     pr_url: str | None = None
+    outcome: Outcome | None = None  # verify runs only
     result: str
     result_detail: str = ""
     why: str | None = None

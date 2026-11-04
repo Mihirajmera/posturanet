@@ -355,6 +355,73 @@ def fixes_show(
 
 
 @app.command()
+def verify(
+    pr: Annotated[str, typer.Argument(help="Fix PR: URL, owner/repo#123, or a number.")],
+    open_pr: Annotated[
+        bool, typer.Option("--open-pr", help="Open a revert PR if the fix regressed.")
+    ] = False,
+    offline: Annotated[
+        bool, typer.Option("--offline", help="No AWS calls; needs --state and --rejects-file.")
+    ] = False,
+    repo: RepoOpt = Path("."),
+    state: StateOpt = None,
+    rejects_file: Annotated[
+        Path | None,
+        typer.Option("--rejects-file", help="Exported flow-log REJECT records (JSON)."),
+    ] = None,
+    applied_at: Annotated[
+        str | None, typer.Option(help="When the fix was applied (ISO 8601); default: merge time.")
+    ] = None,
+    window: Annotated[
+        str | None, typer.Option(help="Watch window, e.g. 72h. Default: the PR's own.")
+    ] = None,
+    output_format: FormatOpt = OutputFormat.TEXT,
+    ascii_mode: AsciiOpt = False,
+) -> None:
+    """After merge: check the fix applied, the finding passes and nothing it kept got blocked."""
+    from datetime import UTC, datetime
+
+    from posturanet.verify import VerifyContext, run_verify
+    from posturanet.verify.signals import RejectFile
+
+    try:
+        if not repo.is_dir():
+            raise UsageError(f"--repo is not a directory: {repo}")
+        if rejects_file is not None and not rejects_file.is_file():
+            raise UsageError(f"--rejects-file not found: {rejects_file}")
+        hours = None
+        if window is not None:
+            m = re.fullmatch(r"(\d+)h?", window.strip())
+            if not m or not 0 <= int(m.group(1)) <= 24 * 30:
+                raise UsageError(f"--window must look like 72h (0-720 hours), got {window!r}")
+            hours = int(m.group(1))
+        applied = None
+        if applied_at is not None:
+            try:
+                applied = datetime.fromisoformat(applied_at.replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise UsageError(f"--applied-at is not ISO 8601: {applied_at!r}") from exc
+            if applied.tzinfo is None:
+                applied = applied.replace(tzinfo=UTC)
+        config, _ = load_config(repo)
+        ctx = VerifyContext(
+            state_path=state,
+            rejects=RejectFile(rejects_file) if rejects_file else None,
+            applied_at=applied,
+            watch_hours=hours,
+            open_pr=open_pr,
+        )
+        if not offline:
+            from posturanet.aws.session import boto3_factory
+
+            ctx.aws = boto3_factory(config.aws)
+        record = run_verify(pr, repo, config, ctx)
+    except PosturaNetError as exc:
+        raise _fail(exc) from exc
+    _emit(record, output_format, ascii_mode)
+
+
+@app.command()
 def init() -> None:
     """Print the read-only IAM policy for PosturaNet's role. Writes nothing."""
     _banner(sys.stderr)  # stderr, so `posturanet init > policy.json` stays clean JSON

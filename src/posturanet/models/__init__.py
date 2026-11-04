@@ -4,6 +4,7 @@ from posturanet.models.contract import BehaviorContract, NetRule
 from posturanet.models.finding import Finding, Provenance, ResourceRef
 from posturanet.models.location import Location
 from posturanet.models.observations import Observations, ObservedFlow, Period, Window
+from posturanet.models.outcome import Outcome, OutcomeState, VerifySpec
 from posturanet.models.run import RunRecord, StageResult, StageStatus
 from posturanet.models.validation import (
     Check,
@@ -25,6 +26,8 @@ __all__ = [
     "Finding",
     "FixType",
     "Location",
+    "Outcome",
+    "OutcomeState",
     "NetRule",
     "ObservedFlow",
     "Observations",
@@ -37,5 +40,6 @@ __all__ = [
     "StageResult",
     "StageStatus",
     "ValidationReport",
+    "VerifySpec",
     "Window",
 ]

@@ -92,8 +92,37 @@ def locate_match(
         )
     match = matches[0]
     reasoning = [f"{how} {state_label}"]
+    _, block_line, block_file, steps = resolve_block(match, repo, config)
+    reasoning += steps
+    file_rel = _rel(block_file, repo)
 
-    directory = tf_root
+    owners: list[str] = []
+    codeowners = find_codeowners(repo)
+    if codeowners is not None:
+        owners = owners_for(codeowners, file_rel)
+    if owners:
+        reasoning.append(f"owners from {_rel(codeowners, repo)}" if codeowners else "")
+    else:
+        reasoning.append("no CODEOWNERS rule matches this file")
+
+    loc = Location(
+        address=match.address,
+        file=file_rel,
+        line=block_line,
+        module_path=match.module_names,
+        state_source=state_label,
+        owners=owners,
+        drift=None,
+        confidence=Confidence.HIGH if owners else Confidence.MEDIUM,
+        reasoning=[r for r in reasoning if r],
+    )
+    return loc, match
+
+
+def module_dir(match: StateMatch, repo: Path, config: Config) -> tuple[Path, list[str]]:
+    """Directory holding `match`'s resource block, following local module sources."""
+    directory = (repo / config.terraform.root).resolve()
+    steps: list[str] = []
     for name in match.module_names:
         found = find_module_source(directory, name)
         if found is None:
@@ -108,8 +137,15 @@ def locate_match(
                 ["remote modules arrive in a later release; fix this resource by hand for now"],
             )
         directory = (directory / source).resolve()
-        reasoning.append(f"module {name} source local: {source}")
+        steps.append(f"module {name} source local: {source}")
+    return directory, steps
 
+
+def resolve_block(
+    match: StateMatch, repo: Path, config: Config
+) -> tuple[Path, int, Path, list[str]]:
+    """(module directory, block line, block file, reasoning) for a state match."""
+    directory, steps = module_dir(match, repo, config)
     block = find_resource_block(directory, match.type, match.name)
     if block is None:
         raise StageStop(
@@ -117,29 +153,15 @@ def locate_match(
             f'resource "{match.type}" "{match.name}" not found in {_rel(directory, repo)}/',
             ["check that the state matches this checkout (right branch or workspace)"],
         )
-    file_rel = _rel(block.file, repo)
+    return directory, block.line, block.file, steps
 
-    owners: list[str] = []
-    codeowners = find_codeowners(repo)
-    if codeowners is not None:
-        owners = owners_for(codeowners, file_rel)
-    if owners:
-        reasoning.append(f"owners from {_rel(codeowners, repo)}" if codeowners else "")
-    else:
-        reasoning.append("no CODEOWNERS rule matches this file")
 
-    loc = Location(
-        address=match.address,
-        file=file_rel,
-        line=block.line,
-        module_path=match.module_names,
-        state_source=state_label,
-        owners=owners,
-        drift=None,
-        confidence=Confidence.HIGH if owners else Confidence.MEDIUM,
-        reasoning=[r for r in reasoning if r],
-    )
-    return loc, match
+def load_repo_state(
+    repo: Path, config: Config, state_path: Path | None = None, s3_fetch: S3Fetch | None = None
+) -> tuple[dict[str, Any], str]:
+    """(state, label) the same way locate finds it."""
+    tf_root = (repo / config.terraform.root).resolve()
+    return _load_state(repo, tf_root, config, state_path, s3_fetch)
 
 
 def _prefer(matches: list[StateMatch], types: Sequence[str]) -> list[StateMatch]:

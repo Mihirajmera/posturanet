@@ -77,6 +77,18 @@ def find_resource(
     return sorted(matches, key=lambda m: m.address)
 
 
+def attributes_of(state: dict[str, Any], address: str) -> dict[str, Any] | None:
+    """Attributes of one instance, for comparing against what a fix expects. Never log them."""
+    for res in state.get("resources", []):
+        if not isinstance(res, dict) or res.get("mode") != "managed":
+            continue
+        for inst in res.get("instances", []):
+            if _address(res, inst.get("index_key")) == address:
+                attrs = inst.get("attributes")
+                return dict(attrs) if isinstance(attrs, dict) else {}
+    return None
+
+
 def find_by_type(state: dict[str, Any], rtype: str) -> list[StateMatch]:
     """Every managed instance of `rtype`. For account-wide settings with no resource id."""
     matches = [

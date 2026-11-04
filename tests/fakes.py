@@ -160,13 +160,24 @@ class FakeGitHub:
         self.prs = open_prs or []
         self.writes: list[tuple[str, str]] = []
         self.refs: dict[str, str] = {"main": "basesha"}
+        self.parents: dict[str, str] = {}
+        self.pr_files: dict[int, list[dict[str, Any]]] = {}
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         path, method = request.url.path, request.method
         body = json.loads(request.content) if request.content else {}
         repo = "/repos/acme/infra"
         if method == "GET" and path == f"{repo}/pulls":
-            return httpx.Response(200, json=self.prs)
+            return httpx.Response(200, json=[p for p in self.prs if p.get("state") != "closed"])
+        if method == "GET" and path.startswith(f"{repo}/pulls/"):
+            rest = path.removeprefix(f"{repo}/pulls/")
+            if rest.endswith("/files"):
+                return httpx.Response(200, json=self.pr_files.get(int(rest.split("/")[0]), []))
+            pr = next((p for p in self.prs if p["number"] == int(rest)), None)
+            return httpx.Response(200, json=pr) if pr else httpx.Response(404, json={})
+        if method == "GET" and path.startswith(f"{repo}/commits/"):
+            sha = path.removeprefix(f"{repo}/commits/")
+            return httpx.Response(200, json={"parents": [{"sha": self.parents[sha]}]})
         if method == "GET" and path.startswith(f"{repo}/git/ref/heads/"):
             name = path.removeprefix(f"{repo}/git/ref/heads/")
             return httpx.Response(200, json={"object": {"sha": self.refs[name]}})
@@ -187,14 +198,19 @@ class FakeGitHub:
             return httpx.Response(201, json={})
         if method == "PATCH" and path.startswith(f"{repo}/git/refs/heads/"):
             return httpx.Response(200, json={})
+        if method == "DELETE" and path.startswith(f"{repo}/contents/"):
+            self.files.pop((body["branch"], path.removeprefix(f"{repo}/contents/")), None)
+            return httpx.Response(200, json={})
         if method == "PUT" and path.startswith(f"{repo}/contents/"):
             fpath = path.removeprefix(f"{repo}/contents/")
             self.files[(body["branch"], fpath)] = base64.b64decode(body["content"]).decode()
             return httpx.Response(201, json={})
         if method == "POST" and path == f"{repo}/pulls":
+            number = 412 + len(self.prs)
             pr = {
-                "number": 412,
-                "html_url": "https://github.com/acme/infra/pull/412",
+                "number": number,
+                "html_url": f"https://github.com/acme/infra/pull/{number}",
+                "state": "open",
                 "head": {"ref": body["head"]},
                 "body": body["body"],
                 "title": body["title"],
@@ -207,6 +223,26 @@ class FakeGitHub:
         if method == "POST" and path.endswith("/labels"):
             return httpx.Response(200, json=[])
         return httpx.Response(404, json={"message": f"unexpected {method} {path}"})
+
+    def merge(self, number: int, merged_at: str = "2026-10-30T12:00:00Z") -> str:
+        """Merge PR `number` into main like GitHub would; returns the merge sha."""
+        pr = next(p for p in self.prs if p["number"] == number)
+        branch, sha = pr["head"]["ref"], f"merge{number}"
+        self.parents[sha] = f"parent{number}"
+        main = {f: t for (ref, f), t in self.files.items() if ref == "main"}
+        for f, t in main.items():
+            self.files[(f"parent{number}", f)] = t
+        changed = []
+        for (ref, f), t in list(self.files.items()):
+            if ref == branch and main.get(f) != t:
+                changed.append({"filename": f, "status": "added" if f not in main else "modified"})
+                self.files[("main", f)] = t
+        for (ref, f), t in list(self.files.items()):
+            if ref == "main":
+                self.files[(sha, f)] = t
+        self.pr_files[number] = changed
+        pr.update(state="closed", merged_at=merged_at, merge_commit_sha=sha)
+        return sha
 
     def client(self) -> httpx.Client:
         return httpx.Client(

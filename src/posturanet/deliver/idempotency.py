@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import json
 import re
 
-from posturanet.models import BehaviorContract
+from posturanet.models import BehaviorContract, VerifySpec
 
 _KEY_MARKER = re.compile(r"<!-- posturanet:key=([0-9a-f]{64}) -->")
+_VERIFY_MARKER = re.compile(r"<!-- posturanet:verify=([A-Za-z0-9+/=]+) -->")
 _FINDING_MARKER = re.compile(r"<!-- posturanet:finding=([0-9a-f]{16}) -->")
 
 
@@ -37,6 +40,22 @@ def finding_tag(finding_id: str) -> str:
 
 def markers(key: str, finding_id: str) -> str:
     return f"<!-- posturanet:key={key} -->\n<!-- posturanet:finding={finding_tag(finding_id)} -->"
+
+
+def verify_marker(spec: VerifySpec) -> str:
+    """The post-merge verify spec, base64 JSON in an HTML comment (architecture doc 11)."""
+    raw = spec.model_dump_json(exclude_defaults=False).encode("utf-8")
+    return f"<!-- posturanet:verify={base64.b64encode(raw).decode('ascii')} -->"
+
+
+def spec_in(body: str | None) -> VerifySpec | None:
+    m = _VERIFY_MARKER.search(body or "")
+    if not m:
+        return None
+    try:
+        return VerifySpec.model_validate_json(base64.b64decode(m.group(1)))
+    except (ValueError, binascii.Error):
+        return None
 
 
 def key_in(body: str | None) -> str | None:
