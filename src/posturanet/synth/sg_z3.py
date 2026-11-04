@@ -165,6 +165,12 @@ Cost = tuple[float, int]  # (exposed addresses, rules), compared lexicographical
 Plan = list[tuple[Cost, list[Rule]]]  # index k: best way to cover a subtree with <= k rules
 
 
+def _zero(quota: int) -> Plan:
+    """Covering nothing costs nothing, at every rule budget."""
+    none: list[Rule] = []
+    return [((0.0, 0), none) for _ in range(quota + 1)]
+
+
 def _merge(a: Plan, b: Plan, quota: int) -> Plan:
     out: Plan = [(_INF, []) for _ in range(quota + 1)]
     for i, (ca, ra) in enumerate(a):
@@ -190,8 +196,7 @@ def solve_nested(needs: list[Need], cands: list[Rule], quota: int) -> list[Rule]
     a knapsack over subtrees: each node is either chosen (covering all of its subtree) or
     left to its children. Returns None when no cover fits the quota.
     """
-    empty: Plan = [((0, 0), [])] + [((0, 0), []) for _ in range(quota)]
-    total = empty
+    total = _zero(quota)
     groups: dict[tuple[int, int, str], list[Rule]] = defaultdict(list)
     for c in cands:
         groups[(c.from_port, c.to_port, c.proto)].append(c)
@@ -227,7 +232,7 @@ def _subtree(
     node: Rule, children: dict[Rule | None, list[Rule]], own: dict[Rule, int], quota: int
 ) -> Plan | None:
     """Best covers of the needs under `node`, indexed by rule count; None when it has none."""
-    below: Plan = [((0, 0), []) for _ in range(quota + 1)]
+    below = _zero(quota)
     any_need = own[node] > 0
     for ch in children[node]:
         sub = _subtree(ch, children, own, quota)
