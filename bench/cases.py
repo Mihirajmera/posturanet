@@ -30,6 +30,11 @@ class Source:
     proto: str = "tcp"
     day: int = 0  # weekday for weekly, day of month for monthly, days-before-END for once/every120
 
+    @property
+    def bytes_per_flow(self) -> tuple[int, int]:
+        # Real sessions move kilobytes per flow; scanner probes and banner grabs, a few hundred.
+        return (8_000, 120_000) if self.legit else (60, 400)
+
 
 @dataclass(frozen=True)
 class OpenRule:
@@ -49,6 +54,8 @@ class Case:
     log_days: int = WINDOW_DAYS  # how long flow logs have existed
     enis: bool = True  # False: no network interfaces have flow logs
     extra_probes: list[str] = field(default_factory=list)
+    # Sources a human wrote into an approved contract before the run.
+    approved: list[str] = field(default_factory=list)
 
     @property
     def ports(self) -> list[int]:
@@ -83,13 +90,15 @@ def flows(case: Case) -> dict[str, object]:
         for d in _active_days(s, start.date(), END.date()):
             for hour in sorted(rng.sample(range(24), rng.randint(1, 3))):
                 ts = datetime(d.year, d.month, d.day, hour, tzinfo=UTC)
+                n = rng.randint(2, 60)
                 records.append(
                     {
                         "srcAddr": s.ip,
                         "dstPort": str(s.port),
                         "protocol": "6" if s.proto == "tcp" else s.proto,
                         "hour": ts.strftime("%Y-%m-%d %H:00:00.000"),
-                        "n": str(rng.randint(2, 60)),
+                        "n": str(n),
+                        "bytes": str(n * rng.randint(*s.bytes_per_flow)),
                     }
                 )
     return {
@@ -151,6 +160,17 @@ CASES: list[Case] = [
             Source("10.0.4.12", 22, "daily", note="CI runner"),
             Source("10.0.40.5", 22, "every120", day=100, note="DR drill"),
         ],
+    ),
+    Case(
+        "quarterly-dr-drill-approved",
+        "The same DR drill, after the team wrote it into the approved contract",
+        "Flow logs still cannot see it. The contract remembers it, so the fix keeps it.",
+        [OPEN_22],
+        [
+            Source("10.0.4.12", 22, "daily", note="CI runner"),
+            Source("10.0.40.5", 22, "every120", day=100, note="DR drill"),
+        ],
+        approved=["10.0.4.12", "10.0.40.5"],
     ),
     Case(
         "scanner-noise",

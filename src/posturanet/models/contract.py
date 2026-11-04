@@ -22,6 +22,7 @@ class NetRule(BaseModel):
     owner: str | None = None
     ref: str | None = None
     count: int | None = None
+    reason: str | None = None  # why a source is in needs_review or not_kept
 
 
 class ObservedWindow(BaseModel):
@@ -52,6 +53,8 @@ class BehaviorContract(BaseModel):
     must_allow: list[NetRule] = Field(default_factory=list)
     must_deny: list[NetRule] = Field(default_factory=list)
     needs_review: list[NetRule] = Field(default_factory=list)
+    # Observed but left out of the fix (likely scanners). Move one to must_allow to keep it.
+    not_kept: list[NetRule] = Field(default_factory=list)
     unknown_risk: str = ""
     status: Literal["draft", "approved"] = "draft"
     approved_by: str | None = None

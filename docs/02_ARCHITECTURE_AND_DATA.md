@@ -198,6 +198,18 @@ All models are Pydantic v2, serialized as JSON (machine) or YAML (human-edited c
 
 **Periodicity:** `daily` (seen on ≥ 70% of days), `weekly` (a consistent weekday), `monthly` (a consistent day of month), `rare` (≤ 3 distinct days), `one_off` (1 day). `rare` and `one_off` items get `needs_review: true`.
 
+**Where a source goes in the draft contract** (`contracts/builder.py: place`):
+
+| Source | Goes to |
+|---|---|
+| Internal (RFC 1918 etc.), regular | `must_allow` |
+| Internal, rare or one-off | `needs_review` (kept, labeled) |
+| Internet, rare or one-off | `not_kept`, reason "likely a scanner" |
+| Internet, average under 2,000 bytes per flow | `not_kept`, reason "scan-sized flows" |
+| Any other internet source | `needs_review`, reason "confirm who owns it" |
+
+`not_kept` sources are left out of the fix and listed in the PR. A human keeps one by moving it to `must_allow`; regeneration keeps that choice. Byte counts are optional: without them only the rare/one-off rule applies.
+
 ### 6.4 BehaviorContract (YAML in repo: `posturanet/contracts/<sanitized-address>.yaml`)
 ```yaml
 schema: posturanet.contract/v1
@@ -215,7 +227,10 @@ must_allow:
 must_deny:
   - { cidr: 0.0.0.0/0, port: 22, proto: tcp }
   - { cidr: "::/0",    port: 22, proto: tcp }
-needs_review: []
+needs_review:
+  - { cidr: 10.0.40.5/32, port: 22, proto: tcp, period: one_off, reason: "seen on 1 day(s)" }
+not_kept:                # left out of the fix; move one to must_allow to keep it
+  - { cidr: 198.51.100.23/32, port: 22, proto: tcp, period: one_off, reason: "internet source seen on 1 day(s); likely a scanner" }
 unknown_risk: "behavior rarer than once per 89 days is not observed"
 status: draft            # draft | approved
 approved_by: null
@@ -306,9 +321,9 @@ The public key is embedded in `licensing/verify.py`. Rotation is supported with 
 1. Resolve the ENIs attached to the SG and their private IPv4/IPv6 addresses: `ec2:DescribeNetworkInterfaces` (filter `group-id`).
 2. Query, scoped to those ENIs, the inbound ACCEPT records, and the window. Inbound means `dstAddr` is one of the ENIs' own addresses. `flowDirection` is **not** used: it exists only in custom log formats, and Logs Insights auto-parses only the default format, so filtering on it would silently return no inbound flows and make every rule look unused. A row that can't be parsed stops the run instead of being dropped.
 ```
-fields srcAddr, dstAddr, dstPort, protocol, action, @timestamp
+fields srcAddr, dstAddr, dstPort, protocol, action, bytes, @timestamp
 | filter interfaceId in [<enis>] and action = "ACCEPT" and dstAddr in [<eni ips>]
-| stats count(*) as n by srcAddr, dstPort, protocol, datefloor(@timestamp, 1h) as hour
+| stats count(*) as n, sum(bytes) as b by srcAddr, dstPort, protocol, datefloor(@timestamp, 1h) as hour
 ```
 R1 reads the default flow-log format only. With a custom format the fields aren't parsed, the coverage query finds nothing, and confidence is `none` (fail closed).
 3. Aggregate client-side into per-source rows and an hourly histogram, then compute periodicity.
@@ -449,7 +464,7 @@ Without `missing_hours`, coverage counts only hours that have records (conservat
 
 **Internal vs public.** Exposure decisions use RFC 1918, 100.64.0.0/10 and fc00::/7 explicitly. Python's `is_private` is not used, because it also covers documentation and other special ranges.
 
-**Synthesis scope.** Only rules open to `0.0.0.0/0` or `::/0` are replaced. A contract source already allowed by a remaining rule is not re-covered. `needs_review` sources are kept (the safe direction) and labeled for the reviewer. `must_deny` entries wider than /8 mean "never contain this network"; narrower ones mean "never overlap". Stops: IPv6 sources that need the open rule, separate rule resources, dynamic or non-literal blocks.
+**Synthesis scope.** Only rules open to `0.0.0.0/0` or `::/0` are replaced. A contract source already allowed by a remaining rule is not re-covered. `needs_review` sources are kept (the safe direction) and labeled for the reviewer; `not_kept` sources are not covered. When Z3 returns unknown (its 30 s limit, e.g. 70+ sources), an exact tree solver (`solve_nested`) computes the same lexicographic optimum: candidates per port are prefixes, so they nest into a forest and the cover is a knapsack over subtrees. It stops only if that also finds no cover in the quota. `must_deny` entries wider than /8 mean "never contain this network"; narrower ones mean "never overlap". Stops: IPv6 sources that need the open rule, separate rule resources, dynamic or non-literal blocks.
 
 **Invariants.** `allow-observed` is proved with Z3 over 32-bit addresses (no address in a contract source is refused). `deny-internet-<port>` is an exact set check (no rule wider than /8 on that port). Both report `model_scope`: the target group's ingress rules only.
 

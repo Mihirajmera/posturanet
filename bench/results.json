@@ -71,12 +71,18 @@
       "exposed": [],
       "flagged": [],
       "internet_addresses": 0,
-      "note": "the solver did not finish in time (result unknown)",
-      "rules": [],
-      "status": "STOPPED",
+      "note": "risk low \u00b7 disruption none",
+      "rules": [
+        "10.0.50.10/31:22/tcp",
+        "10.0.50.12/30:22/tcp",
+        "10.0.50.16/28:22/tcp",
+        "10.0.50.32/27:22/tcp",
+        "10.0.50.64/28:22/tcp"
+      ],
+      "status": "FIXED",
       "tool": "PosturaNet",
-      "total_addresses": 0,
-      "verdict": "STOPPED"
+      "total_addresses": 70,
+      "verdict": "CORRECT"
     },
     {
       "broken": [
@@ -449,9 +455,11 @@
     {
       "broken": [],
       "exposed": [],
-      "flagged": [],
+      "flagged": [
+        "203.0.113.10/32:22"
+      ],
       "internet_addresses": 1,
-      "note": "risk low \u00b7 disruption none",
+      "note": "risk medium \u00b7 disruption none",
       "rules": [
         "203.0.113.10/32:22/tcp"
       ],
@@ -510,20 +518,17 @@
   "persistent-scanner": [
     {
       "broken": [],
-      "exposed": [
-        "198.51.100.99:22 (scanner)"
-      ],
+      "exposed": [],
       "flagged": [],
-      "internet_addresses": 1,
+      "internet_addresses": 0,
       "note": "risk low \u00b7 disruption none",
       "rules": [
-        "10.0.4.12/32:22/tcp",
-        "198.51.100.99/32:22/tcp"
+        "10.0.4.12/32:22/tcp"
       ],
       "status": "FIXED",
       "tool": "PosturaNet",
-      "total_addresses": 2,
-      "verdict": "STILL EXPOSED"
+      "total_addresses": 1,
+      "verdict": "CORRECT"
     },
     {
       "broken": [
@@ -577,9 +582,11 @@
     {
       "broken": [],
       "exposed": [],
-      "flagged": [],
+      "flagged": [
+        "203.0.113.80/32:5432"
+      ],
       "internet_addresses": 1,
-      "note": "risk low \u00b7 disruption none",
+      "note": "risk medium \u00b7 disruption none",
       "rules": [
         "10.0.12.21/32:5432/tcp",
         "10.0.12.22/32:5432/tcp",
@@ -706,13 +713,79 @@
       "verdict": "OUTAGE"
     }
   ],
-  "rdp-jump-host": [
+  "quarterly-dr-drill-approved": [
     {
       "broken": [],
       "exposed": [],
       "flagged": [],
-      "internet_addresses": 1,
+      "internet_addresses": 0,
       "note": "risk low \u00b7 disruption none",
+      "rules": [
+        "10.0.4.12/32:22/tcp",
+        "10.0.40.5/32:22/tcp"
+      ],
+      "status": "FIXED",
+      "tool": "PosturaNet",
+      "total_addresses": 2,
+      "verdict": "CORRECT"
+    },
+    {
+      "broken": [
+        "10.0.4.12:22 (CI runner)",
+        "10.0.40.5:22 (DR drill)"
+      ],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "",
+      "rules": [],
+      "status": "FIXED",
+      "tool": "Revoke open rule",
+      "total_addresses": 0,
+      "verdict": "OUTAGE"
+    },
+    {
+      "broken": [],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "",
+      "rules": [
+        "10.0.0.0/8:22/tcp",
+        "172.16.0.0/12:22/tcp",
+        "192.168.0.0/16:22/tcp"
+      ],
+      "status": "FIXED",
+      "tool": "Private ranges only",
+      "total_addresses": 17891328,
+      "verdict": "CORRECT"
+    },
+    {
+      "broken": [
+        "10.0.40.5:22 (DR drill)"
+      ],
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "",
+      "rules": [
+        "10.0.4.12/32:22/tcp"
+      ],
+      "status": "FIXED",
+      "tool": "Allow all observed",
+      "total_addresses": 1,
+      "verdict": "OUTAGE"
+    }
+  ],
+  "rdp-jump-host": [
+    {
+      "broken": [],
+      "exposed": [],
+      "flagged": [
+        "203.0.113.55/32:3389"
+      ],
+      "internet_addresses": 1,
+      "note": "risk medium \u00b7 disruption none",
       "rules": [
         "10.0.9.12/32:3389/tcp",
         "203.0.113.55/32:3389/tcp"
@@ -774,25 +847,17 @@
   "scanner-noise": [
     {
       "broken": [],
-      "exposed": [
-        "198.51.100.23:22 (scanner)",
-        "198.51.100.77:22 (scanner)"
-      ],
-      "flagged": [
-        "198.51.100.23/32:22",
-        "198.51.100.77/32:22"
-      ],
-      "internet_addresses": 2,
-      "note": "risk medium \u00b7 disruption none",
+      "exposed": [],
+      "flagged": [],
+      "internet_addresses": 0,
+      "note": "risk low \u00b7 disruption none",
       "rules": [
-        "10.0.4.12/32:22/tcp",
-        "198.51.100.23/32:22/tcp",
-        "198.51.100.77/32:22/tcp"
+        "10.0.4.12/32:22/tcp"
       ],
       "status": "FIXED",
       "tool": "PosturaNet",
-      "total_addresses": 3,
-      "verdict": "STILL EXPOSED"
+      "total_addresses": 1,
+      "verdict": "CORRECT"
     },
     {
       "broken": [

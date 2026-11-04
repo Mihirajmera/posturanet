@@ -11,7 +11,7 @@ python -m bench          # writes bench/RESULTS.md and bench/results.json
 
 ## What it does
 
-Each of the 12 cases in [`cases.py`](cases.py) is a security group open to `0.0.0.0/0`, plus
+Each of the 13 cases in [`cases.py`](cases.py) is a security group open to `0.0.0.0/0`, plus
 the **ground truth**, written down before any tool runs:
 
 - **legit** sources that must keep working, including ones the logs never see (a drill that
@@ -20,7 +20,10 @@ the **ground truth**, written down before any tool runs:
   (`192.0.2.250`) probed on every case.
 
 Flow logs are generated from each source's schedule over a 90-day window (or a shorter one when
-the case says logs were enabled recently). Addresses are RFC 1918 / RFC 5737 only.
+the case says logs were enabled recently). Each record carries a byte count: legit sessions
+8–120 KB per flow, scanners 60–400 bytes, modeled on what SSH/RDP/Postgres sessions and TCP
+probes look like. Addresses are RFC 1918 / RFC 5737 only. A case may also list `approved`
+sources: a contract the team approved before the run, written into the repo.
 
 Four contenders fix each case:
 
@@ -48,24 +51,40 @@ least privilege.
 
 ## Results today
 
-See [RESULTS.md](RESULTS.md) for every case. In short (PosturaNet 0.1.0):
+See [RESULTS.md](RESULTS.md) for every case. In short (PosturaNet, unreleased after 0.1.0):
 
-- **PosturaNet** is correct on 6, stops on 3, and opens 17 addresses in total across its fixes.
-- **Revoke** causes an outage on 11 of 12 cases.
-- **Private ranges only** is correct on 9: no hostile source in these cases is internal. It
-  breaks every case with a public legit source and opens 214.7M addresses (17.9M internal
-  addresses per fix).
-- **Allow all observed** matches PosturaNet on easy cases but lets scanners in, breaks when logs
-  are short or missing, and produces an over-quota fix for 70 runners.
+| Contender | Correct | Stopped | Outage | Still exposed | Invalid | Addresses opened |
+|---|---|---|---|---|---|---|
+| **PosturaNet** | **10** | 2 | 1 | 0 | 0 | 86 |
+| Revoke open rule | 1 | 0 | 12 | 0 | 0 | 0 |
+| Private ranges only | 10 | 0 | 3 | 0 | 0 | 232.6M |
+| Allow all observed | 6 | 0 | 4 | 2 | 1 | 19 |
 
-### Where PosturaNet misses (open work)
+- **Private ranges only** ties on correct count because no hostile source in these cases is
+  internal. It breaks every case with a public legit source and opens 232.6M addresses
+  (17.9M internal per fix); PosturaNet opens 86 in total.
+- **Allow all observed** lets scanners in, breaks when logs are short or missing, and produces an
+  over-quota fix for 70 runners.
+
+### What changed since v0 (and how)
+
+| Case | Before | Now | Fix |
+|---|---|---|---|
+| `scanner-noise` | Still exposed | Correct | Rare or one-off internet sources go to `not_kept` and out of the fix, listed in the PR. |
+| `persistent-scanner` | Still exposed | Correct | Internet sources averaging under 2,000 bytes per flow are `not_kept`. Every other internet source is flagged for review. |
+| `ci-fleet-70` | Stopped | Correct | Exact nested-prefix solver when Z3 times out: same optimum, 70 runners in ≤60 rules, never wider than needed. |
+| `quarterly-dr-drill-approved` | (new) | Correct | The approved contract remembers the drill; the fix keeps it. |
+
+### Where PosturaNet still misses
 
 | Case | Result | Why | Next step |
 |---|---|---|---|
-| `quarterly-dr-drill` | Outage | A source rarer than the 90-day window is invisible to flow logs. The PR states this as residual risk, but the fix still blocks it. | Longer windows or CloudTrail/ticket signals for known rare jobs; a review prompt listing contract-less ports. |
-| `scanner-noise` | Still exposed | Scanner hits seen on one day each are flagged for human review, but the proposed rules still include them. | Leave one-off internet sources out of the fix by default and list them for review instead. |
-| `persistent-scanner` | Still exposed | A scanner hitting daily looks like real use in flow logs and is not flagged. | Flag internet sources for review; consider connection shape (bytes, session length) when available. |
-| `ci-fleet-70` | Stopped | 70 sources: the Z3 optimizer hits its 30 s limit, so PosturaNet fails closed. Safe, but no fix. | Pre-aggregate sources into supernet candidates before solving. |
+| `quarterly-dr-drill` | Outage | Without an approved contract, a source rarer than the 90-day window is invisible to flow logs. The PR states this as residual risk, but the fix still blocks it. | Ask owners to list rare jobs in the contract before the first fix (`quarterly-dr-drill-approved` shows this works); longer windows when log retention allows; CloudTrail and ticket signals. |
+| `logs-10-days`, `no-flow-logs` | Stopped | Too little evidence. Safe, but the finding stays open. | By design: PosturaNet explains how to enable logs and waits. |
+
+The byte threshold is a heuristic. A scanner that completes full sessions, or a legit client
+that only sends tiny flows, will be misplaced; both cases are listed in the PR for a human. The
+scanner fix depends on modeled byte counts; real accounts will be noisier.
 
 PosturaNet's release gate is zero wrongly-reported-safe fixes. `quarterly-dr-drill` is the case
 to watch: the residual risk is disclosed, but a reviewer could still merge a fix that breaks it.

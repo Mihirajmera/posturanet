@@ -27,6 +27,7 @@ from posturanet.contracts import (
     dump_contract,
     load_contract,
     merge_human_fields,
+    place,
     write_contract,
 )
 from posturanet.deliver import GitHub, deliver, idempotency_key
@@ -480,9 +481,12 @@ def _evidence_rows(obs: Observations) -> list[str]:
         pattern = pattern.replace(":00Z", ":00 UTC")
         line = f"  {item.cidr:<18} {item.count:>7,} conns · {item.port}/{item.proto} · {pattern}"
         flags = []
-        if item.needs_review:
+        bucket, _ = place(item)
+        if bucket == "not_kept":
+            flags.append("not kept, likely a scanner")
+        elif item.needs_review:
             flags.append("needs review")
-        if not is_internal(ipaddress.ip_network(item.cidr)):
+        if bucket != "not_kept" and not is_internal(ipaddress.ip_network(item.cidr)):
             flags.append("external, review owner")
         if flags:
             line += "  ! " + ", ".join(flags)

@@ -36,6 +36,7 @@ class ObservedFlow(BaseModel):
     port: int
     proto: str
     count: int
+    bytes: int | None = None  # total bytes, when the source reports them
     first_seen: datetime
     last_seen: datetime
     days_seen: int

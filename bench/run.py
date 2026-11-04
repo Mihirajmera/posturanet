@@ -19,15 +19,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tests"))
 
-from bench.cases import CASES, END, PROBE, Case, flows  # noqa: E402
+from bench.cases import CASES, END, PROBE, WINDOW_DAYS, Case, flows  # noqa: E402
 from fakes import FakeTerraform, ingress_json  # noqa: E402
+from posturanet.contracts import contract_path, default_must_deny, write_contract  # noqa: E402
 from posturanet.evidence import FileSource  # noqa: E402
+from posturanet.models import BehaviorContract, Confidence, NetRule  # noqa: E402
 from posturanet.models.config import load_config  # noqa: E402
+from posturanet.models.contract import ObservedMeta, ObservedWindow  # noqa: E402
 from posturanet.pipeline import Context, run_fix_full  # noqa: E402
 from posturanet.synth.sg_rules import Rule, is_internal  # noqa: E402
 
 BASIC = ROOT / "tests" / "fixtures" / "tf" / "basic"
 FINDING = ROOT / "tests" / "fixtures" / "findings" / "sg_ssh_open.json"
+ADDRESS = "module.bastion.aws_security_group.this"
 QUOTA = 60  # AWS default rules per security group
 PRIVATE = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
 
@@ -155,6 +159,8 @@ def score(
 def posturanet(case: Case, work: Path) -> Outcome:
     repo, finding, flows_path = _repo(case, work)
     config, _ = load_config(repo)
+    if case.approved:
+        _approve(case, repo, config.contracts.dir)
     ctx = Context(
         mode="check",
         evidence=FileSource(flows_path),
@@ -170,6 +176,29 @@ def posturanet(case: Case, work: Path) -> Outcome:
     out = score(case, "PosturaNet", after, note=record.result_detail or "")
     out.flagged = [f"{s.cidr}:{s.port}" for s in proposal.contract.needs_review]
     return out
+
+
+def _approve(case: Case, repo: Path, contracts_dir: str) -> None:
+    """Write the contract a team approved earlier, listing sources by hand."""
+    by_ip = {s.ip: s for s in case.sources}
+    contract = BehaviorContract(
+        resource=ADDRESS,
+        account="123456789012",
+        region="us-east-1",
+        observed=ObservedMeta(
+            source="flow_logs_file",
+            window=ObservedWindow(start=END.date(), end=END.date(), days=WINDOW_DAYS),
+            confidence=Confidence.HIGH,
+        ),
+        must_allow=[
+            NetRule(cidr=f"{ip}/32", port=by_ip[ip].port, proto="tcp", owner=by_ip[ip].note)
+            for ip in case.approved
+        ],
+        must_deny=default_must_deny(_rules(case), set(case.ports)),
+        status="approved",
+        approved_by="platform-team",
+    )
+    write_contract(contract_path(repo, contracts_dir, ADDRESS), contract)
 
 
 def revoke(case: Case, work: Path) -> Outcome:

@@ -74,7 +74,9 @@ def test_dry_run_with_evidence(sg_finding_path: Path, basic_repo: Path, flows_pa
     out = result.output
     assert "[ok] evidence    flow logs (file) - 89 days - confidence high - 5 sources" in out
     assert "203.0.113.7/32       1,067 conns - 22/tcp - daily at 02:00 UTC  [!] external" not in out
-    assert "198.51.100.23/32         3 conns - 22/tcp - one_off  ! needs review, external" in out
+    assert (
+        "198.51.100.23/32         3 conns - 22/tcp - one_off  ! not kept, likely a scanner" in out
+    )
     assert "[!]  contract    built (not written)" in out
     assert "Proposed change" in out
     assert '+    cidr_blocks = ["10.0.4.12/32", "10.0.4.37/32", "10.0.5.9/32"' in out
