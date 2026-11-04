@@ -55,7 +55,9 @@ def build(
         needs_review=blockers,
         unknown_risk=(
             "Actions a principal hasn't used within IAM's tracking period (about 400 days) are "
-            "removed; add any a rare job needs to must_allow."
+            "removed; add any a rare job needs to must_allow. Denied attempts count as use, so "
+            "must_allow may list actions another control already denies. iam:PassRole isn't "
+            "tracked at all."
         ),
         generated_by=f"posturanet {__version__}",
     )

@@ -1098,6 +1098,8 @@ def _run_iam(
         "need them",
         "last-accessed data is per policy across all its principals; it can't tell which "
         "principal needs which action",
+        "last-accessed data counts denied attempts as access, so kept actions may include some "
+        "that another control (SCP, boundary, resource policy) already denies",
     ]
     if not loc.owners:
         unknowns.append("owner: no CODEOWNERS rule matches the file")

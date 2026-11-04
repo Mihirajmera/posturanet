@@ -8,6 +8,7 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 - New evidence-backed fix for IAM.1 and IAM.21 on customer-managed `aws_iam_policy`: replaces `"*"` or `service:*` with the actions in use, in `jsonencode`, heredoc or `aws_iam_policy_document` form. Resources, conditions and Deny statements are unchanged (FR-51).
 - IAM evidence (FR-16): action-level last-accessed data for the policy and its attached principals; confidence from the policy's age. Data-plane services, `NotAction`, services without action-level data and unattached policies stop the fix. Offline `--evidence-file` export supported.
 - Contract kind `iam` with `must_allow`, `must_remove`, `reviewed_services` and `needs_review`; humans approve data-plane services and add actions back.
+- `iam:PassRole` is never dropped as unused: IAM doesn't track it, so a wildcard that covers it stops the fix until a human keeps it or reviews `iam`. The PR also notes that last-accessed data counts denied attempts.
 - Invariants: the edited policy allows nothing new and still allows every used action. `plan_matches` checks the planned policy JSON.
 - Verify watches CloudTrail AccessDenied on removed actions for 72h and opens a revert PR on regression; `--rejects-file` accepts an IAM denied export.
 - Read-only allowlist (and generated IAM policy): `cloudtrail:LookupEvents`.

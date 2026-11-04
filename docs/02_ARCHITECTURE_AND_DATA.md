@@ -322,7 +322,7 @@ Athena mode uses the equivalent SQL with partition pruning (`year/month/day`). Q
 
 ### 7.2 Last-accessed (IAM, R2, FR-16)
 `iamfix/evidence.py`. `GetPolicy` (age), `ListEntitiesForPolicy` (principals), `GenerateServiceLastAccessedDetails` on the policy ARN with `Granularity=ACTION_LEVEL`, then `GetServiceLastAccessedDetails` until done. A tracked action with a last-accessed time was used; a used service without action-level data is a blocker. Confidence comes from the policy's age (60+ days high, 14+ medium, else low); no principals → none.
-Not covered: data-plane actions (hence the `reviewed_services` gate), use older than the tracking period, and resource-level scope.
+Not covered: data-plane actions (hence the `reviewed_services` gate), `iam:PassRole` (never tracked; a removed wildcard covering it is a blocker until a human keeps it or reviews `iam`), use older than the tracking period, and resource-level scope. Denied attempts count as access, so the kept set can be larger than needed (never smaller); the PR lists this as an unknown.
 
 Offline export (`--evidence-file`): `{"policy_arn", "created", "principals", "services": [{"namespace", "last_accessed", "action_level", "actions": [{"name", "last_accessed"}]}]}`.
 

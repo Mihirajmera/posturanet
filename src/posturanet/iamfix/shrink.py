@@ -37,6 +37,12 @@ DATA_PLANE = frozenset(
     }
 )
 
+# Actions IAM last-accessed data never reports (AWS docs: iam:PassRole isn't tracked). Removing
+# a wildcard that covers one would drop it as "unused" even when deployments rely on it, so the
+# fix stops until a human keeps it (`must_allow`, source: human) or confirms the service's full
+# action list (`reviewed_services`).
+UNTRACKED = ("iam:PassRole",)
+
 
 @dataclass
 class ServiceUse:
@@ -122,6 +128,18 @@ def shrink(
             {*kept, *(a for a in added if not any(_covers(k, a) for k in kept))},
             key=str.lower,
         )
+        for act in UNTRACKED:
+            ns = act.split(":", 1)[0]
+            if (
+                any(_covers(p, act) for p in removed)
+                and not any(_covers(a, act) for a in after)
+                and ns not in reviewed
+            ):
+                blockers.append(
+                    f"{act} isn't in last-accessed data, so PosturaNet can't tell if it's used; "
+                    f"add it to must_allow (source: human) to keep it, or add {ns} to "
+                    "reviewed_services to remove it"
+                )
         if not after:
             blockers.append(f"{name} allowed nothing that was used; remove it by hand")
             continue

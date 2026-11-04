@@ -121,9 +121,21 @@ def test_jsonencode_service_wildcard_is_replaced(repo: Path) -> None:
 
 def test_heredoc_admin_star_is_replaced(repo: Path) -> None:
     config, _ = load_config(repo)
-    record = run_fix(
-        ADMIN, repo, config, Context(mode="dry-run", evidence=_ev("admin.json"), clock=_clock)
+    ctx = Context(mode="dry-run", evidence=_ev("admin.json"), clock=_clock)
+    stopped = run_fix(ADMIN, repo, config, ctx)
+    assert stopped.result == "STOPPED" and stopped.exit_code == 3
+    assert "iam:PassRole isn't in last-accessed data" in " ".join(stopped.stages[2].details)
+
+    # A human confirms the full IAM action list: PassRole is dropped on purpose.
+    path = repo / "posturanet/contracts/aws_iam_policy.admin.yaml"
+    assert not path.exists(), "dry run writes nothing"
+    run_fix(ADMIN, repo, config, Context(mode="check", evidence=_ev("admin.json"), clock=_clock))
+    draft = iamcontract.load(path)
+    assert draft is not None and any("PassRole" in r for r in draft.needs_review)
+    iamcontract.write(
+        path, draft.model_copy(update={"status": "approved", "reviewed_services": ["iam"]})
     )
+    record = run_fix(ADMIN, repo, config, ctx)
     assert record.result == "DRY RUN", record.stages
     assert record.diff is not None
     new = record.diff.files[0].new_content
@@ -391,8 +403,20 @@ def test_shrink_keeps_explicit_and_partial_wildcards() -> None:
 
 def test_shrink_iam1_only_touches_star() -> None:
     use = {"ec2": ServiceUse("ec2", True, True, {"ec2:DescribeInstances"})}
-    res = shrink("IAM.1", [_st(["*", "s3:*"])], use)
+    res = shrink("IAM.1", [_st(["*", "s3:*"])], use, reviewed=frozenset({"iam"}))
     assert res.changes[0].after == ["ec2:DescribeInstances", "s3:*"]
+
+
+def test_shrink_never_drops_untracked_passrole_silently() -> None:
+    use = {"iam": ServiceUse("iam", True, True, {"iam:GetRole"})}
+    blocked = shrink("IAM.21", [_st(["iam:*"])], use)
+    assert any("iam:PassRole isn't in last-accessed data" in b for b in blocked.blockers)
+    kept = shrink("IAM.21", [_st(["iam:*"])], use, extra=["iam:PassRole"])
+    assert not kept.blockers and kept.changes[0].after == ["iam:GetRole", "iam:PassRole"]
+    explicit = shrink("IAM.21", [_st(["iam:PassRole", "ec2:*"])], {})
+    assert not any("PassRole" in b for b in explicit.blockers), "explicit PassRole is kept"
+    reviewed = shrink("IAM.21", [_st(["iam:*"])], use, reviewed=frozenset({"iam"}))
+    assert not reviewed.blockers and reviewed.changes[0].after == ["iam:GetRole"]
 
 
 def test_shrink_not_action_blocks() -> None:
