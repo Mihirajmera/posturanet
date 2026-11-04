@@ -21,6 +21,10 @@ from typing import Literal
 
 from posturanet import __version__
 from posturanet.aws.session import ClientFactory
+from posturanet.configfix import edit_resource, fixes_for
+from posturanet.configfix import pr as config_pr
+from posturanet.configfix.pr import ConfigProposal
+from posturanet.configfix.validate import validate_config_fix
 from posturanet.contracts import (
     build_contract,
     contract_path,
@@ -31,6 +35,7 @@ from posturanet.contracts import (
     write_contract,
 )
 from posturanet.deliver import GitHub, deliver, idempotency_key
+from posturanet.deliver.github import PullRequest, push_pr
 from posturanet.errors import StageStop
 from posturanet.evidence import FlowSource, LogsInsightsSource, collect
 from posturanet.evidence.confidence import at_least
@@ -41,6 +46,7 @@ from posturanet.locate.backend import boto3_s3_fetch
 from posturanet.models import (
     Confidence,
     Config,
+    Finding,
     FixType,
     NetRule,
     Observations,
@@ -48,6 +54,7 @@ from posturanet.models import (
     RunRecord,
     StageResult,
     StageStatus,
+    ValidationReport,
 )
 from posturanet.proposal import Proposal
 from posturanet.synth import make_diff, parse_security_group, synthesize
@@ -129,11 +136,17 @@ def _run(
     # --- ingest
     finding = ingest(target)
     record.finding = finding
+    if finding.fix_type is FixType.CONFIG_ATTRIBUTE:
+        record.stages.append(_ingest_stage(finding))
+        return _run_config(finding, repo, config, ctx, record)
     if finding.fix_type is not FixType.SG_INGRESS:
         raise StageStop(
             "ingest",
             f"control {finding.control_id} is not a supported fix type",
-            ["R1 fixes security group ingress; S3 public access and IAM arrive in later releases"],
+            [
+                "`posturanet fixes list` shows every control PosturaNet fixes",
+                "S3 public access and IAM least privilege arrive in later releases",
+            ],
         )
     if finding.control_id == "EC2.2":
         raise StageStop(
@@ -141,21 +154,7 @@ def _run(
             "EC2.2 (default security group) fixes are not in R1",
             ["remove the default group's rules by hand after moving workloads off it"],
         )
-    record.stages.append(
-        StageResult(
-            name="ingest",
-            status=StageStatus.OK,
-            summary=" · ".join(
-                [
-                    finding.source
-                    if finding.source == finding.control_id
-                    else f"{finding.source} {finding.control_id}",
-                    finding.resource.id,
-                    finding.severity.value,
-                ]
-            ),
-        )
-    )
+    record.stages.append(_ingest_stage(finding))
 
     # --- locate
     s3_fetch = boto3_s3_fetch(ctx.aws) if ctx.aws is not None else None
@@ -314,50 +313,7 @@ def _run(
         offline=dry,
     )
     record.validation = report
-    required = [c for c in report.checks if c.required]
-    passed = [c for c in required if c.result.value == "pass"]
-    notes = [
-        f"{c.id} {c.result.value.upper()} ({c.detail})"
-        for c in report.checks
-        if not c.required and c.result.value != "pass"
-    ]
-    failing = [
-        f"{c.id} {c.result.value.upper()} · {c.detail}"
-        for c in required
-        if c.result.value != "pass"
-    ]
-    summary = f"{len(passed)}/{len(required)} required checks PASS" + (
-        " · " + " · ".join(notes) if notes else ""
-    )
-    if report.status is ReportStatus.FAIL:
-        record.stages.append(
-            StageResult(
-                name="validate", status=StageStatus.FAIL, summary=failing[0], details=failing[1:]
-            )
-        )
-        raise _validation_stop(report_failures=failing, exit_code=4)
-    if report.status is ReportStatus.INCOMPLETE:
-        if not dry:
-            record.stages.append(
-                StageResult(
-                    name="validate",
-                    status=StageStatus.FAIL,
-                    summary=failing[0],
-                    details=failing[1:],
-                )
-            )
-            raise _validation_stop(report_failures=failing, exit_code=3)
-        record.stages.append(
-            StageResult(
-                name="validate",
-                status=StageStatus.WARN,
-                summary=summary + " · INCOMPLETE (dry run)",
-                details=failing,
-                expand=True,
-            )
-        )
-    else:
-        record.stages.append(StageResult(name="validate", status=StageStatus.OK, summary=summary))
+    _record_validation(record, report, dry=dry)
 
     key = idempotency_key(finding.finding_id, contract, diff.sha256)
     proposal = Proposal(
@@ -421,6 +377,224 @@ def _run(
         f"after apply, re-run `posturanet fix {finding.resource.id}` to confirm the finding clears",
     ]
     return record, proposal
+
+
+def _ingest_stage(finding: Finding) -> StageResult:
+    return StageResult(
+        name="ingest",
+        status=StageStatus.OK,
+        summary=" · ".join(
+            [
+                finding.source
+                if finding.source == finding.control_id
+                else f"{finding.source} {finding.control_id}",
+                finding.resource.id,
+                finding.severity.value,
+            ]
+        ),
+    )
+
+
+def _record_validation(record: RunRecord, report: ValidationReport, *, dry: bool) -> None:
+    """Append the validate stage; stop the run unless every required check passed."""
+    required = [c for c in report.checks if c.required]
+    passed = [c for c in required if c.result.value == "pass"]
+    notes = [
+        f"{c.id} {c.result.value.upper()} ({c.detail})"
+        for c in report.checks
+        if not c.required and c.result.value != "pass"
+    ]
+    failing = [
+        f"{c.id} {c.result.value.upper()} · {c.detail}"
+        for c in required
+        if c.result.value != "pass"
+    ]
+    summary = f"{len(passed)}/{len(required)} required checks PASS" + (
+        " · " + " · ".join(notes) if notes else ""
+    )
+    if report.status is ReportStatus.FAIL:
+        record.stages.append(
+            StageResult(
+                name="validate", status=StageStatus.FAIL, summary=failing[0], details=failing[1:]
+            )
+        )
+        raise _validation_stop(report_failures=failing, exit_code=4)
+    if report.status is ReportStatus.INCOMPLETE:
+        if not dry:
+            record.stages.append(
+                StageResult(
+                    name="validate",
+                    status=StageStatus.FAIL,
+                    summary=failing[0],
+                    details=failing[1:],
+                )
+            )
+            raise _validation_stop(report_failures=failing, exit_code=3)
+        record.stages.append(
+            StageResult(
+                name="validate",
+                status=StageStatus.WARN,
+                summary=summary + " · INCOMPLETE (dry run)",
+                details=failing,
+                expand=True,
+            )
+        )
+    else:
+        record.stages.append(StageResult(name="validate", status=StageStatus.OK, summary=summary))
+
+
+def _run_config(
+    finding: Finding, repo: Path, config: Config, ctx: Context, record: RunRecord
+) -> tuple[RunRecord, Proposal | None]:
+    """Attribute fixes (FR-48): no evidence or contract; the change removes no access."""
+    dry = ctx.mode == "dry-run"
+    rows = fixes_for(finding.control_id)
+    if ctx.stop_after == "contract":
+        raise StageStop(
+            "contract",
+            f"{finding.control_id} is an attribute fix; it has no behavior contract",
+            [f"run `posturanet fix {record.target}` instead"],
+        )
+
+    # --- locate
+    s3_fetch = boto3_s3_fetch(ctx.aws) if ctx.aws is not None else None
+    loc, match = locate_match(
+        finding,
+        repo,
+        config,
+        ctx.state_path,
+        s3_fetch,
+        resource_types=list(dict.fromkeys(r.resource_type for r in rows)),
+        account_scope=rows[0].scope == "account",
+    )
+    record.location = loc
+    owners = ", ".join(loc.owners) if loc.owners else "no owner found"
+    record.stages.append(
+        StageResult(
+            name="locate",
+            status=StageStatus.OK,
+            summary=f"{loc.file}:{loc.line} → {loc.address} · {owners}",
+            details=loc.reasoning,
+        )
+    )
+    fix = next(r for r in rows if r.resource_type == match.type)
+    record.stages.append(
+        StageResult(
+            name="evidence",
+            status=StageStatus.SKIPPED,
+            summary="not needed: this setting doesn't remove access or traffic",
+        )
+    )
+    record.stages.append(
+        StageResult(
+            name="contract",
+            status=StageStatus.SKIPPED,
+            summary="not needed: attribute fixes have no behavior contract",
+        )
+    )
+
+    # --- fix
+    if "[" in loc.address:
+        raise StageStop(
+            "fix",
+            f"{loc.address} uses count or for_each; the edit would change every instance",
+            ["fix this resource by hand for now"],
+        )
+    diff, edit, original = edit_resource(repo, loc.file, loc.line, loc.address, fix)
+    record.diff = diff
+    record.stages.append(
+        StageResult(
+            name="fix",
+            status=StageStatus.OK,
+            summary=f"{fix.control} · {diff.summary}",
+            details=[f"already set: {a}" for a in edit.already],
+        )
+    )
+
+    # --- validate
+    tf = ctx.terraform or SubprocessTerraform(config.terraform.binary, config.validation.timeout_s)
+    report = validate_config_fix(
+        repo=repo,
+        fix=fix,
+        address=loc.address,
+        file=loc.file,
+        line=loc.line,
+        diff=diff,
+        config=config,
+        tf=tf,
+        state_path=ctx.state_path,
+        offline=dry,
+    )
+    record.validation = report
+    _record_validation(record, report, dry=dry)
+
+    unknowns: list[str] = []
+    if not loc.owners:
+        unknowns.append("owner: no CODEOWNERS rule matches the file")
+    if dry:
+        unknowns.append("drift: not checked (needs terraform plan)")
+    proposal = ConfigProposal(
+        finding=finding,
+        location=loc,
+        fix=fix,
+        diff=diff,
+        report=report,
+        already=edit.already,
+        unknowns=unknowns,
+    )
+    record.unknowns = [*([fix.note] if fix.note else []), *unknowns]
+    detail = f"risk {proposal.risk} · disruption {proposal.disruption}"
+
+    # --- deliver
+    if ctx.mode != "open-pr":
+        why = "dry run" if dry else "not requested (pass --open-pr)"
+        record.stages.append(StageResult(name="deliver", status=StageStatus.SKIPPED, summary=why))
+        record.result = "DRY RUN" if dry else "VALIDATED"
+        record.result_detail = detail + (" · no AWS calls, no changes" if dry else "")
+        record.next_steps = (
+            ["drop --dry-run to run terraform plan with the read-only role"]
+            if dry
+            else ["re-run with --open-pr to open the pull request"]
+        )
+        return record, None
+
+    gh = ctx.github or _github(config, ctx)
+    result = push_pr(
+        gh,
+        PullRequest(
+            finding_id=finding.finding_id,
+            key=proposal.idempotency_key,
+            branch=config_pr.branch(proposal),
+            title=config_pr.title(proposal),
+            body=config_pr.body(proposal, run_id=f"run_{record.started_at:%Y%m%dT%H%M%SZ}"),
+            labels=config_pr.labels(proposal, config.delivery.labels),
+            writes=[
+                (
+                    fc.path,
+                    fc.new_content,
+                    f"fix(security): {fix.control} {loc.address} [posturanet]",
+                )
+                for fc in diff.files
+            ],
+        ),
+        base=config.delivery.github.base,
+        max_open=config.delivery.max_open_prs,
+        local_originals={loc.file: original},
+    )
+    record.pr_url = result.url
+    done = {"opened": "PR opened", "updated": "PR updated", "unchanged": "PR already open"}
+    record.stages.append(
+        StageResult(
+            name="deliver", status=StageStatus.OK, summary=f"{done[result.action]} → {result.url}"
+        )
+    )
+    record.result = "OPENED"
+    record.result_detail = detail
+    record.next_steps = [
+        f"review and merge PR #{result.number}",
+        "after apply, re-run on the finding to confirm the control passes",
+    ]
+    return record, None
 
 
 def _validation_stop(*, report_failures: list[str], exit_code: int) -> StageStop:

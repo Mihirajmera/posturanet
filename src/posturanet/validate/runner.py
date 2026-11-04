@@ -74,9 +74,8 @@ def validate(inputs: ValidationInputs, tf: TerraformRunner, *, offline: bool) ->
         work = Path(tmp) / "repo"
         shutil.copytree(inputs.repo, work, ignore=_IGNORE)
         tf_dir = work / cfg.terraform.root
-        changed = [f.path for f in inputs.diff.files]
 
-        checks.append(_fmt(tf, work, changed, inputs))
+        checks.append(fmt_check(tf, work, inputs.diff))
 
         for f in inputs.diff.files:
             (work / f.path).write_bytes(f.new_content.encode("utf-8"))
@@ -137,7 +136,9 @@ def validate(inputs: ValidationInputs, tf: TerraformRunner, *, offline: bool) ->
     return ValidationReport(checks=checks)
 
 
-def _fmt(tf: TerraformRunner, work: Path, changed: list[str], inputs: ValidationInputs) -> Check:
+def fmt_check(tf: TerraformRunner, work: Path, diff: Diff) -> Check:
+    """`terraform fmt -check` on the changed files, before and after writing the change."""
+    changed = [f.path for f in diff.files]
     if not tf.available():
         return Check(
             id="fmt", required=True, result=CheckResult.SKIPPED, detail="terraform not installed"
@@ -153,7 +154,7 @@ def _fmt(tf: TerraformRunner, work: Path, changed: list[str], inputs: Validation
             result=CheckResult.SKIPPED,
             detail="file was not fmt-clean before this change",
         )
-    for f in inputs.diff.files:
+    for f in diff.files:
         (work / f.path).write_bytes(f.new_content.encode("utf-8"))
     return _check("fmt", tf.fmt_check(work, changed))
 

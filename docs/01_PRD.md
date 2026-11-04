@@ -58,7 +58,7 @@ Writing the fix is cheap. Everything around it is expensive and risky, so backlo
 - A dashboard or hosted multi-tenant SaaS.
 - Detection rules beyond re-checking a known finding.
 - Multi-cloud, CloudFormation, CDK, Pulumi, Terragrunt, remote modules.
-- More than three fix types (SG ingress, S3 public access, IAM least privilege).
+- More than three evidence-backed fix types (SG ingress, S3 public access, IAM least privilege). The attribute-fix catalog (FR-48) is not a fix type of this kind: it only sets literal settings that remove no access, and grows by catalog rows.
 - Founder-delivered or managed services.
 
 ## 5. Scope by release
@@ -68,6 +68,7 @@ Writing the fix is cheap. Everything around it is expensive and risky, so backlo
 | **R0: Dry-run skeleton** | Package layout, OCSF finding model, ASFF ingest, locator v0, `posturanet fix --dry-run` on fixtures | Week 1 |
 | **R1: SG contracts** | Flow-log collector, SG contract builder, Z3 synthesis, validation pipeline, PR delivery, CLI + GitHub Action, Claude skill, MCP (read-only tools). **Built** (see CHANGELOG for what's deferred) | Weeks 2–3 |
 | **R1.5: PosturaNet check** | Contract check where teams already work: `PosturaNet contract` check run on PRs (FR-29, US-4 for one repo), Action `check` mode, offline source check, Claude Code hook, Cursor rule, MCP `check_change` source mode (US-7). **Built** | Week 3 |
+| **R1.6: Attribute fixes** | `config_attribute` fix type: 54 catalog rows covering 52 Security Hub controls across RDS, Aurora, DocumentDB, Neptune, DynamoDB, KMS, ELB, CloudTrail, ECR, EKS, ElastiCache, DMS, Redshift, SQS, API Gateway, Kinesis, Network Firewall, Athena, EBS, S3, MSK, GuardDuty, Config, Macie, IAM password policy and CodeBuild (FR-48). `posturanet fixes list|show` (FR-49). **Built** | Week 3 |
 | **R2: Verify + evidence** | Post-merge verification, revert PR, signed OSCAL evidence (pro), S3 public-access fix | Weeks 4–5 |
 | **R3: IAM + benchmark** | CloudTrail / last-accessed collector, IAM contract and least-privilege synthesis, benchmark v0 (20 cases), public launch | Week 6 |
 | **R4: Team plan** | Org-wide contract gate (one config for every repo), event triggers, license keys, Stripe, Slack notifications | Weeks 7–9 |
@@ -139,6 +140,10 @@ Writing the fix is cheap. Everything around it is expensive and risky, so backlo
 - **FR-19** Prefer deterministic templates. Use the LLM only for long-tail cases, and always within policy and validation.
 - **FR-20** Output a Terraform diff limited to the target resource.
 
+### Attribute fixes
+- **FR-48** For controls in `configfix/catalog.json`, set literal attributes on the located resource in place, with no usage evidence or contract, because the catalog only holds settings that remove no access or traffic. Each row names the control, resource type, changes (`set`, `at_least`, `one_of`, `includes`), preconditions (`when`) and scope (`resource`, or `account` for the one resource of that type in state). Fail closed on non-literal values, `dynamic` or repeated blocks, heredocs, `lifecycle.ignore_changes` covering the attribute, `count`/`for_each` instances, and code that already complies (drift). Validation: guardrails, fmt, init/validate, plan scope, re-check of the edited code, and a plan check that the planned values meet the control and nothing else on the target changes. A row is added only with a round-trip test and a real `terraform fmt` pass.
+- **FR-49** `posturanet fixes list [--service] [--format json]` and `posturanet fixes show <control>` list every control PosturaNet fixes and exactly what each changes.
+
 ### Validation (all required, fail closed)
 - **FR-21** `terraform fmt -check` and `validate`.
 - **FR-22** tflint and checkov: no new high-severity issue.
@@ -165,7 +170,7 @@ Writing the fix is cheap. Everything around it is expensive and risky, so backlo
 - **FR-37** OSCAL assessment-results export plus readable summary. `evidence verify`.
 
 ### Interfaces
-- **FR-38** CLI commands: `init`, `fix`, `contract build|check`, `verify`, `evidence export|verify`, `license status`.
+- **FR-38** CLI commands: `init`, `fix`, `fixes list|show`, `contract build|check`, `verify`, `evidence export|verify`, `license status`.
 - **FR-39** GitHub Action supporting `workflow_dispatch`, schedule, `repository_dispatch` (pro), `pull_request` (pro gate).
 - **FR-40** MCP server (stdio) with tools `explain_finding`, `propose_fix`, `check_change` (read-only) and `open_fix_pr` (needs confirmation).
 - **FR-41** Claude skill (`skills/posturanet/SKILL.md`) describing when and how to call the tools.

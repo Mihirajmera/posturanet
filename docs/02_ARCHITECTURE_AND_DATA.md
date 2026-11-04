@@ -436,6 +436,12 @@ Copy code in. **Don't import from `postura-backend`.** Keep a header comment `# 
 6. Add fixtures plus unit, property and benchmark cases. The wrongly-reported-safe count must stay 0.
 7. Update the PRD (FRs) and this doc.
 
+### 14.1 Adding an attribute fix (catalog row)
+1. Add a row to `src/posturanet/configfix/catalog.json`: `control`, `title`, `resource_type`, `changes`, optional `when`, `scope`, `why`, `note`, `risk`.
+2. Only settings that remove no access or traffic. Cost or client impact goes in `note`; anything reviewers must check sets `risk: medium` (adds `needs-review`).
+3. `pytest tests/unit/test_configfix.py tests/integration/test_configfix_fmt.py` runs a round trip, an in-place replace and a real `terraform fmt -check` for every row.
+4. `posturanet fixes show <control>` must read correctly. Add a CHANGELOG line.
+
 ## 15. Testing strategy
 | Layer | Tooling | Must cover |
 |---|---|---|
@@ -448,6 +454,11 @@ Copy code in. **Don't import from `postura-backend`.** Keep a header comment `# 
 | Benchmark | `bench/` | PosturaNet vs a plain agent vs ASR: broken behavior, scope, correctness |
 
 **Release gate:** zero wrongly-reported-safe results across unit, property, integration and benchmark.
+
+## 16a. R1.6 attribute-fix notes
+**Pipeline.** `ingest` maps a catalog control to `config_attribute`. `locate` narrows id/ARN matches to the catalog's resource types (first type preferred, e.g. `aws_s3_bucket_versioning` before `aws_s3_bucket`); `scope: account` rows match the one resource of that type in state. `evidence` and `contract` are SKIPPED. `fix` edits the block with `configfix/hcl_attrs.py` (a scanner, not a parser). `validate` reuses guardrails, fmt and plan scope, adds `recheck` on the edited code and `plan_matches` on the planned `after` values (`tags_all` ignored). Delivery shares `deliver.github.push_pr` with SG fixes; branch `posturanet/config/<control>-<name>-<key8>`; key `sha256(finding_id + control + diff_sha)`.
+
+**Edits.** New attributes go in as one aligned group after a blank line before the closing brace, so fmt-clean files stay fmt-clean. Existing values are replaced in place, keeping trailing comments. `at_least` never lowers a value; `includes` appends only what's missing. CRLF is preserved.
 
 ## 16. R1 implementation notes
 Decisions made while building R1. Change them here first if they need to change.
