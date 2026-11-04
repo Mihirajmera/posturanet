@@ -1,0 +1,39 @@
+{
+ "policy_arn": "arn:aws:iam::123456789012:policy/deploy",
+ "created": "2025-03-01",
+ "principals": [
+  "role/ci"
+ ],
+ "services": [
+  {
+   "namespace": "s3",
+   "last_accessed": "2026-10-28",
+   "action_level": true,
+   "actions": [
+    {
+     "name": "ListAllMyBuckets",
+     "last_accessed": "2026-10-28"
+    },
+    {
+     "name": "PutBucketPolicy",
+     "last_accessed": "2026-07-01"
+    },
+    {
+     "name": "DeleteBucket",
+     "last_accessed": null
+    }
+   ]
+  },
+  {
+   "namespace": "iam",
+   "last_accessed": "2026-10-28",
+   "action_level": true,
+   "actions": [
+    {
+     "name": "PassRole",
+     "last_accessed": "2026-10-28"
+    }
+   ]
+  }
+ ]
+}

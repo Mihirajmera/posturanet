@@ -1,0 +1,6 @@
+{
+ "policy_arn": "arn:aws:iam::123456789012:policy/app",
+ "created": "2025-06-01",
+ "principals": [],
+ "services": []
+}

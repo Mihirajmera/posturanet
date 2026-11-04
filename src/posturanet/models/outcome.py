@@ -39,6 +39,10 @@ class VerifySpec(BaseModel):
     # sg_ingress: rules after the fix ([cidr, from, to, proto]) and the contract's must_allow
     rules: list[tuple[str, int, int, str]] = Field(default_factory=list)
     must_allow: list[tuple[str, int, str]] = Field(default_factory=list)
+    # iam_least_privilege: wildcards removed, Allow actions after, and attached principals
+    actions_removed: list[str] = Field(default_factory=list)
+    actions_after: list[str] = Field(default_factory=list)
+    principals: list[str] = Field(default_factory=list)
 
 
 class Outcome(BaseModel):

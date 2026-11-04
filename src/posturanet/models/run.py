@@ -8,6 +8,7 @@ from enum import StrEnum
 from pydantic import BaseModel, ConfigDict, Field
 
 from posturanet.models.finding import Finding
+from posturanet.models.iam import IamEvidence
 from posturanet.models.location import Location
 from posturanet.models.observations import Observations
 from posturanet.models.outcome import Outcome
@@ -46,6 +47,7 @@ class RunRecord(BaseModel):
     location: Location | None = None
     observations: Observations | None = None
     s3_evidence: S3Evidence | None = None  # S3 public-access fixes only
+    iam_evidence: IamEvidence | None = None  # IAM least-privilege fixes only
     contract_file: str | None = None
     diff: Diff | None = None
     validation: ValidationReport | None = None

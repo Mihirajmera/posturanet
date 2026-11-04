@@ -31,6 +31,8 @@ ALLOWLIST: tuple[str, ...] = (
     "s3:GetBucketWebsite",
     "s3:GetBucketLogging",
     "cloudfront:ListDistributions",
+    # IAM fix verification (FR-32): AccessDenied on removed actions.
+    "cloudtrail:LookupEvents",
     "iam:Get*",
     "iam:List*",
     "iam:GenerateServiceLastAccessedDetails",

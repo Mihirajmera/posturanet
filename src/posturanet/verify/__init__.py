@@ -4,7 +4,8 @@ Stages (architecture doc 11, FR-31..FR-34):
 - pr: read the PR and the verify spec PosturaNet wrote into its body.
 - applied: the Terraform state shows the fix (attributes, or SG ingress rules).
 - recheck: the control passes on that state; Security Hub agrees when AWS is reachable.
-- watch: SG fixes only; no flow-log REJECTs from contracted sources during the window.
+- watch: SG fixes: no flow-log REJECTs from contracted sources during the window. IAM
+  fixes: no AccessDenied on removed actions for the attached principals (CloudTrail).
 - revert: on a regression, a revert PR (with --open-pr).
 
 Every outcome is a RunRecord with an `Outcome`. CONFIRMED needs every check to pass.
@@ -27,6 +28,8 @@ from posturanet.deliver.github import GitHub
 from posturanet.deliver.idempotency import spec_in
 from posturanet.errors import StageStop
 from posturanet.evidence.flowlogs import FlowRecord
+from posturanet.iamfix.doc import statements_from_json
+from posturanet.iamfix.shrink import recheck as iam_recheck
 from posturanet.locate import load_repo_state
 from posturanet.locate.backend import boto3_s3_fetch
 from posturanet.locate.tfstate import attributes_of
@@ -41,9 +44,18 @@ from posturanet.models import (
 )
 from posturanet.synth.sg_rules import Rule, rules_from_state
 from posturanet.validate.recheck import recheck, supported
+from posturanet.verify.iam_signals import (
+    CloudTrailDenied,
+    DeniedFile,
+    DeniedSource,
+)
+from posturanet.verify.iam_signals import (
+    regressions as iam_regressions,
+)
 from posturanet.verify.revert import open_revert
 from posturanet.verify.signals import (
     LogsInsightsRejects,
+    RejectFile,
     RejectSource,
     finding_status,
     window_end,
@@ -62,6 +74,7 @@ class VerifyContext:
     clock: Callable[[], datetime] = _utcnow
     aws: ClientFactory | None = None
     rejects: RejectSource | None = None
+    denials: DeniedSource | None = None
     state_path: Path | None = None
     applied_at: datetime | None = None
     watch_hours: int | None = None
@@ -226,6 +239,9 @@ def _run(pr_ref: str, repo: Path, config: Config, ctx: VerifyContext, record: Ru
 
     # --- watch
     hours = spec.watch_hours if ctx.watch_hours is None else ctx.watch_hours
+    if spec.fix_type == "iam_least_privilege" and hours > 0:
+        _watch_iam(record, outcome, spec, gh, pr, config, ctx, hours)
+        return
     if spec.fix_type != "sg_ingress" or hours == 0:
         why = {
             "s3_public": "not watched: the evidence showed no public use, and denied "
@@ -294,11 +310,91 @@ def _run(pr_ref: str, repo: Path, config: Config, ctx: VerifyContext, record: Ru
     _confirm(record, outcome, spec)
 
 
+def _watch_iam(
+    record: RunRecord,
+    outcome: Outcome,
+    spec: VerifySpec,
+    gh: GitHub,
+    pr: dict[str, object],
+    config: Config,
+    ctx: VerifyContext,
+    hours: int,
+) -> None:
+    start = outcome.watch_from
+    assert start is not None
+    until = window_end(start, hours)
+    outcome.watch_until = until
+    now = ctx.clock()
+    source = ctx.denials
+    if source is None and isinstance(ctx.rejects, RejectFile):
+        source = DeniedFile(ctx.rejects.path)
+    if source is None and ctx.aws is not None:
+        source = CloudTrailDenied(ctx.aws("cloudtrail"))
+    if source is None:
+        raise StageStop(
+            "watch",
+            "no CloudTrail access to watch for AccessDenied",
+            [
+                "run with AWS access (cloudtrail:LookupEvents)",
+                "or pass --rejects-file with exported AccessDenied events",
+            ],
+            why="PosturaNet confirms an IAM fix only after watching for denied calls",
+            unknown=True,
+        )
+    services = (
+        sorted({a.split(":", 1)[0].lower() for a in spec.actions_removed if ":" in a}) or None
+    )
+    rows = source.denied(spec.principals, services, start, min(now, until))
+    found = iam_regressions(rows, spec.actions_removed, spec.actions_after)
+    if found:
+        outcome.state = OutcomeState.REGRESSED
+        outcome.regressions = found
+        record.stages.append(
+            StageResult(
+                name="watch",
+                status=StageStatus.FAIL,
+                summary=f"{len(found)} removed action(s) denied since apply",
+                details=found,
+            )
+        )
+        _revert(record, outcome, spec, gh, pr, config, ctx)
+        record.result_detail = f"{spec.control} · a removed action is still needed"
+        return
+    if now < until:
+        left = until - now
+        record.stages.append(
+            StageResult(
+                name="watch",
+                status=StageStatus.WARN,
+                summary="no AccessDenied on removed actions so far · "
+                f"{left.total_seconds() / 3600:.0f}h left in the window",
+            )
+        )
+        _skip_rest(record, "watch", "watching")
+        record.result = "WATCHING"
+        record.result_detail = f"{spec.control} · window ends {until:%Y-%m-%d %H:%M} UTC"
+        record.next_steps = [f"re-run verify after {until:%Y-%m-%d %H:%M} UTC to confirm"]
+        return
+    record.stages.append(
+        StageResult(
+            name="watch",
+            status=StageStatus.OK,
+            summary=f"no AccessDenied on removed actions in {hours}h",
+        )
+    )
+    _skip_rest(record, "watch", "no regression")
+    _confirm(record, outcome, spec)
+    record.unknowns = [
+        "CloudTrail LookupEvents covers management events only; denied data events "
+        "(such as S3 object reads) aren't seen"
+    ]
+
+
 def _confirm(record: RunRecord, outcome: Outcome, spec: VerifySpec) -> None:
     outcome.state = OutcomeState.CONFIRMED
     record.result = "CONFIRMED"
     record.result_detail = f"{spec.control} passes on {spec.address}"
-    if spec.fix_type != "sg_ingress":
+    if spec.fix_type not in ("sg_ingress", "iam_least_privilege"):
         record.unknowns = ["confirmed from the Terraform state; live drift after apply isn't seen"]
 
 
@@ -341,6 +437,15 @@ def _not_applied(spec: VerifySpec, attrs: dict[str, object]) -> str:
         live = sorted(set(rules_from_state(_ingress(attrs))))
         want = sorted({Rule(*r) for r in spec.rules})
         return "" if live == want else "ingress in state differs from the fix"
+    if spec.fix_type == "iam_least_privilege":
+        allowed = _iam_allowed(attrs)
+        if allowed is None:
+            return "policy in state isn't readable JSON"
+        lower = {a.lower() for a in allowed}
+        if any(r.lower() in lower for r in spec.actions_removed):
+            return "the removed wildcard is still in the policy"
+        missing = [a for a in spec.actions_after if a.lower() not in lower]
+        return f"{len(missing)} new action(s) not in the policy yet" if missing else ""
     for raw in spec.changes:
         change = Change.model_validate(raw)
         value = get_path(attrs, change.path)
@@ -360,7 +465,29 @@ def _recheck(spec: VerifySpec, attrs: dict[str, object]) -> tuple[bool, str]:
             return False, f"no re-check for {spec.control}"
         ok, detail = recheck(spec.control, rules_from_state(_ingress(attrs)))
         return ok, detail.replace("planned config", "applied state")
+    if spec.fix_type == "iam_least_privilege":
+        policy = attrs.get("policy")
+        if not isinstance(policy, str):
+            return False, "no policy in state"
+        ok, detail = iam_recheck(spec.control, statements_from_json(policy))
+        return ok, detail.replace("changed policy", "applied state")
     return True, f"{spec.control} passes on the applied state"
+
+
+def _iam_allowed(attrs: dict[str, object]) -> list[str] | None:
+    policy = attrs.get("policy")
+    if not isinstance(policy, str):
+        return None
+    try:
+        statements = statements_from_json(policy)
+    except (ValueError, AttributeError):
+        return None
+    out: list[str] = []
+    for s in statements:
+        actions = s.get("Action")
+        if s.get("Effect") == "Allow" and isinstance(actions, list):
+            out += [str(a) for a in actions]
+    return out
 
 
 def _hub_note(
