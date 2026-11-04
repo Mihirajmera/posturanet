@@ -158,18 +158,28 @@ def body(p: Proposal, *, run_id: str) -> str:
         else f"Removes {', '.join(r.label() for r in p.synthesis.removed)}. No traffic used it "
         f"in the last {obs.window.days} days."
     )
+    if p.contract.not_kept:
+        n = len(p.contract.not_kept)
+        plain = plain.replace(
+            "days.", f"days, except {n} likely scanner{'s' * (n != 1)} (listed below)."
+        ).replace("No traffic used it", "Only likely scanners used it")
     diff_text = "\n".join(fc.unified_diff.rstrip() for fc in p.diff.files)
 
     observed_rows = []
     review_set = {(r.cidr, r.port, r.proto) for r in p.contract.needs_review}
+    dropped = {(r.cidr, r.port, r.proto): r.reason for r in p.contract.not_kept}
     for item in obs.items:
         key = (item.cidr, item.port, item.proto)
         pattern = describe(item.period, item.hours_histogram).replace("@", " at ")
         pattern = pattern.replace(":00Z", ":00 UTC")
         if key in review_set:
             pattern += " · needs review"
+        kept = "✓"
+        if key in dropped:
+            pattern += f" · not kept: {dropped[key]}"
+            kept = "✗"
         observed_rows.append(
-            f"| {item.cidr} | {item.port}/{item.proto} | {item.count:,} | {pattern} | ✓ |"
+            f"| {item.cidr} | {item.port}/{item.proto} | {item.count:,} | {pattern} | {kept} |"
         )
 
     check_rows = [

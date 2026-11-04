@@ -36,6 +36,15 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 ### Changed
 - PR delivery is shared by every fix type (`deliver.github.push_pr`). SG fix PRs are unchanged.
 
+### Added (benchmark and SG contracts)
+- Benchmark v0 (`python -m bench`): 13 synthetic security group cases with written ground truth, scoring PosturaNet's real pipeline against three baseline fixes (revoke, private ranges only, allow all observed). Results and PosturaNet's open misses are in `bench/README.md` and `bench/RESULTS.md`. Case 13, `quarterly-dr-drill-approved`, runs the 120-day drill with an approved contract.
+- Contracts: `not_kept` list and per-rule `reason`. Rare or one-off internet sources, and internet sources with scan-sized flows (under 2,000 bytes per flow on average), are left out of the fix and listed in the PR as likely scanners. Every other internet source goes to `needs_review`. Moving a `not_kept` source to `must_allow` keeps it across regeneration.
+- Evidence: flow-log query sums `bytes` per source; `--evidence-file` rows may carry `bytes`.
+- Synthesis: when Z3 times out, an exact nested-prefix solver computes the same optimum, so large fleets (70 CI runners) get a fix instead of a stop.
+
+### Benchmark (PosturaNet)
+- 6 → 10 correct of 13; still exposed 2 → 0; one outage left (`quarterly-dr-drill` without an approved contract).
+
 ## [0.1.0] - 2026-11-03
 First public release.
 
