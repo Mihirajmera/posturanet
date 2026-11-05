@@ -12,21 +12,18 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from fakes import FakeGitHub, FakeTerraform
+from fakes import FakeGitHub, IamTerraform
 from posturanet.aws.readonly import ReadOnlyClient, iam_action, is_allowed
 from posturanet.deliver import GitHub
 from posturanet.deliver.idempotency import spec_in
 from posturanet.evidence import FileSource
 from posturanet.iamfix import contract as iamcontract
-from posturanet.iamfix import load_document
 from posturanet.iamfix.doc import Statement, realign, statements_from_json
 from posturanet.iamfix.evidence import LiveIamSource
 from posturanet.iamfix.shrink import ServiceUse, check_invariants, recheck, shrink
-from posturanet.locate.hcl_index import find_resource_block
 from posturanet.models import StageStatus
 from posturanet.models.config import load_config
 from posturanet.pipeline import Context, run_fix
-from posturanet.validate.tf import TfResult
 from posturanet.verify import VerifyContext, run_verify
 from posturanet.verify.iam_signals import CloudTrailDenied, Denied, regressions
 from posturanet.verify.signals import RejectFile
@@ -50,38 +47,6 @@ def repo(tmp_path: Path) -> Path:
     out = tmp_path / "repo"
     shutil.copytree(FIXTURES / "tf" / "iam", out)
     return out
-
-
-class IamTerraform(FakeTerraform):
-    """Plans an aws_iam_policy update whose `after.policy` is read from the patched HCL."""
-
-    def __init__(self, name: str, *, extra_attr: bool = False) -> None:
-        super().__init__()
-        self.name, self.extra_attr = name, extra_attr
-
-    def plan_json(self, workdir: Path, state: Path | None) -> tuple[TfResult, dict[str, Any]]:
-        self.calls.append("plan")
-        block = find_resource_block(workdir, "aws_iam_policy", self.name)
-        assert block is not None
-        doc = load_document(workdir, block.file, block.line)
-        policy = json.dumps(
-            {
-                "Version": "2012-10-17",
-                "Statement": [
-                    {"Effect": s.effect, "Action": s.actions, "Resource": s.resources}
-                    for s in doc.statements
-                ],
-            }
-        )
-        before = {"name": self.name, "policy": "{}"}
-        after = {"name": self.name + ("-x" if self.extra_attr else ""), "policy": policy}
-        rc = {
-            "address": f"aws_iam_policy.{self.name}",
-            "mode": "managed",
-            "type": "aws_iam_policy",
-            "change": {"actions": ["update"], "before": before, "after": after},
-        }
-        return TfResult(True, ""), {"format_version": "1.2", "resource_changes": [rc]}
 
 
 def _status(record: Any) -> dict[str, StageStatus]:

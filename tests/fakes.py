@@ -9,7 +9,10 @@ from typing import Any
 
 import httpx
 
+from posturanet.configfix.hcl_attrs import ABSENT, BLOCK, lookup
+from posturanet.iamfix import load_document
 from posturanet.locate.hcl_index import find_resource_block
+from posturanet.s3fix import FLAG_NAMES
 from posturanet.synth.sg_rules import Rule, parse_security_group
 from posturanet.validate.tf import TfResult
 
@@ -150,6 +153,72 @@ class ConfigTerraform(FakeTerraform):
             "format_version": "1.2",
             "resource_changes": [rc, *(self.extra_changes or [])],
         }
+
+
+class S3Terraform(FakeTerraform):
+    """Plans a public access block from the patched HCL: create if new, else update."""
+
+    def __init__(self, address: str, rtype: str, *, create: bool, extra: Any = None) -> None:
+        super().__init__(extra_changes=extra)
+        self.address, self.rtype, self.create = address, rtype, create
+
+    def plan_json(self, workdir: Path, state: Path | None) -> tuple[TfResult, dict[str, Any]]:
+        self.calls.append("plan")
+        name = self.address.rsplit(".", 1)[-1]
+        block = find_resource_block(workdir, self.rtype, name)
+        assert block is not None
+        text = block.file.read_text(encoding="utf-8")
+        after: dict[str, Any] = {}
+        for flag in FLAG_NAMES:
+            value = lookup(text, block.line, flag)
+            after[flag] = None if value is ABSENT or value is BLOCK else value
+        before = None if self.create else {f: False for f in FLAG_NAMES}
+        rc = {
+            "address": self.address,
+            "mode": "managed",
+            "type": self.rtype,
+            "change": {
+                "actions": ["create"] if self.create else ["update"],
+                "before": before,
+                "after": after,
+            },
+        }
+        return TfResult(True, ""), {
+            "format_version": "1.2",
+            "resource_changes": [rc, *(self.extra_changes or [])],
+        }
+
+
+class IamTerraform(FakeTerraform):
+    """Plans an aws_iam_policy update whose `after.policy` is read from the patched HCL."""
+
+    def __init__(self, name: str, *, extra_attr: bool = False) -> None:
+        super().__init__()
+        self.name, self.extra_attr = name, extra_attr
+
+    def plan_json(self, workdir: Path, state: Path | None) -> tuple[TfResult, dict[str, Any]]:
+        self.calls.append("plan")
+        block = find_resource_block(workdir, "aws_iam_policy", self.name)
+        assert block is not None
+        doc = load_document(workdir, block.file, block.line)
+        policy = json.dumps(
+            {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {"Effect": s.effect, "Action": s.actions, "Resource": s.resources}
+                    for s in doc.statements
+                ],
+            }
+        )
+        before = {"name": self.name, "policy": "{}"}
+        after = {"name": self.name + ("-x" if self.extra_attr else ""), "policy": policy}
+        rc = {
+            "address": f"aws_iam_policy.{self.name}",
+            "mode": "managed",
+            "type": "aws_iam_policy",
+            "change": {"actions": ["update"], "before": before, "after": after},
+        }
+        return TfResult(True, ""), {"format_version": "1.2", "resource_changes": [rc]}
 
 
 class FakeGitHub:

@@ -11,13 +11,11 @@ from typing import Any
 
 import pytest
 
-from fakes import FakeGitHub, FakeTerraform
+from fakes import FakeGitHub, S3Terraform
 from posturanet.aws.readonly import ReadOnlyClient, iam_action, is_allowed
-from posturanet.configfix.hcl_attrs import ABSENT, BLOCK, lookup
 from posturanet.deliver import GitHub
 from posturanet.deliver.idempotency import spec_in
 from posturanet.evidence import FileSource
-from posturanet.locate.hcl_index import find_resource_block
 from posturanet.models import StageStatus
 from posturanet.models.config import load_config
 from posturanet.pipeline import Context, run_fix
@@ -25,7 +23,6 @@ from posturanet.s3fix import FLAG_NAMES
 from posturanet.s3fix import contract as s3contract
 from posturanet.s3fix.evidence import LiveS3Source, classify, parse_log_line
 from posturanet.validate.plan_scope import check_scope
-from posturanet.validate.tf import TfResult
 from posturanet.verify import VerifyContext, run_verify
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
@@ -49,40 +46,6 @@ def repo(tmp_path: Path) -> Path:
     out = tmp_path / "repo"
     shutil.copytree(FIXTURES / "tf" / "s3", out)
     return out
-
-
-class S3Terraform(FakeTerraform):
-    """Plans a public access block from the patched HCL: create if new, else update."""
-
-    def __init__(self, address: str, rtype: str, *, create: bool, extra: Any = None) -> None:
-        super().__init__(extra_changes=extra)
-        self.address, self.rtype, self.create = address, rtype, create
-
-    def plan_json(self, workdir: Path, state: Path | None) -> tuple[TfResult, dict[str, Any]]:
-        self.calls.append("plan")
-        name = self.address.rsplit(".", 1)[-1]
-        block = find_resource_block(workdir, self.rtype, name)
-        assert block is not None
-        text = block.file.read_text(encoding="utf-8")
-        after: dict[str, Any] = {}
-        for flag in FLAG_NAMES:
-            value = lookup(text, block.line, flag)
-            after[flag] = None if value is ABSENT or value is BLOCK else value
-        before = None if self.create else {f: False for f in FLAG_NAMES}
-        rc = {
-            "address": self.address,
-            "mode": "managed",
-            "type": self.rtype,
-            "change": {
-                "actions": ["create"] if self.create else ["update"],
-                "before": before,
-                "after": after,
-            },
-        }
-        return TfResult(True, ""), {
-            "format_version": "1.2",
-            "resource_changes": [rc, *(self.extra_changes or [])],
-        }
 
 
 def _status(record: Any) -> dict[str, StageStatus]:
