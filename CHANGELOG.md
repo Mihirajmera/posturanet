@@ -4,6 +4,28 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Added (R2: IAM least privilege)
+- New evidence-backed fix for IAM.1 and IAM.21 on customer-managed `aws_iam_policy`: replaces `"*"` or `service:*` with the actions in use, in `jsonencode`, heredoc or `aws_iam_policy_document` form. Resources, conditions and Deny statements are unchanged (FR-51).
+- IAM evidence (FR-16): action-level last-accessed data for the policy and its attached principals; confidence from the policy's age. Data-plane services, `NotAction`, services without action-level data and unattached policies stop the fix. Offline `--evidence-file` export supported.
+- Contract kind `iam` with `must_allow`, `must_remove`, `reviewed_services` and `needs_review`; humans approve data-plane services and add actions back.
+- `iam:PassRole` is never dropped as unused: IAM doesn't track it, so a wildcard that covers it stops the fix until a human keeps it or reviews `iam`. The PR also notes that last-accessed data counts denied attempts.
+- Invariants: the edited policy allows nothing new and still allows every used action. `plan_matches` checks the planned policy JSON.
+- Verify watches CloudTrail AccessDenied on removed actions for 72h and opens a revert PR on regression; `--rejects-file` accepts an IAM denied export.
+- Read-only allowlist (and generated IAM policy): `cloudtrail:LookupEvents`.
+
+### Added (R2: S3 public access)
+- New evidence-backed fix for S3.1, S3.2, S3.3 and S3.8: turns on all four Block Public Access settings, editing the existing `aws_s3_bucket_public_access_block` / `aws_s3_account_public_access_block` or adding one (FR-50).
+- S3 evidence (FR-17): bucket exposure (policy status, ACL grants, ownership controls, website), server access logs over the window, and CloudFront origins. Anonymous use, cross-account use through a public policy, a public website or a CloudFront origin without origin access control stops the fix. A bucket that's private today with ACLs disabled needs no logs. Offline `--evidence-file` export supported.
+- Contract kind `s3_public` with `must_keep`, `must_block` and `needs_review`; reviewed requesters are approved by moving them to `must_keep`.
+- Plan scope accepts exactly one `create` for fixes that add a resource.
+- Read-only allowlist (and generated IAM policy): `s3:ListAllMyBuckets`, `s3:GetBucketPolicyStatus`, `s3:GetBucketAcl`, `s3:GetBucketOwnershipControls`, `s3:GetBucketWebsite`, `s3:GetBucketLogging`, `cloudfront:ListDistributions`. `list_buckets` and `list_objects_v2` map to their real IAM actions.
+
+### Added (R2: verify and revert)
+- `posturanet verify <pr>`: after merge, checks the fix is in the Terraform state, the control passes on it (and in Security Hub when AWS is reachable), and, for security-group fixes, that no source the contract kept was blocked by flow logs during the watch window (FR-31, FR-32). Outcomes: OPENED, REJECTED, NOT APPLIED, STILL FAILING, WATCHING, CONFIRMED, REGRESSED (FR-34).
+- `--open-pr` on a regression opens a revert PR that restores the files the fix changed; it stops if any of them changed on the base since the merge (FR-33).
+- Fix PR bodies carry a machine-readable verify spec, so verify needs no stored state.
+- Offline: `--state`, `--rejects-file`, `--offline`; `--applied-at` and `--window` override the watch window.
+
 ### Added (R1.6: attribute fixes)
 - New fix type `config_attribute`: 54 catalog rows covering 52 Security Hub controls (`configfix/catalog.json`), e.g. RDS.8 deletion protection, DynamoDB.2 point-in-time recovery, KMS.4 key rotation, CloudTrail.4 log validation, ECR.1 scan on push, EKS.8 audit logs, IAM.7/15/16 password policy, GuardDuty.1, Config.1, EC2.7 EBS default encryption (FR-48).
 - HCL attribute editor: sets or inserts literal attributes and nested blocks in place, fmt-aligned, CRLF-preserving. Stops on variables, expressions, `dynamic` or repeated blocks, heredocs, `lifecycle.ignore_changes`, `count`/`for_each` and already-compliant code (drift).

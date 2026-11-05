@@ -1,0 +1,60 @@
+{
+  "version": 4,
+  "terraform_version": "1.9.0",
+  "serial": 1,
+  "lineage": "00000000-0000-0000-0000-000000000003",
+  "outputs": {},
+  "resources": [
+    {
+      "mode": "managed",
+      "type": "aws_s3_bucket",
+      "name": "assets",
+      "provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "id": "acme-assets",
+            "arn": "arn:aws:s3:::acme-assets",
+            "bucket": "acme-assets"
+          }
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "aws_s3_bucket",
+      "name": "reports",
+      "provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "id": "acme-reports",
+            "arn": "arn:aws:s3:::acme-reports",
+            "bucket": "acme-reports"
+          }
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "aws_s3_bucket_public_access_block",
+      "name": "reports",
+      "provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "id": "acme-reports",
+            "bucket": "acme-reports",
+            "block_public_acls": true,
+            "block_public_policy": false,
+            "ignore_public_acls": true,
+            "restrict_public_buckets": false
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,11 +1,12 @@
 """Plan-scope gate (FR-23, architecture doc 9).
 
-The plan may change only the target, and only in place. Anything else fails the run.
+The plan may change only the target, and only in place (or, for a fix that adds a resource,
+only create the target). Anything else fails the run.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from posturanet.models import Check, CheckResult
 from posturanet.synth.sg_rules import Rule, rules_from_state
@@ -18,7 +19,9 @@ def resource_change(plan: dict[str, Any], address: str) -> dict[str, Any] | None
     return None
 
 
-def check_scope(plan: dict[str, Any], target: str) -> Check:
+def check_scope(
+    plan: dict[str, Any], target: str, *, expect: Literal["update", "create"] = "update"
+) -> Check:
     others: list[str] = []
     target_actions: list[str] | None = None
     for rc in plan.get("resource_changes", []):
@@ -44,18 +47,20 @@ def check_scope(plan: dict[str, Any], target: str) -> Check:
             result=CheckResult.FAIL,
             detail="plan does not change the target",
         )
-    if target_actions != ["update"]:
+    if target_actions != [expect]:
+        want = "updated in place" if expect == "update" else "created"
         return Check(
             id="plan_scope",
             required=True,
             result=CheckResult.FAIL,
-            detail=f"target would be {'/'.join(target_actions)}, not updated in place",
+            detail=f"target would be {'/'.join(target_actions)}, not {want}",
         )
+    counts = "1 to change, 0 to add" if expect == "update" else "0 to change, 1 to add"
     return Check(
         id="plan_scope",
         required=True,
         result=CheckResult.PASS,
-        detail="1 to change, 0 to add, 0 to destroy; only the target",
+        detail=f"{counts}, 0 to destroy; only the target",
     )
 
 

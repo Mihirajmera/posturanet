@@ -143,7 +143,8 @@ def fmt_check(tf: TerraformRunner, work: Path, diff: Diff) -> Check:
         return Check(
             id="fmt", required=True, result=CheckResult.SKIPPED, detail="terraform not installed"
         )
-    before = tf.fmt_check(work, changed)
+    existing = [p for p in changed if (work / p).is_file()]  # a new file has no "before"
+    before = tf.fmt_check(work, existing) if existing else TfResult(True, "")
     if before.timed_out or before.missing:
         return _check("fmt", before)
     if not before.ok:

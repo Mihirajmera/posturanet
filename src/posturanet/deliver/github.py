@@ -7,7 +7,7 @@ to the base branch.
 from __future__ import annotations
 
 import base64
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
@@ -127,6 +127,50 @@ class GitHub:
             self._req("PUT", f"/repos/{self.repo}/contents/{path}", json=payload), f"write {path}"
         )
 
+    def delete_file(self, path: str, branch: str, message: str) -> None:
+        _, sha = self.get_file(path, branch)
+        if sha is None:
+            return
+        self._ok(
+            self._req(
+                "DELETE",
+                f"/repos/{self.repo}/contents/{path}",
+                json={"message": message, "sha": sha, "branch": branch},
+            ),
+            f"delete {path}",
+        )
+
+    def get_pr(self, number: int) -> dict[str, Any]:
+        data: dict[str, Any] = self._ok(
+            self._req("GET", f"/repos/{self.repo}/pulls/{number}", need="pull-requests:read"),
+            f"read pull request #{number}",
+        )
+        return data
+
+    def pr_files(self, number: int) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        page = 1
+        while True:
+            data = self._ok(
+                self._req(
+                    "GET",
+                    f"/repos/{self.repo}/pulls/{number}/files?per_page=100&page={page}",
+                    need="pull-requests:read",
+                ),
+                f"list files of #{number}",
+            )
+            out += data
+            if len(data) < 100:
+                return out
+            page += 1
+
+    def first_parent(self, sha: str) -> str:
+        data = self._ok(
+            self._req("GET", f"/repos/{self.repo}/commits/{sha}", need="contents:read"),
+            f"read commit {sha[:8]}",
+        )
+        return str(data["parents"][0]["sha"])
+
     def create_pr(self, title: str, body: str, head: str, base: str) -> dict[str, Any]:
         data: dict[str, Any] = self._ok(
             self._req(
@@ -213,6 +257,7 @@ class PullRequest:
     body: str  # must contain idempotency.markers(key, finding_id)
     labels: list[str]
     writes: list[tuple[str, str, str]]  # (path, content, commit message)
+    deletes: list[tuple[str, str]] = field(default_factory=list)  # (path, commit message)
 
 
 def push_pr(
@@ -257,6 +302,8 @@ def push_pr(
 
     for path, content, message in pr_in.writes:
         gh.put_file(path, branch, content, message)
+    for path, message in pr_in.deletes:
+        gh.delete_file(path, branch, message)
 
     if existing is not None:
         gh.update_pr(int(existing["number"]), pr_in.title, pr_in.body)

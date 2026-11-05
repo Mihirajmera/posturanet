@@ -36,7 +36,9 @@ def validate_config_fix(
     tf: TerraformRunner,
     state_path: Path | None,
     offline: bool,
+    create: bool = False,
 ) -> ValidationReport:
+    """With `create`, the target is a new resource: the plan must add it and change nothing."""
     cfg = config
     checks = [check_paths(diff, cfg.validation.allowed_paths, cfg.contracts.dir)]
 
@@ -58,7 +60,7 @@ def validate_config_fix(
                 )
         else:
             checks += _plan_checks(
-                tf, work / cfg.terraform.root, work, fix, address, cfg, state_path
+                tf, work / cfg.terraform.root, work, fix, address, cfg, state_path, create
             )
     return ValidationReport(checks=checks)
 
@@ -93,6 +95,7 @@ def _plan_checks(
     address: str,
     cfg: Config,
     state_path: Path | None,
+    create: bool = False,
 ) -> list[Check]:
     if cfg.validation.plan == "skip":
         skipped = "validation.plan is skip"
@@ -125,13 +128,13 @@ def _plan_checks(
         )
         return checks
 
-    checks.append(check_scope(plan, address))
+    checks.append(check_scope(plan, address, expect="create" if create else "update"))
     rc = resource_change(plan, address)
-    checks.append(plan_matches(rc, fix))
+    checks.append(plan_matches(rc, fix, create=create))
     return checks
 
 
-def plan_matches(rc: dict[str, Any] | None, fix: ConfigFix) -> Check:
+def plan_matches(rc: dict[str, Any] | None, fix: ConfigFix, *, create: bool = False) -> Check:
     if rc is None:
         return Check(
             id="plan_matches",
@@ -144,14 +147,14 @@ def plan_matches(rc: dict[str, Any] | None, fix: ConfigFix) -> Check:
     unknown = change.get("after_unknown") or {}
 
     for c in fix.changes:
-        if _get(unknown, c.path) is True:
+        if get_path(unknown, c.path) is True:
             return Check(
                 id="plan_matches",
                 required=True,
                 result=CheckResult.ERROR,
                 detail=f"{c.path} is unknown until apply",
             )
-        value = _get(after, c.path)
+        value = get_path(after, c.path)
         if not c.satisfied_by(value):
             return Check(
                 id="plan_matches",
@@ -160,6 +163,14 @@ def plan_matches(rc: dict[str, Any] | None, fix: ConfigFix) -> Check:
                 detail=f"planned {c.path} is {value!r}; needs {c.describe()}",
             )
 
+    if create:
+        return Check(
+            id="plan_matches",
+            required=True,
+            result=CheckResult.PASS,
+            detail=f"planned {', '.join(c.path for c in fix.changes)} meet {fix.control} "
+            "on the new resource",
+        )
     ours = {c.path.split(".", 1)[0] for c in fix.changes}
     extra = sorted(
         k
@@ -184,7 +195,7 @@ def plan_matches(rc: dict[str, Any] | None, fix: ConfigFix) -> Check:
     )
 
 
-def _get(obj: Any, path: str) -> Any:
+def get_path(obj: Any, path: str) -> Any:
     """Follow a dotted path through plan JSON, where nested blocks are one-item lists."""
     for part in path.split("."):
         if isinstance(obj, list):

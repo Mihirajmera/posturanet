@@ -8,9 +8,9 @@ from typing import Any
 from ruamel.yaml import YAML
 
 from posturanet import __version__
-from posturanet.deliver.idempotency import markers
+from posturanet.deliver.idempotency import markers, verify_marker
 from posturanet.evidence.periodicity import describe
-from posturanet.models import CheckResult
+from posturanet.models import CheckResult, VerifySpec
 from posturanet.proposal import Proposal
 from posturanet.validate.invariants import MODEL_SCOPE
 
@@ -109,6 +109,22 @@ def safety_contract(p: Proposal) -> dict[str, Any]:
     }
 
 
+def verify_spec(p: Proposal) -> VerifySpec:
+    rules = sorted({*p.synthesis.kept, *p.synthesis.added})
+    return VerifySpec(
+        fix_type=p.finding.fix_type.value,
+        control=p.finding.control_id,
+        finding_id=p.finding.finding_id,
+        resource_id=p.finding.resource.id,
+        resource_arn=p.finding.resource.arn,
+        address=p.location.address,
+        key=p.idempotency_key,
+        watch_hours=int(_WATCH_WINDOW.rstrip("h")),
+        rules=[(r.cidr, r.from_port, r.to_port, r.proto) for r in rules],
+        must_allow=[(r.cidr, r.port, r.proto) for r in p.contract.must_allow],
+    )
+
+
 def _method(check_id: str) -> str:
     return {
         "invariants": "z3",
@@ -165,6 +181,7 @@ def body(p: Proposal, *, run_id: str) -> str:
 
     parts = [
         markers(p.idempotency_key, f.finding_id),
+        verify_marker(verify_spec(p)),
         f"**PosturaNet** found a fix for **{f.control_id} · {f.title}** and checked it "
         "against real usage.",
         "",
@@ -202,8 +219,9 @@ def body(p: Proposal, *, run_id: str) -> str:
         "- [ ] Merge to apply through your normal pipeline. PosturaNet never applies changes.",
         "",
         "### After merge",
-        "PosturaNet re-checks the finding and watches for blocked traffic from kept sources "
-        f"for **{_WATCH_WINDOW}**. If it sees a regression, it opens a revert PR.",
+        "`posturanet verify <this PR>` re-checks the finding and watches for blocked traffic "
+        f"from kept sources for **{_WATCH_WINDOW}**. If it sees a regression, it opens a "
+        "revert PR.",
         "",
         "<details><summary>Safety contract (machine-readable)</summary>",
         "",

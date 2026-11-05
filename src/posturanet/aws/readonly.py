@@ -23,6 +23,16 @@ ALLOWLIST: tuple[str, ...] = (
     "athena:GetQueryResults",
     "s3:GetObject",
     "s3:ListBucket",
+    # S3 public-access evidence (FR-50): bucket exposure, access logs, CloudFront origins.
+    "s3:ListAllMyBuckets",
+    "s3:GetBucketPolicyStatus",
+    "s3:GetBucketAcl",
+    "s3:GetBucketOwnershipControls",
+    "s3:GetBucketWebsite",
+    "s3:GetBucketLogging",
+    "cloudfront:ListDistributions",
+    # IAM fix verification (FR-32): AccessDenied on removed actions.
+    "cloudtrail:LookupEvents",
     "iam:Get*",
     "iam:List*",
     "iam:GenerateServiceLastAccessedDetails",
@@ -36,6 +46,11 @@ ALLOWLIST: tuple[str, ...] = (
 
 # boto3 service names that differ from IAM action prefixes.
 _IAM_PREFIX = {"accessanalyzer": "access-analyzer"}
+# boto3 methods whose IAM action isn't the CamelCase of the method name.
+_IAM_ACTION = {
+    ("s3", "list_buckets"): "s3:ListAllMyBuckets",
+    ("s3", "list_objects_v2"): "s3:ListBucket",
+}
 
 
 class MutatingCallBlocked(PosturaNetError):
@@ -46,6 +61,8 @@ class MutatingCallBlocked(PosturaNetError):
 
 def iam_action(service: str, method: str) -> str:
     """`("ec2", "describe_network_interfaces")` -> `"ec2:DescribeNetworkInterfaces"`."""
+    if (service, method) in _IAM_ACTION:
+        return _IAM_ACTION[(service, method)]
     prefix = _IAM_PREFIX.get(service, service)
     op = "".join(part.capitalize() for part in method.split("_"))
     return f"{prefix}:{op}"

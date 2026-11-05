@@ -1,0 +1,60 @@
+{
+  "version": 4,
+  "terraform_version": "1.9.0",
+  "serial": 1,
+  "lineage": "00000000-0000-0000-0000-000000000004",
+  "outputs": {},
+  "resources": [
+    {
+      "mode": "managed",
+      "type": "aws_iam_policy",
+      "name": "app",
+      "provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "id": "arn:aws:iam::123456789012:policy/app",
+            "arn": "arn:aws:iam::123456789012:policy/app",
+            "name": "app",
+            "policy": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Sid\": \"Compute\", \"Effect\": \"Allow\", \"Action\": [\"ec2:*\", \"logs:CreateLogStream\"], \"Resource\": \"*\"}, {\"Sid\": \"Deny\", \"Effect\": \"Deny\", \"Action\": \"ec2:TerminateInstances\", \"Resource\": \"*\"}]}"
+          }
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "aws_iam_policy",
+      "name": "admin",
+      "provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "id": "arn:aws:iam::123456789012:policy/admin",
+            "arn": "arn:aws:iam::123456789012:policy/admin",
+            "name": "admin",
+            "policy": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Effect\": \"Allow\", \"Action\": \"*\", \"Resource\": \"*\"}]}"
+          }
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "aws_iam_policy",
+      "name": "deploy",
+      "provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "id": "arn:aws:iam::123456789012:policy/deploy",
+            "arn": "arn:aws:iam::123456789012:policy/deploy",
+            "name": "deploy",
+            "policy": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Sid\": \"Deploy\", \"Effect\": \"Allow\", \"Action\": [\"s3:*\", \"iam:PassRole\"], \"Resource\": \"*\"}]}"
+          }
+        }
+      ]
+    }
+  ]
+}

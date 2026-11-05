@@ -1,0 +1,15 @@
+{
+ "policy_arn": "arn:aws:iam::123456789012:policy/app",
+ "created": "2025-06-01",
+ "principals": [
+  "role/app"
+ ],
+ "services": [
+  {
+   "namespace": "ec2",
+   "last_accessed": "2026-10-29",
+   "action_level": false,
+   "actions": []
+  }
+ ]
+}

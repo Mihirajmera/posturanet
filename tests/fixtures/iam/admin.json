@@ -1,0 +1,55 @@
+{
+ "policy_arn": "arn:aws:iam::123456789012:policy/admin",
+ "created": "2024-01-10",
+ "principals": [
+  "role/ops",
+  "user/breakglass"
+ ],
+ "services": [
+  {
+   "namespace": "ec2",
+   "last_accessed": "2026-10-20",
+   "action_level": true,
+   "actions": [
+    {
+     "name": "DescribeInstances",
+     "last_accessed": "2026-10-20"
+    },
+    {
+     "name": "RunInstances",
+     "last_accessed": null
+    }
+   ]
+  },
+  {
+   "namespace": "iam",
+   "last_accessed": "2026-09-01",
+   "action_level": true,
+   "actions": [
+    {
+     "name": "GetRole",
+     "last_accessed": "2026-09-01"
+    },
+    {
+     "name": "ListRoles",
+     "last_accessed": "2026-08-15"
+    },
+    {
+     "name": "CreateRole",
+     "last_accessed": null
+    }
+   ]
+  },
+  {
+   "namespace": "rds",
+   "last_accessed": null,
+   "action_level": true,
+   "actions": [
+    {
+     "name": "DeleteDBInstance",
+     "last_accessed": null
+    }
+   ]
+  }
+ ]
+}
