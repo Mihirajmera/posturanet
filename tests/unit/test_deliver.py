@@ -61,7 +61,12 @@ def test_body_sections(tmp_repo: Path, flows_path: Path, sg_finding_path: Path) 
         "<summary>Safety contract (machine-readable)</summary>",
     ):
         assert heading in text
-    assert "| 203.0.113.7/32 | 22/tcp | 1,067 | daily at 02:00 UTC | ✓ |" in text
+    assert "| 203.0.113.7/32 | 22/tcp | 1,067 | daily at 02:00 UTC · needs review | ✓ |" in text
+    assert (
+        "| 198.51.100.23/32 | 22/tcp | 3 | one_off · not kept: internet source seen on 1 day(s)"
+        in text
+    )
+    assert "89 days, except 1 likely scanner (listed below)." in text
     assert "needs review" in text
     assert "model_scope:" in text
     for banned in ("proven safe", "guaranteed", "100% safe", "zero risk"):

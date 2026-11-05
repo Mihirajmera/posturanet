@@ -37,6 +37,7 @@ class FlowRecord:
     proto: str
     hour: datetime
     count: int
+    bytes: int | None = None
 
 
 @dataclass
@@ -94,6 +95,9 @@ def aggregate(data: FlowData, resource_address: str) -> Observations:
                 port=port,
                 proto=proto,
                 count=sum(r.count for r in recs),
+                bytes=None
+                if any(r.bytes is None for r in recs)
+                else sum(r.bytes or 0 for r in recs),
                 first_seen=min(r.hour for r in recs),
                 last_seen=max(r.hour for r in recs) + timedelta(hours=1),
                 days_seen=len(days),
@@ -129,7 +133,7 @@ def aggregate(data: FlowData, resource_address: str) -> Observations:
 class FileSource:
     """JSON export:
     `{"enis": [...], "window": {"from", "to"}, "missing_hours": [...]?,
-      "records": [{"srcAddr", "dstPort", "protocol", "hour", "n"}]}`
+      "records": [{"srcAddr", "dstPort", "protocol", "hour", "n", "bytes"?}]}`
 
     Without `missing_hours`, coverage is computed from the record hours only (conservative).
     """
@@ -152,6 +156,7 @@ class FileSource:
                     proto=_proto(r["protocol"]),
                     hour=parse_ts(r["hour"]),
                     count=int(r.get("n", 1)),
+                    bytes=int(r["bytes"]) if "bytes" in r else None,
                 )
                 for r in raw.get("records", [])
             ]
@@ -180,9 +185,10 @@ class FileSource:
 # exists in custom log formats, and Logs Insights auto-parses only the default format. Filtering
 # on it would silently return zero inbound flows and make every rule look unused.
 _FLOW_QUERY = (
-    "fields srcAddr, dstAddr, dstPort, protocol, action, @timestamp"
+    "fields srcAddr, dstAddr, dstPort, protocol, action, bytes, @timestamp"
     ' | filter interfaceId in [{enis}] and action = "ACCEPT" and dstAddr in [{ips}]'
-    " | stats count(*) as n by srcAddr, dstPort, protocol, datefloor(@timestamp, 1h) as hour"
+    " | stats count(*) as n, sum(bytes) as b by srcAddr, dstPort, protocol,"
+    " datefloor(@timestamp, 1h) as hour"
 )
 _COVERAGE_QUERY = (
     "filter interfaceId in [{enis}] | stats count(*) as n by datefloor(@timestamp, 1h) as hour"
@@ -234,6 +240,7 @@ class LogsInsightsSource:
                             proto=_proto(row["protocol"]),
                             hour=parse_ts(row["hour"]),
                             count=int(row.get("n", "1")),
+                            bytes=int(row["b"]) if row.get("b") else None,
                         )
                     )
                 except (KeyError, ValueError) as exc:

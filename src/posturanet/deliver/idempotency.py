@@ -23,7 +23,7 @@ def contract_sha(contract: BehaviorContract) -> str:
     """Hash of what the contract requires, not of counts or dates that change every run."""
     rules = {
         k: sorted((r.cidr, r.port, r.proto) for r in getattr(contract, k))
-        for k in ("must_allow", "must_deny", "needs_review")
+        for k in ("must_allow", "must_deny", "needs_review", "not_kept")
     }
     return _sha(
         json.dumps({"resource": contract.resource, **rules}, sort_keys=True, separators=(",", ":"))

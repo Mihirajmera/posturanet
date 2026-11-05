@@ -151,7 +151,102 @@ def synthesize(
             ["raise synthesis.max_prefix_* or synthesis.rules_quota, or fix by hand"],
         )
     if result != z3.sat:
-        raise StageStop("fix", "the solver did not finish in time (result unknown)")
+        nested = solve_nested(needs, cands, quota)
+        if nested is None:
+            raise StageStop("fix", "the solver did not finish in time (result unknown)")
+        return Synthesis(open_rules, kept, sorted(nested), needs, already, outside)
     model = opt.model()
     chosen = [c for u, c in zip(use, cands, strict=True) if z3.is_true(model.eval(u))]
     return Synthesis(open_rules, kept, sorted(chosen), needs, already, outside)
+
+
+_INF = (float("inf"), 0)
+Cost = tuple[float, int]  # (exposed addresses, rules), compared lexicographically
+Plan = list[tuple[Cost, list[Rule]]]  # index k: best way to cover a subtree with <= k rules
+
+
+def _zero(quota: int) -> Plan:
+    """Covering nothing costs nothing, at every rule budget."""
+    none: list[Rule] = []
+    return [((0.0, 0), none) for _ in range(quota + 1)]
+
+
+def _merge(a: Plan, b: Plan, quota: int) -> Plan:
+    out: Plan = [(_INF, []) for _ in range(quota + 1)]
+    for i, (ca, ra) in enumerate(a):
+        if ca == _INF:
+            continue
+        for j, (cb, rb) in enumerate(b[: quota + 1 - i]):
+            if cb == _INF:
+                continue
+            cost = (ca[0] + cb[0], ca[1] + cb[1])
+            if cost < out[i + j][0]:
+                out[i + j] = (cost, ra + rb)
+    for k in range(1, quota + 1):  # "<= k rules": carry the better smaller plan forward
+        if out[k - 1][0] < out[k][0]:
+            out[k] = out[k - 1]
+    return out
+
+
+def solve_nested(needs: list[Need], cands: list[Rule], quota: int) -> list[Rule] | None:
+    """Same optimum as the Z3 model, for when Z3 runs out of time on many sources.
+
+    Candidates with the same ports and protocol are prefixes, so any two are nested or
+    disjoint. That makes them a forest, and the cheapest cover with at most `quota` rules is
+    a knapsack over subtrees: each node is either chosen (covering all of its subtree) or
+    left to its children. Returns None when no cover fits the quota.
+    """
+    total = _zero(quota)
+    groups: dict[tuple[int, int, str], list[Rule]] = defaultdict(list)
+    for c in cands:
+        groups[(c.from_port, c.to_port, c.proto)].append(c)
+    for _, members in sorted(groups.items()):
+        members.sort(key=lambda r: (r.net.prefixlen, int(r.net.network_address)))
+        parent: dict[Rule, Rule | None] = {}
+        for i, c in enumerate(members):
+            wider = [
+                p for p in members[:i] if p.net.prefixlen < c.net.prefixlen and _contains(p, c)
+            ]
+            parent[c] = max(wider, key=lambda p: p.net.prefixlen) if wider else None
+        children: dict[Rule | None, list[Rule]] = defaultdict(list)
+        for c, p in parent.items():
+            children[p].append(c)
+        group_needs = [n for n in needs if any(c.admits(n.net, n.port, n.proto) for c in members)]
+        # A need sits on the narrowest candidate that admits it: only it or an ancestor covers it.
+        own: dict[Rule, int] = defaultdict(int)
+        for n in group_needs:
+            narrowest = max(
+                (c for c in members if c.admits(n.net, n.port, n.proto)),
+                key=lambda c: c.net.prefixlen,
+            )
+            own[narrowest] += 1
+        for root in children[None]:
+            sub = _subtree(root, children, own, quota)
+            if sub is not None:
+                total = _merge(total, sub, quota)
+    best = total[quota]
+    return None if best[0] == _INF else best[1]
+
+
+def _subtree(
+    node: Rule, children: dict[Rule | None, list[Rule]], own: dict[Rule, int], quota: int
+) -> Plan | None:
+    """Best covers of the needs under `node`, indexed by rule count; None when it has none."""
+    below = _zero(quota)
+    any_need = own[node] > 0
+    for ch in children[node]:
+        sub = _subtree(ch, children, own, quota)
+        if sub is not None:
+            any_need = True
+            below = _merge(below, sub, quota)
+    if not any_need:
+        return None
+    take: Cost = (float(node.net.num_addresses), 1)
+    out: Plan = [(_INF, [])] + [(take, [node]) for _ in range(quota)]
+    if own[node] == 0:  # no need sits on this node, so its children alone may cover it
+        out = [min(x, y, key=lambda t: t[0]) for x, y in zip(out, below, strict=True)]
+    return out
+
+
+def _contains(outer: Rule, inner: Rule) -> bool:
+    return inner.net.version == outer.net.version and inner.net.subnet_of(outer.net)  # type: ignore[arg-type]
