@@ -283,14 +283,14 @@ def report(results: dict[str, list[Outcome]]) -> str:
         "**Addresses opened** sums every address (internal and internet) the fixes still allow on "
         "the finding's ports; lower is closer to least privilege.",
         "",
-        "## Per case",
+        "### Per case",
         "",
     ]
     by_id = {c.id: c for c in CASES}
     for cid, outs in results.items():
         case = by_id[cid]
         lines += [
-            f"### `{cid}`: {case.title}",
+            f"#### `{cid}`: {case.title}",
             "",
             case.why,
             "",
@@ -319,17 +319,25 @@ def report(results: dict[str, list[Outcome]]) -> str:
 
 
 def main() -> int:
+    from bench import iam, s3
+
     results = run()
+    s3_results = s3.run()
+    iam_results = iam.run()
     out_dir = Path(__file__).resolve().parent
-    (out_dir / "RESULTS.md").write_text(report(results), encoding="utf-8")
+    head, rest = report(results).split("\n", 1)
+    sg_text = f"{head}\n\n## Security groups (EC2.19-style findings)\n{rest}"
+    text = "\n".join([sg_text, "", *s3.report(s3_results), *iam.report(iam_results)])
+    (out_dir / "RESULTS.md").write_text(text.rstrip() + "\n", encoding="utf-8")
+    families = {"sg": results, "s3": s3_results, "iam": iam_results}
+    payload = {
+        name: {k: [asdict(o) | {"verdict": o.verdict} for o in v] for k, v in fam.items()}
+        for name, fam in families.items()
+    }
     (out_dir / "results.json").write_text(
-        json.dumps(
-            {k: [asdict(o) | {"verdict": o.verdict} for o in v] for k, v in results.items()},
-            indent=2,
-            sort_keys=True,
-        ),
-        encoding="utf-8",
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
-    for cid, outs in results.items():
-        print(f"{cid:22} " + "  ".join(f"{o.tool}={o.verdict}" for o in outs))
+    for fam in families.values():
+        for cid, outs in fam.items():
+            print(f"{cid:30} " + "  ".join(f"{o.tool}={o.verdict}" for o in outs))
     return 0

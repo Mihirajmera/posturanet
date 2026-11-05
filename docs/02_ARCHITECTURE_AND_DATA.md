@@ -87,7 +87,7 @@ posturanet/                         # FSL-1.1-ALv2 (this folder; becomes its own
   action/         action.yml  entrypoint.sh
   skills/posturanet/  SKILL.md  plugin.json
   tests/          unit/  integration/  fixtures/
-  bench/          cases/  harness.py
+  bench/          cases.py  s3.py  iam.py  common.py  run.py  README.md  RESULTS.md
 posturanet-pro/                     # private, commercial; imports posturanet.*; never imported by core
   src/posturanet_pro/  living/  gate/  triggers/  evidence_pack/  policy/  automerge/  connectors/  slack/
 ```
@@ -480,7 +480,7 @@ Copy code in. **Don't import from `postura-backend`.** Keep a header comment `# 
 | GitHub fakes | respx | PR create/update, duplicate detection, check runs |
 | Terraform | fixture repos under `tests/fixtures/tf/*` with local state | Locator, plan scope, render style |
 | Integration (nightly) | Real AWS sandbox on credits | End-to-end on a live SG with traffic generators |
-| Benchmark | `bench/` | PosturaNet vs a plain agent vs ASR: broken behavior, scope, correctness |
+| Benchmark | `bench/` | PosturaNet vs baseline fixes on 35 synthetic SG, S3 and IAM cases with written ground truth: outages, unneeded stops, scope (`python -m bench`, verdicts pinned in `tests/unit/test_bench.py`) |
 
 **Release gate:** zero wrongly-reported-safe results across unit, property, integration and benchmark.
 

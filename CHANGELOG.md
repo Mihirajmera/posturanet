@@ -36,6 +36,11 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 ### Changed
 - PR delivery is shared by every fix type (`deliver.github.push_pr`). SG fix PRs are unchanged.
 
+### Added (benchmark v1: S3 and IAM)
+- 22 new benchmark cases: 10 for S3 public access (websites, CloudFront with and without OAC, partners via a public policy, scrapers, no logs, an approved unknown requester) and 12 for IAM least privilege (data-plane S3, `iam:PassRole`, actions without action-level data, rare jobs inside and outside the tracking period, a young policy, admin `*`). Baselines: Block always and Skip websites (S3); Used actions only and Remove wildcard (IAM).
+- PosturaNet: S3 4 correct, 5 stopped (2 unneeded), 1 outage; IAM 6 correct, 5 stopped (1 unneeded), 1 outage. The best baselines have 3 (S3) and 7 (IAM) outages. Both PosturaNet outages are users invisible in the evidence window; they're listed in `bench/README.md`.
+- Verdicts are pinned in `tests/unit/test_bench.py`.
+
 ### Added (benchmark and SG contracts)
 - Benchmark v0 (`python -m bench`): 13 synthetic security group cases with written ground truth, scoring PosturaNet's real pipeline against three baseline fixes (revoke, private ranges only, allow all observed). Results and PosturaNet's open misses are in `bench/README.md` and `bench/RESULTS.md`. Case 13, `quarterly-dr-drill-approved`, runs the 120-day drill with an approved contract.
 - Contracts: `not_kept` list and per-rule `reason`. Rare or one-off internet sources, and internet sources with scan-sized flows (under 2,000 bytes per flow on average), are left out of the fix and listed in the PR as likely scanners. Every other internet source goes to `needs_review`. Moving a `not_kept` source to `must_allow` keeps it across regeneration.
