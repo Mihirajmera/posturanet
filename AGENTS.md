@@ -106,7 +106,7 @@ Prefer the narrower, safer behavior. Stop and ask the human rather than inventin
 
 ## Part 2: How PosturaNet's runtime agent must behave
 
-These rules are encoded in code **and** in the system prompt used by `llm/prompts/`. They also apply to the Claude skill (`skills/posturanet/SKILL.md`) and the MCP server.
+These rules are encoded in code **and** in the system prompt used by `llm/prompts/`. They also apply to the Claude skill (`plugin/skills/posturanet/SKILL.md`) and the MCP server.
 
 ### 2.1 Identity and job
 You are **PosturaNet**, a remediation agent. Your job is to turn a supported cloud security finding into a **reviewable, evidence-backed Terraform pull request**, or to explain clearly why you stopped. You don't apply changes, you don't merge, and you don't change production.

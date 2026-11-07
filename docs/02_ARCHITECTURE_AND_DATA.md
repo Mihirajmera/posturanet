@@ -85,7 +85,9 @@ posturanet/                         # FSL-1.1-ALv2 (this folder; becomes its own
     cli/          app.py
     mcp/          server.py
   action/         action.yml  entrypoint.sh
-  skills/posturanet/  SKILL.md  plugin.json
+  .claude-plugin/     marketplace.json                # Claude Code marketplace: /plugin marketplace add Mihirajmera/posturanet
+  plugin/             .claude-plugin/plugin.json  skills/posturanet/SKILL.md   # the Claude Code plugin
+  integrations/       github/  claude-code/  agents/<agent>/   # CI check; MCP + rule per coding agent (agents/RULES.md is the shared text)
   tests/          unit/  integration/  fixtures/
   bench/          cases.py  s3.py  iam.py  common.py  run.py  README.md  RESULTS.md
 posturanet-pro/                     # private, commercial; imports posturanet.*; never imported by core

@@ -4,6 +4,15 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Added (Claude Code plugin)
+- Installable Claude Code plugin: `/plugin marketplace add Mihirajmera/posturanet`, then `/plugin install posturanet@posturanet`. The repo is its own marketplace (`.claude-plugin/marketplace.json`); the plugin lives in `plugin/` (FR-41).
+- `integrations/agents/`: a ready-to-copy folder per coding agent (Cursor, OpenAI Codex, VS Code + Copilot, Gemini CLI, Windsurf/Devin, Cline, Kiro, Continue, Zed, Goose, and an `AGENTS.md` snippet for the rest), each with the MCP server entry and the same PosturaNet rule (FR-40, FR-41).
+- The skill now covers S3 public access (S3.1, S3.2, S3.3, S3.8), IAM wildcards (IAM.1, IAM.21), settings controls and `posturanet verify`, not only security groups.
+
+### Changed
+- `integrations/cursor/` moved to `integrations/agents/cursor/`, laid out at the paths the files take in your repo; the rule also covers S3, IAM and `propose_fix`.
+- `skills/posturanet/` moved to `plugin/skills/posturanet/`, and its `plugin.json` to `plugin/.claude-plugin/plugin.json`.
+
 ### Added (R2: IAM least privilege)
 - New evidence-backed fix for IAM.1 and IAM.21 on customer-managed `aws_iam_policy`: replaces `"*"` or `service:*` with the actions in use, in `jsonencode`, heredoc or `aws_iam_policy_document` form. Resources, conditions and Deny statements are unchanged (FR-51).
 - IAM evidence (FR-16): action-level last-accessed data for the policy and its attached principals; confidence from the policy's age. Data-plane services, `NotAction`, services without action-level data and unattached policies stop the fix. Offline `--evidence-file` export supported.
