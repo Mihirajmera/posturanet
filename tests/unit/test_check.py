@@ -87,7 +87,7 @@ def test_source_check_unknown_and_file_filter(
     unknown = check_source(tmp_repo, config)
     assert unknown.status == "UNKNOWN"
     assert "not a literal value" in unknown.results[0].reasons[0]
-    assert unknown.summary == "UNKNOWN · some planned rules can't be known from the source alone"
+    assert unknown.summary == "UNKNOWN · some planned changes can't be judged from the source alone"
 
     other = check_source(tmp_repo, config, [tmp_repo / "main.tf"])
     assert other.status == "PASS" and other.results == []

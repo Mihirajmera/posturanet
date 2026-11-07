@@ -69,9 +69,10 @@ def claude_code(event_text: str, repo: Path) -> str:
     if result.status == "BLOCK":
         reason = (
             report
-            + "\nThis edit removes access that real traffic uses, or reopens a denied network. "
-            "Revert or adjust the ingress so the contract holds, or ask the user to update the "
-            "contract with the owner's approval. Do not edit the contract yourself."
+            + "\nThis edit removes access that real usage depends on, or reopens something the "
+            "contract keeps closed. Revert or adjust the change so the contract holds, or ask the "
+            "user to update the contract with the owner's approval. Do not edit the contract "
+            "yourself."
         )
         return json.dumps({"decision": "block", "reason": reason}) + "\n"
     if result.status == "UNKNOWN":

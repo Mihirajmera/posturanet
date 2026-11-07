@@ -320,14 +320,22 @@ def _policy_document(path: Path, text: str, line: int) -> list[Statement]:
     return out
 
 
-def find_document(directory: Path, file: Path, line: int) -> PolicyDoc:
-    """The policy document of the `aws_iam_policy` block at `file:line`."""
+@dataclass
+class _Located:
+    form: Literal["jsonencode", "heredoc", "policy_document"]
+    file: Path
+    text: str
+    line: int
+    root: Node | None = None  # the object literal, for jsonencode and heredoc
+
+
+def _locate(directory: Path, file: Path, line: int) -> _Located:
     text = file.read_bytes().decode("utf-8").replace("\r\n", "\n")
     blk = resource_block(text, line)
     body = text[blk.open + 1 : blk.end - 1]
     m = re.search(r"(?m)^[ \t]*policy[ \t]*=[ \t]*", body)
     if m is None:
-        raise Unsupported("the aws_iam_policy has no policy argument")
+        raise Unsupported("the resource has no policy argument")
     vs = blk.open + 1 + m.end()
 
     hd = _HEREDOC.match(text, vs)
@@ -337,8 +345,7 @@ def find_document(directory: Path, file: Path, line: int) -> PolicyDoc:
         cm = close.search(text, hd.end())
         if cm is None:
             raise Unsupported("unterminated heredoc in the policy")
-        root = _Parser(text, cm.start()).value(hd.end())
-        return PolicyDoc("heredoc", file, text, line, statements_from_object(text, root))
+        return _Located("heredoc", file, text, line, _Parser(text, cm.start()).value(hd.end()))
 
     if text.startswith("jsonencode(", vs):
         open_ = vs + len("jsonencode")
@@ -346,7 +353,7 @@ def find_document(directory: Path, file: Path, line: int) -> PolicyDoc:
         root = _Parser(text, close_).value(open_ + 1)
         if _Parser(text, close_).ws(root.end) != close_:
             raise Unsupported("jsonencode() holds more than one literal object")
-        return PolicyDoc("jsonencode", file, text, line, statements_from_object(text, root))
+        return _Located("jsonencode", file, text, line, root)
 
     expr_end = text.find("\n", vs)
     expr = text[vs : expr_end if expr_end != -1 else len(text)].strip()
@@ -358,10 +365,93 @@ def find_document(directory: Path, file: Path, line: int) -> PolicyDoc:
             header = rf'(?m)^[ \t]*data[ \t]+"aws_iam_policy_document"[ \t]+"{re.escape(name)}"'
             dm = re.search(header + r"[ \t]*\{", t)
             if dm:
-                dline = t.count("\n", 0, dm.start()) + 1
-                return PolicyDoc("policy_document", tf, t, dline, _policy_document(tf, t, dline))
+                return _Located("policy_document", tf, t, t.count("\n", 0, dm.start()) + 1)
         raise Unsupported(f'data "aws_iam_policy_document" "{name}" not found in this module')
-    raise Unsupported(f"policy = {expr[:40]} isn't a literal document PosturaNet can edit")
+    raise Unsupported(f"policy = {expr[:40]} isn't a literal document PosturaNet can read")
+
+
+def find_document(directory: Path, file: Path, line: int) -> PolicyDoc:
+    """The policy document of the `aws_iam_policy` block at `file:line`."""
+    loc = _locate(directory, file, line)
+    if loc.root is not None:
+        statements = statements_from_object(loc.text, loc.root)
+        return PolicyDoc(loc.form, file, loc.text, line, statements)
+    statements = _policy_document(loc.file, loc.text, loc.line)
+    return PolicyDoc("policy_document", loc.file, loc.text, loc.line, statements)
+
+
+def to_value(node: Node) -> Any:
+    """A JSON value from a literal node; references and interpolation are Unsupported."""
+    if node.kind == "obj":
+        return {k: to_value(v) for k, v in node.items}
+    if node.kind == "list":
+        return [to_value(e) for e in node.elems]
+    if node.kind in ("str", "lit"):
+        return node.value
+    raise Unsupported(f"{str(node.value)[:40]} isn't a literal; PosturaNet can't read it")
+
+
+def policy_json(directory: Path, file: Path, line: int) -> dict[str, Any]:
+    """The whole `policy` of the resource at `file:line` as JSON: principals and conditions
+    included, for checking changes (not editing them)."""
+    loc = _locate(directory, file, line)
+    if loc.root is not None:
+        doc = to_value(loc.root)
+        if not isinstance(doc, dict):
+            raise Unsupported("the policy is not an object literal")
+        return doc
+    return {"Version": "2012-10-17", "Statement": _document_statements(loc.text, loc.line)}
+
+
+def _document_statements(text: str, line: int) -> list[dict[str, Any]]:
+    """`statement` blocks of an `aws_iam_policy_document` in IAM JSON shape."""
+    blk = resource_block(text, line)
+    out: list[dict[str, Any]] = []
+    for e in entries(text, blk):
+        if e.kind == "block" and e.name == "dynamic":
+            raise Unsupported("the policy document uses a dynamic statement")
+        if e.kind == "attr" and e.name.endswith(("policy_documents", "_json")):
+            raise Unsupported(f"the policy document merges {e.name}")
+        if e.kind != "block" or e.name != "statement":
+            continue
+        sblk = _child(text, e)
+        st: dict[str, Any] = {"Effect": "Allow"}
+        keys = {
+            "sid": "Sid",
+            "effect": "Effect",
+            "actions": "Action",
+            "not_actions": "NotAction",
+            "resources": "Resource",
+            "not_resources": "NotResource",
+        }
+        for a in entries(text, sblk):
+            if a.kind == "attr" and a.name in keys:
+                try:
+                    st[keys[a.name]] = parse_literal(text[a.value_start : a.end])
+                except _NonLiteral as exc:
+                    raise Unsupported(f"{a.name} is not a literal") from exc
+            elif a.kind == "block" and a.name in ("principals", "not_principals"):
+                inner = {b.name: b for b in entries(text, _child(text, a)) if b.kind == "attr"}
+                try:
+                    ptype = parse_literal(text[inner["type"].value_start : inner["type"].end])
+                    ids = parse_literal(
+                        text[inner["identifiers"].value_start : inner["identifiers"].end]
+                    )
+                except (KeyError, _NonLiteral) as exc:
+                    raise Unsupported(f"{a.name} is not a literal") from exc
+                key = "Principal" if a.name == "principals" else "NotPrincipal"
+                if ptype == "*":
+                    st[key] = "*"
+                else:
+                    st.setdefault(key, {}).setdefault(str(ptype), []).extend(ids)
+            elif a.kind == "block" and a.name == "condition":
+                st.setdefault("Condition", {})["(block)"] = True
+            elif a.kind == "block" and a.name == "dynamic":
+                raise Unsupported("the policy document uses a dynamic block")
+        out.append(st)
+    if not out:
+        raise Unsupported("the policy document has no statement blocks")
+    return out
 
 
 def _match_paren(text: str, open_: int) -> int:

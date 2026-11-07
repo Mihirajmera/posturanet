@@ -1,11 +1,18 @@
 # Add PosturaNet to your pipeline
 
 PosturaNet's contract check runs where you already work. It answers one question about a
-security group change, whoever wrote it, a person or an AI agent: **does this still allow every
-source that really uses the group, and does it keep denied networks closed?**
+change, whoever wrote it, a person or an AI agent: **does everything that really uses this
+resource keep working, and does what the contract keeps closed stay closed?**
 
-It needs a behavior contract for the group (`posturanet contract build <sg-id>`, then merge the
-PR that adds `posturanet/contracts/<address>.yaml`). Groups without a contract are not checked.
+| Contract kind | Resources | BLOCK when |
+|---|---|---|
+| `network` | `aws_security_group` | a `must_allow` source is cut off, a `must_deny` network opened, or the group deleted |
+| `s3_public` | `aws_s3_bucket_public_access_block`, `aws_s3_account_public_access_block`, `aws_s3_bucket_policy` | a Block Public Access setting is off or the block deleted, a policy allows `Principal *`, a policy denies a `must_keep` requester, or (with a plan) a cross-account requester loses its grant |
+| `iam` | `aws_iam_policy` | a `must_allow` action is no longer allowed or is denied, a `must_remove` wildcard comes back, or the policy is deleted |
+
+It needs a contract for the resource: `posturanet contract build <sg-id>` for a group, or the
+draft that `posturanet fix` writes for an S3 or IAM fix; merge the PR that adds
+`posturanet/contracts/<address>.yaml`. Resources without a contract are not checked.
 
 | Result | Meaning | Exit code | Check run |
 |---|---|---|---|
@@ -14,7 +21,10 @@ PR that adds `posturanet/contracts/<address>.yaml`). Groups without a contract a
 | `UNKNOWN` | PosturaNet can't judge it (computed values, `dynamic` blocks, remote modules) | 3 | `neutral` |
 
 UNKNOWN is never shown as green. Z3 checks cover ingress CIDR, port and protocol only; security
-group references, prefix lists and egress are outside the model.
+group references, prefix lists and egress are outside the model. For S3 and IAM, policy
+conditions aren't evaluated (a conditional grant or Deny is UNKNOWN, except a TLS-only Deny), and
+IAM resources are outside the model. Without a plan, a cross-account requester with no grant in
+the policy is UNKNOWN: it may get in another way.
 
 ## Two ways to check
 
