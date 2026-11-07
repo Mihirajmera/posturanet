@@ -56,19 +56,24 @@ To publish a GitHub check run from another CI, add `--github-check --sha <commit
 `GITHUB_TOKEN` (with `checks: write`) and `GITHUB_REPOSITORY`.
 
 ## 3. Claude Code
-Install the plugin in [`../skills/posturanet`](../skills/posturanet) (skill, MCP server and hook),
-or copy [`claude-code/settings.json`](claude-code/settings.json) into `.claude/settings.json` and
+Install the plugin (skill, MCP server and hook) from this repo's marketplace, after
+`pip install "posturanet[mcp]"`:
+```text
+/plugin marketplace add Mihirajmera/posturanet
+/plugin install posturanet@posturanet
+```
+The plugin lives in [`../plugin`](../plugin). Or copy [`claude-code/settings.json`](claude-code/settings.json) into `.claude/settings.json` and
 [`claude-code/.mcp.json`](claude-code/.mcp.json) into the repo root.
 
 After every edit to a `.tf` file, the hook runs `posturanet hook claude-code`. On BLOCK, Claude
 gets the reason and fixes its own change before going on. On UNKNOWN it is told to check with a
 plan. The hook only reads the file path from the event and never writes anything.
 
-## 4. Cursor and other MCP agents
-Copy [`cursor/mcp.json`](cursor/mcp.json) to `.cursor/mcp.json` and
-[`cursor/posturanet.mdc`](cursor/posturanet.mdc) to `.cursor/rules/`. The rule tells the agent to
-call `check_change` with the edited files and stop on BLOCK. Any MCP client works the same way:
-run `posturanet mcp` and call `check_change`.
+## 4. Cursor, Codex, Copilot, Gemini, Windsurf, Cline, Kiro, Continue, Zed, Goose
+[`agents/`](agents/README.md) has a ready-made folder per agent: its MCP server entry and a rule
+that tells it to call `check_change` with the edited files and stop on BLOCK. Copy the folder
+into your repo root. Any other MCP client works the same way: run `posturanet mcp` and call
+`check_change`.
 
 ## What PosturaNet never does here
 No AWS writes (the role is read-only), no `terraform apply`, no merge, no state lock

@@ -175,7 +175,7 @@ Writing the fix is cheap. Everything around it is expensive and risky, so backlo
 - **FR-38** CLI commands: `init`, `fix`, `fixes list|show`, `contract build|check`, `verify`, `evidence export|verify`, `license status`.
 - **FR-39** GitHub Action supporting `workflow_dispatch`, schedule, `repository_dispatch` (pro), `pull_request` (pro gate).
 - **FR-40** MCP server (stdio) with tools `explain_finding`, `propose_fix`, `check_change` (read-only) and `open_fix_pr` (needs confirmation).
-- **FR-41** Claude skill (`skills/posturanet/SKILL.md`) describing when and how to call the tools.
+- **FR-41** Claude skill (`plugin/skills/posturanet/SKILL.md`) describing when and how to call the tools, shipped as a Claude Code plugin (`plugin/`) through the repo's marketplace (`.claude-plugin/marketplace.json`).
 
 ### Licensing
 - **FR-42** Verify Ed25519-signed license keys offline. Enable only the features listed in the key.
