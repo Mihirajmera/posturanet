@@ -1,0 +1,8 @@
+extensions:
+  posturanet:
+    name: PosturaNet
+    cmd: posturanet
+    args: [mcp]
+    enabled: true
+    type: stdio
+    timeout: 300

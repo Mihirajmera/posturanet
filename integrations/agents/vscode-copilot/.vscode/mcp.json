@@ -1,0 +1,11 @@
+{
+  "servers": {
+    "posturanet": {
+      "type": "stdio",
+      "command": "posturanet",
+      "args": [
+        "mcp"
+      ]
+    }
+  }
+}

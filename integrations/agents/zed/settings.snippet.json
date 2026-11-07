@@ -1,0 +1,11 @@
+{
+  "context_servers": {
+    "posturanet": {
+      "command": "posturanet",
+      "args": [
+        "mcp"
+      ],
+      "env": {}
+    }
+  }
+}

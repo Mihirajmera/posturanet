@@ -4,7 +4,7 @@
 
 PosturaNet is a source-available remediation agent for AWS + Terraform. It takes a security finding, locates the owning Terraform and team, learns what actually uses the resource from flow logs and CloudTrail, records that as a *behavior contract*, and opens a pull request with the smallest fix that keeps every observed behavior working. It runs in your CI with a read-only role and never changes production.
 
-It also checks every security group change, written by a person or an AI agent, against those contracts before it merges: a `PosturaNet contract` check on PRs, a step in any CI, and a hook for Claude Code and Cursor. See [integrations/](integrations/README.md).
+It also checks every security group change, written by a person or an AI agent, against those contracts before it merges: a `PosturaNet contract` check on PRs, a step in any CI, a Claude Code plugin, and MCP setups for Cursor, Codex, Copilot, Gemini, Windsurf, Cline, Kiro, Continue, Zed and Goose. See [integrations/](integrations/README.md).
 
 > Status: early access (0.1.0). Security group ingress only.
 
@@ -13,6 +13,12 @@ It also checks every security group change, written by a person or an AI agent, 
 pip install posturanet            # add [mcp] for the MCP server: pip install "posturanet[mcp]"
 posturanet init                   # prints the read-only IAM policy PosturaNet needs
 ```
+In Claude Code, add the plugin (skill, MCP server and a hook that checks every `.tf` edit):
+```text
+/plugin marketplace add Mihirajmera/posturanet
+/plugin install posturanet@posturanet
+```
+Cursor, Codex, Copilot, Gemini, Windsurf, Cline, Kiro, Continue, Zed, Goose and other MCP clients: see [integrations/agents/](integrations/agents/README.md).
 Python 3.11+. The GitHub Action is `Mihirajmera/posturanet/action@v0.1.0`; see [integrations/](integrations/README.md).
 
 ## Try it (offline, no AWS)

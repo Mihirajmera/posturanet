@@ -1,5 +1,0 @@
-{
-  "mcpServers": {
-    "posturanet": { "command": "posturanet", "args": ["mcp"] }
-  }
-}

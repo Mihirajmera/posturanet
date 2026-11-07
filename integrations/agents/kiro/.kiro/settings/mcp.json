@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "posturanet": {
+      "command": "posturanet",
+      "args": [
+        "mcp"
+      ],
+      "disabled": false,
+      "autoApprove": [
+        "explain_finding",
+        "propose_fix",
+        "check_change"
+      ]
+    }
+  }
+}

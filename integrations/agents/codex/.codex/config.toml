@@ -1,0 +1,3 @@
+[mcp_servers.posturanet]
+command = "posturanet"
+args = ["mcp"]
