@@ -8,6 +8,22 @@ It also checks every security group, S3 and IAM policy change, written by a pers
 
 > Status: early access (0.2.0). Security groups, S3 public access, IAM least privilege and 52 settings controls.
 
+## How it works
+
+**From finding to pull request.** Nine stages, each a plain function. Any stage that lacks what it needs stops with the reason and the next step, and no PR is opened:
+
+![PosturaNet pipeline: ingest, locate, evidence, contract, synthesize, validate, deliver, you merge, verify, record](https://raw.githubusercontent.com/Mihirajmera/posturanet/main/docs/media/diagram-pipeline.svg)
+
+**Every later change is checked.** The contract records what must keep working. A change by a person or an AI coding agent is checked against it in the agent, over MCP, or in CI:
+
+![PosturaNet contract check: a change goes through the Claude Code hook, MCP or CI, and comes out PASS, UNKNOWN or BLOCK](https://raw.githubusercontent.com/Mihirajmera/posturanet/main/docs/media/diagram-change-check.svg)
+
+**It runs where your code runs.** A read-only role, your own LLM if you use one, and no customer data sent anywhere:
+
+![Where PosturaNet runs: inside your environment, with only an optional license heartbeat leaving it](https://raw.githubusercontent.com/Mihirajmera/posturanet/main/docs/media/diagram-trust.svg)
+
+Diagrams are drawn by `python docs/media/diagrams.py`; the full design is in [docs/02_ARCHITECTURE_AND_DATA.md](docs/02_ARCHITECTURE_AND_DATA.md).
+
 ## Install
 ```bash
 pip install posturanet            # add [mcp] for the MCP server: pip install "posturanet[mcp]"
@@ -27,19 +43,19 @@ Recorded from real runs against the synthetic fixtures in `tests/fixtures/` (reg
 
 **A security group with SSH open to the internet.** PosturaNet reads 89 days of flow logs, keeps the four sources that really connect, drops a one-off scanner, flags the outside partner for review, and proposes the smallest change:
 
-![posturanet fix on a security group](docs/media/fix-security-group.svg)
+![posturanet fix on a security group](https://raw.githubusercontent.com/Mihirajmera/posturanet/main/docs/media/fix-security-group.svg)
 
 **An IAM policy with `ec2:*`.** Shrunk to the three actions IAM's last-accessed data shows in use, with every unknown spelled out:
 
-![posturanet fix on an IAM policy](docs/media/fix-iam.svg)
+![posturanet fix on an IAM policy](https://raw.githubusercontent.com/Mihirajmera/posturanet/main/docs/media/fix-iam.svg)
 
 **A person or an AI agent puts the wildcard back.** The contract check blocks the edit and says which contract line it breaks:
 
-![posturanet contract check blocking an edit](docs/media/check-block.svg)
+![posturanet contract check blocking an edit](https://raw.githubusercontent.com/Mihirajmera/posturanet/main/docs/media/check-block.svg)
 
 **Inside a coding agent.** With the Claude Code plugin, this is what Claude is told right after its edit, so it fixes its own change before going on. Other agents get the same result from the MCP tool `check_change` ([setup per agent](integrations/agents/README.md)):
 
-![the PosturaNet hook reply to Claude Code](docs/media/agent-hook.svg)
+![the PosturaNet hook reply to Claude Code](https://raw.githubusercontent.com/Mihirajmera/posturanet/main/docs/media/agent-hook.svg)
 
 ## Try it (offline, no AWS)
 From a clone of this repo:
