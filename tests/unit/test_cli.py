@@ -21,14 +21,10 @@ EXPECTED_DRY_RUN = f"""PosturaNet {__version__} - fix - {{target}}
   [-]  validate    dry run: pass --evidence-file to go further
   [-]  deliver     dry run: pass --evidence-file to go further
 
-Result   DRY RUN - ingest and locate complete - no AWS calls, no changes
-
-Unknowns
-  - drift: not checked (needs terraform plan)
-
-Next
-  - re-run with --evidence-file <flows.json> to see the proposed fix offline
-  - or drop --dry-run to read flow logs with the read-only role
+Result      DRY RUN - ingest and locate complete - no AWS calls, no changes
+Unknowns    drift: not checked (needs terraform plan)
+Next        -> re-run with --evidence-file <flows.json> to see the proposed fix offline
+            -> or drop --dry-run to read flow logs with the read-only role
 """
 
 
@@ -58,7 +54,7 @@ def test_stop_exits_3(basic_repo: Path) -> None:
     )
     assert result.exit_code == 3
     assert "[x]  locate      sg-ffffffff is not in the Terraform state" in result.output
-    assert "Result   STOPPED - locate stopped - no PR opened" in result.output
+    assert "Result      STOPPED - locate stopped - no PR opened" in result.output
     assert re.search(r"\[-\]\s+evidence\s+not run", result.output)
 
 
@@ -80,7 +76,7 @@ def test_dry_run_with_evidence(sg_finding_path: Path, basic_repo: Path, flows_pa
     assert "[!]  contract    built (not written)" in out
     assert "Proposed change" in out
     assert '+    cidr_blocks = ["10.0.4.12/32", "10.0.4.37/32", "10.0.5.9/32"' in out
-    assert "Result   DRY RUN - risk medium - disruption none - no AWS calls, no changes" in out
+    assert "Result      DRY RUN - risk medium - disruption none - no AWS calls, no changes" in out
 
 
 def test_window_validation(sg_finding_path: Path, basic_repo: Path) -> None:

@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1136" height="735" viewBox="0 0 1136 735" role="img" aria-label="Security group: SSH open to the internet">
+<title>Security group: SSH open to the internet</title>
+<style>
+.t { font: 13.5px 'JetBrains Mono','Cascadia Mono',Consolas,monospace; white-space: pre; }
+.ln { opacity: 0; animation: show .01s forwards; }
+.type { transform-box: fill-box; transform-origin: right; animation: type 1.60s steps(105) forwards; }
+@keyframes show { to { opacity: 1; } }
+@keyframes type { to { transform: scaleX(0); } }
+@media (prefers-reduced-motion: reduce) { .ln { opacity: 1; animation: none; } .type { display: none; } }
+</style>
+<rect width="1136" height="735" rx="10" fill="#0B0E0F"/>
+<rect width="1136" height="34" rx="10" fill="#1A1F1D"/>
+<rect y="24" width="1136" height="10" fill="#1A1F1D"/>
+<circle cx="20" cy="17" r="6" fill="#E5484D"/><circle cx="40" cy="17" r="6" fill="#EAB308"/><circle cx="60" cy="17" r="6" fill="#2FBF71"/>
+<text x="568.0" y="22" text-anchor="middle" fill="#919693" style="font: 12px 'JetBrains Mono','Cascadia Mono',Consolas,monospace">Security group: SSH open to the internet</text>
+<text x="18" y="65" class="t"><tspan fill="#2FBF71">$ </tspan><tspan fill="#E8E6E1">posturanet fix findings/sg_ssh_open.json --dry-run --repo tf/basic --evidence-file flows/bastion_90d.json</tspan></text>
+<rect x="34.8" y="52" width="882.0" height="19" fill="#0B0E0F" class="type"/>
+<text x="18" y="103" class="t ln" style="animation-delay:1.95s"><tspan fill="#E8E6E1" font-weight="700">PosturaNet</tspan><tspan fill="#E8E6E1"> </tspan><tspan fill="#919693">0.1.0</tspan><tspan fill="#E8E6E1"> · fix · findings/sg_ssh_open.json</tspan></text>
+<text x="18" y="122" class="t ln" style="animation-delay:2.02s"></text>
+<text x="18" y="141" class="t ln" style="animation-delay:2.09s"><tspan fill="#E8E6E1">  </tspan><tspan fill="#2FBF71">✓</tspan><tspan fill="#E8E6E1"> </tspan><tspan fill="#E8E6E1" font-weight="700">ingest      </tspan><tspan fill="#E8E6E1">securityhub EC2.19 · sg-0a91f3c2 · HIGH</tspan></text>
+<text x="18" y="160" class="t ln" style="animation-delay:2.16s"><tspan fill="#E8E6E1">  </tspan><tspan fill="#2FBF71">✓</tspan><tspan fill="#E8E6E1"> </tspan><tspan fill="#E8E6E1" font-weight="700">locate      </tspan><tspan fill="#E8E6E1">modules/bastion/main.tf:5 → module.bastion.aws_security_group.this · @example-org/platform-network</tspan></text>
+<text x="18" y="179" class="t ln" style="animation-delay:2.23s"><tspan fill="#E8E6E1">  </tspan><tspan fill="#2FBF71">✓</tspan><tspan fill="#E8E6E1"> </tspan><tspan fill="#E8E6E1" font-weight="700">evidence    </tspan><tspan fill="#E8E6E1">flow logs (file) · 89 days · confidence high · 5 sources</tspan></text>
+<text x="18" y="198" class="t ln" style="animation-delay:2.30s"><tspan fill="#E8E6E1">                  10.0.5.9/32          6,218 conns · 22/tcp · daily</tspan></text>
+<text x="18" y="217" class="t ln" style="animation-delay:2.37s"><tspan fill="#E8E6E1">                  10.0.4.12/32         6,002 conns · 22/tcp · daily</tspan></text>
+<text x="18" y="236" class="t ln" style="animation-delay:2.44s"><tspan fill="#E8E6E1">                  10.0.4.37/32         5,756 conns · 22/tcp · daily</tspan></text>
+<text x="18" y="255" class="t ln" style="animation-delay:2.51s"><tspan fill="#E8E6E1">                  203.0.113.7/32       1,067 conns · 22/tcp · daily at 02:00 UTC</tspan><tspan fill="#EAB308">  ! external, review owner</tspan></text>
+<text x="18" y="274" class="t ln" style="animation-delay:2.58s"><tspan fill="#E8E6E1">                  198.51.100.23/32         3 conns · 22/tcp · one_off</tspan><tspan fill="#EAB308">  ! not kept, likely a scanner</tspan></text>
+<text x="18" y="293" class="t ln" style="animation-delay:2.65s"><tspan fill="#E8E6E1">  </tspan><tspan fill="#EAB308">!</tspan><tspan fill="#E8E6E1"> </tspan><tspan fill="#E8E6E1" font-weight="700">contract    </tspan><tspan fill="#E8E6E1">built (not written) · posturanet/contracts/module.bastion.aws_security_group.this.yaml · 1 source needs review</tspan></text>
+<text x="18" y="312" class="t ln" style="animation-delay:2.72s"><tspan fill="#E8E6E1">  </tspan><tspan fill="#2FBF71">✓</tspan><tspan fill="#E8E6E1"> </tspan><tspan fill="#E8E6E1" font-weight="700">fix         </tspan><tspan fill="#E8E6E1">0.0.0.0/0:22/tcp → 10.0.4.12/32:22/tcp, 10.0.4.37/32:22/tcp, 10.0.5.9/32:22/tcp, 203.0.113.7/32:22/tcp (4 rules)</tspan></text>
+<text x="18" y="331" class="t ln" style="animation-delay:2.79s"><tspan fill="#E8E6E1">  </tspan><tspan fill="#EAB308">!</tspan><tspan fill="#E8E6E1"> </tspan><tspan fill="#E8E6E1" font-weight="700">validate    </tspan><tspan fill="#E8E6E1">4/6 required checks PASS · tflint SKIPPED (not installed) · checkov SKIPPED (not installed) · INCOMPLETE (dry run)</tspan></text>
+<text x="18" y="350" class="t ln" style="animation-delay:2.86s"><tspan fill="#E8E6E1">                validate SKIPPED · dry run: no terraform init/plan</tspan></text>
+<text x="18" y="369" class="t ln" style="animation-delay:2.93s"><tspan fill="#E8E6E1">                plan_scope SKIPPED · dry run: no terraform init/plan</tspan></text>
+<text x="18" y="388" class="t ln" style="animation-delay:3.00s"><tspan fill="#E8E6E1">  </tspan><tspan fill="#919693">–</tspan><tspan fill="#E8E6E1"> </tspan><tspan fill="#E8E6E1" font-weight="700">deliver     </tspan><tspan fill="#E8E6E1">dry run</tspan></text>
+<text x="18" y="407" class="t ln" style="animation-delay:3.07s"></text>
+<text x="18" y="426" class="t ln" style="animation-delay:3.14s"><tspan fill="#E8E6E1" font-weight="700">Proposed change</tspan></text>
+<text x="18" y="445" class="t ln" style="animation-delay:3.21s"><tspan fill="#E8E6E1">  </tspan><tspan fill="#E8E6E1" font-weight="700">--- a/modules/bastion/main.tf</tspan></text>
+<text x="18" y="464" class="t ln" style="animation-delay:3.28s"><tspan fill="#E8E6E1">  </tspan><tspan fill="#E8E6E1" font-weight="700">+++ b/modules/bastion/main.tf</tspan></text>
+<text x="18" y="483" class="t ln" style="animation-delay:3.35s"><tspan fill="#E8E6E1">  </tspan><tspan fill="#4C6EF5">@@ -11,6 +11,6 @@</tspan></text>
+<text x="18" y="502" class="t ln" style="animation-delay:3.42s"><tspan fill="#E8E6E1">  </tspan><tspan fill="#919693">     from_port   = 22</tspan></text>
+<text x="18" y="521" class="t ln" style="animation-delay:3.49s"><tspan fill="#E8E6E1">  </tspan><tspan fill="#919693">     to_port     = 22</tspan></text>
+<text x="18" y="540" class="t ln" style="animation-delay:3.56s"><tspan fill="#E8E6E1">  </tspan><tspan fill="#919693">     protocol    = &quot;tcp&quot;</tspan></text>
+<text x="18" y="559" class="t ln" style="animation-delay:3.63s"><tspan fill="#E8E6E1">  </tspan><tspan fill="#E5484D">-    cidr_blocks = [&quot;0.0.0.0/0&quot;]</tspan></text>
+<text x="18" y="578" class="t ln" style="animation-delay:3.70s"><tspan fill="#E8E6E1">  </tspan><tspan fill="#2FBF71">+    cidr_blocks = [&quot;10.0.4.12/32&quot;, &quot;10.0.4.37/32&quot;, &quot;10.0.5.9/32&quot;, &quot;203.0.113.7/32&quot;]</tspan></text>
+<text x="18" y="597" class="t ln" style="animation-delay:3.77s"><tspan fill="#E8E6E1">  </tspan><tspan fill="#919693">   }</tspan></text>
+<text x="18" y="616" class="t ln" style="animation-delay:3.84s"><tspan fill="#E8E6E1">  </tspan><tspan fill="#919693"> }</tspan></text>
+<text x="18" y="635" class="t ln" style="animation-delay:3.91s"></text>
+<text x="18" y="654" class="t ln" style="animation-delay:3.98s"><tspan fill="#E8E6E1" font-weight="700">Result      </tspan><tspan fill="#4C6EF5">DRY RUN</tspan><tspan fill="#E8E6E1"> · risk medium · disruption none · no AWS calls, no changes</tspan></text>
+<text x="18" y="673" class="t ln" style="animation-delay:4.05s"><tspan fill="#E8E6E1" font-weight="700">Unknowns    </tspan><tspan fill="#E8E6E1">behavior rarer than once per 89 days is not observed</tspan></text>
+<text x="18" y="692" class="t ln" style="animation-delay:4.12s"><tspan fill="#E8E6E1" font-weight="700">Next        </tspan><tspan fill="#4C6EF5">→ </tspan><tspan fill="#E8E6E1">confirm the owner of 1 needs-review source(s)</tspan></text>
+<text x="18" y="711" class="t ln" style="animation-delay:4.19s"><tspan fill="#E8E6E1">            </tspan><tspan fill="#4C6EF5">→ </tspan><tspan fill="#E8E6E1">drop --dry-run to run terraform plan with the read-only role</tspan></text>
+</svg>
