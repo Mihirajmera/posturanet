@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "posturanet"
-version = "0.1.0"
+version = "0.2.0"
 description = "Evidence-backed remediation agent for AWS + Terraform. Fixes cloud security issues without breaking prod."
 readme = "README.md"
 license = "FSL-1.1-ALv2"

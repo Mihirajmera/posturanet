@@ -4,6 +4,8 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-06
+
 ### Changed (CLI output)
 - Color in the terminal, mapped to the design-system tokens: status symbols, bold labels, the result word by state, yellow review notes, a colored diff and blue next-step arrows. Off for pipes, JSON, hooks, `NO_COLOR` and `TERM=dumb`; `FORCE_COLOR` turns it on.
 - `Result`, `Unknowns` and `Next` use the 12-column label layout from the design system, with `→` before each next step.
