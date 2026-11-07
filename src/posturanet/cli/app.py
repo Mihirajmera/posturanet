@@ -19,6 +19,7 @@ from posturanet.evidence import FileSource
 from posturanet.models import RunRecord
 from posturanet.models.config import load_config
 from posturanet.output import banner, console
+from posturanet.output.style import Style, wants_color
 from posturanet.pipeline import Context, Mode, run_fix
 
 if TYPE_CHECKING:
@@ -118,7 +119,8 @@ def _emit(record: RunRecord, output_format: OutputFormat, ascii_mode: bool) -> N
         console.write(console.render_json(record))
     else:
         use_ascii = ascii_mode or console.wants_ascii(sys.stdout)
-        console.write(console.render_text(record, ascii_mode=use_ascii))
+        style = Style(wants_color(sys.stdout))
+        console.write(console.render_text(record, ascii_mode=use_ascii, style=style))
     raise typer.Exit(record.exit_code)
 
 
@@ -246,7 +248,9 @@ def contract_check(
             doc["check_url"] = check_url
         console.write(json.dumps(doc, indent=2) + "\n")
     else:
-        console.write(console.render_gate(result, ascii_mode or console.wants_ascii(sys.stdout)))
+        use_ascii = ascii_mode or console.wants_ascii(sys.stdout)
+        style = Style(wants_color(sys.stdout))
+        console.write(console.render_gate(result, use_ascii, style))
     raise typer.Exit(_GATE_EXIT[result.status])
 
 

@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="817" height="393" viewBox="0 0 817 393" role="img" aria-label="Claude Code hook: what the agent is told after its edit">
+<title>Claude Code hook: what the agent is told after its edit</title>
+<style>
+.t { font: 13.5px 'JetBrains Mono','Cascadia Mono',Consolas,monospace; white-space: pre; }
+.ln { opacity: 0; animation: show .01s forwards; }
+.type { transform-box: fill-box; transform-origin: right; animation: type 1.60s steps(57) forwards; }
+@keyframes show { to { opacity: 1; } }
+@keyframes type { to { transform: scaleX(0); } }
+@media (prefers-reduced-motion: reduce) { .ln { opacity: 1; animation: none; } .type { display: none; } }
+</style>
+<rect width="817" height="393" rx="10" fill="#0B0E0F"/>
+<rect width="817" height="34" rx="10" fill="#1A1F1D"/>
+<rect y="24" width="817" height="10" fill="#1A1F1D"/>
+<circle cx="20" cy="17" r="6" fill="#E5484D"/><circle cx="40" cy="17" r="6" fill="#EAB308"/><circle cx="60" cy="17" r="6" fill="#2FBF71"/>
+<text x="408.5" y="22" text-anchor="middle" fill="#919693" style="font: 12px 'JetBrains Mono','Cascadia Mono',Consolas,monospace">Claude Code hook: what the agent is told after its edit</text>
+<text x="18" y="65" class="t"><tspan fill="#2FBF71">$ </tspan><tspan fill="#E8E6E1">(Claude Code runs after Edit) posturanet hook claude-code</tspan></text>
+<rect x="34.8" y="52" width="478.8" height="19" fill="#0B0E0F" class="type"/>
+<text x="18" y="103" class="t ln" style="animation-delay:1.95s"><tspan fill="#E8E6E1">decision: </tspan><tspan fill="#E5484D">block</tspan></text>
+<text x="18" y="122" class="t ln" style="animation-delay:2.02s"></text>
+<text x="18" y="141" class="t ln" style="animation-delay:2.09s"><tspan fill="#E8E6E1" font-weight="700">PosturaNet</tspan><tspan fill="#E8E6E1"> 0.1.0 - contract check</tspan></text>
+<text x="18" y="160" class="t ln" style="animation-delay:2.16s"></text>
+<text x="18" y="179" class="t ln" style="animation-delay:2.23s"><tspan fill="#E5484D">BLOCK</tspan><tspan fill="#E8E6E1"> - this change would break 1 contract</tspan></text>
+<text x="18" y="198" class="t ln" style="animation-delay:2.30s"></text>
+<text x="18" y="217" class="t ln" style="animation-delay:2.37s"><tspan fill="#E8E6E1">[x] aws_iam_policy.app</tspan></text>
+<text x="18" y="236" class="t ln" style="animation-delay:2.44s"><tspan fill="#E8E6E1">  breaks must_allow: logs:CreateLogStream is no longer allowed (@example-org/platform)</tspan></text>
+<text x="18" y="255" class="t ln" style="animation-delay:2.51s"><tspan fill="#E8E6E1">  breaks must_remove: ec2:* is allowed again</tspan></text>
+<text x="18" y="274" class="t ln" style="animation-delay:2.58s"><tspan fill="#E8E6E1">  caused by: planned policy in main.tf:1</tspan></text>
+<text x="18" y="293" class="t ln" style="animation-delay:2.65s"><tspan fill="#E8E6E1">  -&gt; keep the access, or update the contract in the same PR with owner approval</tspan></text>
+<text x="18" y="312" class="t ln" style="animation-delay:2.72s"></text>
+<text x="18" y="331" class="t ln" style="animation-delay:2.79s"><tspan fill="#E8E6E1">This edit removes access that real usage depends on, or reopens something the contract keeps</tspan></text>
+<text x="18" y="350" class="t ln" style="animation-delay:2.86s"><tspan fill="#E8E6E1">closed. Revert or adjust the change so the contract holds, or ask the user to update the</tspan></text>
+<text x="18" y="369" class="t ln" style="animation-delay:2.93s"><tspan fill="#E8E6E1">contract with the owner&#x27;s approval. Do not edit the contract yourself.</tspan></text>
+</svg>

@@ -19,7 +19,27 @@ In Claude Code, add the plugin (skill, MCP server and a hook that checks every `
 /plugin install posturanet@posturanet
 ```
 Cursor, Codex, Copilot, Gemini, Windsurf, Cline, Kiro, Continue, Zed, Goose and other MCP clients: see [integrations/agents/](integrations/agents/README.md).
-Python 3.11+. The GitHub Action is `Mihirajmera/posturanet/action@v0.1.0`; see [integrations/](integrations/README.md).
+Python 3.11+. If your shell can't find `posturanet` (common with the Microsoft Store Python on Windows), run `python -m posturanet` instead. The GitHub Action is `Mihirajmera/posturanet/action@v0.1.0`; see [integrations/](integrations/README.md).
+
+## See it
+
+Recorded from real runs against the synthetic fixtures in `tests/fixtures/` (regenerate with `python docs/media/make.py`).
+
+**A security group with SSH open to the internet.** PosturaNet reads 89 days of flow logs, keeps the four sources that really connect, drops a one-off scanner, flags the outside partner for review, and proposes the smallest change:
+
+![posturanet fix on a security group](docs/media/fix-security-group.svg)
+
+**An IAM policy with `ec2:*`.** Shrunk to the three actions IAM's last-accessed data shows in use, with every unknown spelled out:
+
+![posturanet fix on an IAM policy](docs/media/fix-iam.svg)
+
+**A person or an AI agent puts the wildcard back.** The contract check blocks the edit and says which contract line it breaks:
+
+![posturanet contract check blocking an edit](docs/media/check-block.svg)
+
+**Inside a coding agent.** With the Claude Code plugin, this is what Claude is told right after its edit, so it fixes its own change before going on. Other agents get the same result from the MCP tool `check_change` ([setup per agent](integrations/agents/README.md)):
+
+![the PosturaNet hook reply to Claude Code](docs/media/agent-hook.svg)
 
 ## Try it (offline, no AWS)
 From a clone of this repo:

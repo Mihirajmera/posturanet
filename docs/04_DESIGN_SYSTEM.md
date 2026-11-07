@@ -62,7 +62,9 @@ No other emoji in CLI or check runs. PR titles may start with `🔒` (one emoji,
 - Numbers use thousands separators. Durations look like `1m 42s`. Dates are ISO (`2026-10-28`).
 - `--format json` prints one JSON object (the run record) and nothing else on stdout. Human logs go to stderr.
 - `--quiet` prints only the result line and next steps. `--verbose` adds reasoning lines indented under each stage.
-- Respect `NO_COLOR`, `TERM=dumb` and non-TTY (no color, no spinners).
+- Respect `NO_COLOR`, `TERM=dumb` and non-TTY (no color, no spinners). `FORCE_COLOR` turns color on for recordings.
+- Color (TTY only, §10.3): stage symbols by status, stage names and labels bold, the result word by state (green OPENED/VALIDATED/CONFIRMED, blue DRY RUN/WATCHING, yellow STOPPED, red FAIL/BLOCK/REGRESSED), `! …` notes yellow, diff `+` green and `-` red, next-step arrows blue. Hooks, JSON and check runs never carry color.
+- `Unknowns` and `Next` rows follow the label on the same line; continuation rows align under the first.
 
 ### 4.2 Example: success (`fix --open-pr`)
 ```text
@@ -192,7 +194,7 @@ PosturaNet re-checks the finding and watches for blocked traffic from kept sourc
 ✗ module.bastion.aws_security_group.this
   breaks must_allow: 203.0.113.7/32 → 22/tcp (partner-sftp, daily at 02:00 UTC)
   caused by: ingress rule removed in infra/modules/bastion/main.tf:44
-  → keep the rule, or update the contract in the same PR with owner approval
+  → keep the access, or update the contract in the same PR with owner approval
 ```
 
 ## 8. MCP responses

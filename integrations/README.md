@@ -50,7 +50,7 @@ check fails and annotates the exact contract line and the resource block:
 ✗ module.bastion.aws_security_group.this
   breaks must_allow: 203.0.113.7/32 → 22/tcp (partner-sftp)
   caused by: planned ingress in modules/bastion/main.tf:12
-  → keep the rule, or update the contract in the same PR with owner approval
+  → keep the access, or update the contract in the same PR with owner approval
 ```
 
 The job needs `checks: write`. Make it a required status check in branch protection to stop a

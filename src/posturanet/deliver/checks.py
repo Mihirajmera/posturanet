@@ -14,7 +14,7 @@ from posturanet.gate import GateResult
 CHECK_NAME = "PosturaNet contract"
 _CONCLUSION = {"PASS": "success", "BLOCK": "failure", "UNKNOWN": "neutral"}
 _MAX_ANNOTATIONS = 50  # GitHub's limit per request
-_NEXT = "→ keep the rule, or update the contract in the same PR with owner approval"
+_NEXT = "→ keep the access, or update the contract in the same PR with owner approval"
 
 
 def check_text(result: GateResult) -> str:
