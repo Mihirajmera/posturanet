@@ -1,5 +1,5 @@
 name: PosturaNet
-version: 0.1.0
+version: 0.2.0
 schema: v1
 mcpServers:
   - name: posturanet

@@ -17,7 +17,7 @@
 <rect x="34.8" y="52" width="478.8" height="19" fill="#0B0E0F" class="type"/>
 <text x="18" y="103" class="t ln" style="animation-delay:1.95s"><tspan fill="#E8E6E1">decision: </tspan><tspan fill="#E5484D">block</tspan></text>
 <text x="18" y="122" class="t ln" style="animation-delay:2.02s"></text>
-<text x="18" y="141" class="t ln" style="animation-delay:2.09s"><tspan fill="#E8E6E1" font-weight="700">PosturaNet</tspan><tspan fill="#E8E6E1"> 0.1.0 - contract check</tspan></text>
+<text x="18" y="141" class="t ln" style="animation-delay:2.09s"><tspan fill="#E8E6E1" font-weight="700">PosturaNet</tspan><tspan fill="#E8E6E1"> 0.2.0 - contract check</tspan></text>
 <text x="18" y="160" class="t ln" style="animation-delay:2.16s"></text>
 <text x="18" y="179" class="t ln" style="animation-delay:2.23s"><tspan fill="#E5484D">BLOCK</tspan><tspan fill="#E8E6E1"> - this change would break 1 contract</tspan></text>
 <text x="18" y="198" class="t ln" style="animation-delay:2.30s"></text>
