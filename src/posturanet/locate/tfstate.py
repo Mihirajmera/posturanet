@@ -89,6 +89,19 @@ def attributes_of(state: dict[str, Any], address: str) -> dict[str, Any] | None:
     return None
 
 
+def addresses_named(state: dict[str, Any], rtype: str, name: str) -> list[str]:
+    """Every instance address of `rtype.name`, in any module. For IaC scanner findings."""
+    return sorted(
+        _address(res, inst.get("index_key"))
+        for res in state.get("resources", [])
+        if isinstance(res, dict)
+        and res.get("mode") == "managed"
+        and res.get("type") == rtype
+        and res.get("name") == name
+        for inst in res.get("instances", [])
+    )
+
+
 def find_by_type(state: dict[str, Any], rtype: str) -> list[StateMatch]:
     """Every managed instance of `rtype`. For account-wide settings with no resource id."""
     matches = [

@@ -17,6 +17,9 @@ class ResourceRef(BaseModel):
     arn: str | None = None
     account: str | None = None
     region: str | None = None
+    # Terraform address reported by an IaC scanner (Checkov, Trivy). Until locate resolves it
+    # against the state, `id` holds the address too.
+    address: str | None = None
 
 
 class Provenance(BaseModel):

@@ -1,0 +1,245 @@
+{
+  "_comment": "IaC scanner check id -> Security Hub control ids PosturaNet fixes. Hand-curated: each row was checked against the scanner's source (Checkov checkov/terraform/checks/resource/aws, 2026-11-02; Trivy trivy-checks checks/cloud/aws, 2026-11) so the check tests the attribute the fix changes, on the same resource type. A check with several controls is narrowed by the finding's resource type. Checks not listed are reported as unsupported, never guessed.",
+  "_notes": {
+    "trivy:AWS-0107": "SSH or RDP open to the internet. Both ports are in EC2.19's high-risk list, so the EC2.19 re-check covers either one.",
+    "trivy:AWS-0094": "The bucket has no public access block. The S3.8 fix adds the block settings to the bucket."
+  },
+  "checkov": {
+    "CKV_AWS_7": [
+      "KMS.4"
+    ],
+    "CKV_AWS_10": [
+      "IAM.15"
+    ],
+    "CKV_AWS_11": [
+      "IAM.7"
+    ],
+    "CKV_AWS_12": [
+      "IAM.7"
+    ],
+    "CKV_AWS_13": [
+      "IAM.16"
+    ],
+    "CKV_AWS_14": [
+      "IAM.7"
+    ],
+    "CKV_AWS_15": [
+      "IAM.7"
+    ],
+    "CKV_AWS_24": [
+      "EC2.13"
+    ],
+    "CKV_AWS_25": [
+      "EC2.14"
+    ],
+    "CKV_AWS_27": [
+      "SQS.1"
+    ],
+    "CKV_AWS_28": [
+      "DynamoDB.2"
+    ],
+    "CKV_AWS_36": [
+      "CloudTrail.4"
+    ],
+    "CKV_AWS_43": [
+      "Kinesis.1"
+    ],
+    "CKV_AWS_51": [
+      "ECR.2"
+    ],
+    "CKV_AWS_53": [
+      "S3.8"
+    ],
+    "CKV_AWS_54": [
+      "S3.8"
+    ],
+    "CKV_AWS_55": [
+      "S3.8"
+    ],
+    "CKV_AWS_56": [
+      "S3.8"
+    ],
+    "CKV_AWS_62": [
+      "IAM.1"
+    ],
+    "CKV_AWS_67": [
+      "CloudTrail.1"
+    ],
+    "CKV_AWS_73": [
+      "APIGateway.3"
+    ],
+    "CKV_AWS_79": [
+      "EC2.8"
+    ],
+    "CKV_AWS_85": [
+      "DocumentDB.4"
+    ],
+    "CKV_AWS_101": [
+      "Neptune.2"
+    ],
+    "CKV_AWS_106": [
+      "EC2.7"
+    ],
+    "CKV_AWS_130": [
+      "EC2.15"
+    ],
+    "CKV_AWS_131": [
+      "ELB.4"
+    ],
+    "CKV_AWS_133": [
+      "RDS.11"
+    ],
+    "CKV_AWS_139": [
+      "RDS.7"
+    ],
+    "CKV_AWS_141": [
+      "Redshift.6"
+    ],
+    "CKV_AWS_150": [
+      "ELB.6"
+    ],
+    "CKV_AWS_157": [
+      "RDS.5"
+    ],
+    "CKV_AWS_159": [
+      "Athena.1"
+    ],
+    "CKV_AWS_161": [
+      "RDS.10"
+    ],
+    "CKV_AWS_162": [
+      "RDS.12"
+    ],
+    "CKV_AWS_163": [
+      "ECR.1"
+    ],
+    "CKV_AWS_222": [
+      "DMS.6"
+    ],
+    "CKV_AWS_226": [
+      "RDS.13"
+    ],
+    "CKV_AWS_238": [
+      "GuardDuty.1"
+    ],
+    "CKV_AWS_293": [
+      "RDS.8"
+    ],
+    "CKV_AWS_313": [
+      "RDS.16"
+    ],
+    "CKV_AWS_328": [
+      "ELB.12"
+    ],
+    "CKV_AWS_344": [
+      "NetworkFirewall.9"
+    ],
+    "CKV_AWS_359": [
+      "Neptune.7"
+    ],
+    "CKV_AWS_360": [
+      "DocumentDB.2"
+    ],
+    "CKV_AWS_361": [
+      "Neptune.5"
+    ],
+    "CKV_AWS_362": [
+      "Neptune.8"
+    ]
+  },
+  "trivy": {
+    "AWS-0003": [
+      "APIGateway.3"
+    ],
+    "AWS-0006": [
+      "Athena.1"
+    ],
+    "AWS-0014": [
+      "CloudTrail.1"
+    ],
+    "AWS-0016": [
+      "CloudTrail.4"
+    ],
+    "AWS-0020": [
+      "DocumentDB.4"
+    ],
+    "AWS-0024": [
+      "DynamoDB.2"
+    ],
+    "AWS-0028": [
+      "EC2.8"
+    ],
+    "AWS-0030": [
+      "ECR.1"
+    ],
+    "AWS-0031": [
+      "ECR.2"
+    ],
+    "AWS-0052": [
+      "ELB.4"
+    ],
+    "AWS-0056": [
+      "IAM.16"
+    ],
+    "AWS-0058": [
+      "IAM.7"
+    ],
+    "AWS-0059": [
+      "IAM.7"
+    ],
+    "AWS-0060": [
+      "IAM.7"
+    ],
+    "AWS-0061": [
+      "IAM.7"
+    ],
+    "AWS-0063": [
+      "IAM.15"
+    ],
+    "AWS-0064": [
+      "Kinesis.1"
+    ],
+    "AWS-0065": [
+      "KMS.4"
+    ],
+    "AWS-0075": [
+      "Neptune.2"
+    ],
+    "AWS-0077": [
+      "RDS.11"
+    ],
+    "AWS-0086": [
+      "S3.8"
+    ],
+    "AWS-0087": [
+      "S3.8"
+    ],
+    "AWS-0091": [
+      "S3.8"
+    ],
+    "AWS-0093": [
+      "S3.8"
+    ],
+    "AWS-0094": [
+      "S3.8"
+    ],
+    "AWS-0096": [
+      "SQS.1"
+    ],
+    "AWS-0107": [
+      "EC2.19"
+    ],
+    "AWS-0164": [
+      "EC2.15"
+    ],
+    "AWS-0176": [
+      "RDS.10"
+    ],
+    "AWS-0177": [
+      "RDS.8"
+    ],
+    "AWS-0343": [
+      "RDS.7"
+    ]
+  }
+}

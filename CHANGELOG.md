@@ -4,6 +4,14 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Added (fixes)
+- 7 attribute fixes, 59 settings controls in all (73 with the evidence fixes): RDS.11 automatic backups, EC2.8 IMDSv2 on instances, EC2.15 no public IPs by default on subnets, EC2.23 Transit Gateway attachment approval, ECR.2 tag immutability, ELB.14 Classic Load Balancer desync mitigation, ElastiCache.3 automatic failover. RDS.11, EC2.8, EC2.15 and ECR.2 are `risk: medium` with a note on what to check first.
+
+### Added (ingest)
+- Checkov (`-o json`) and Trivy (`config -f json`) reports (FR-4b). 47 Checkov and 31 Trivy checks map to 41 and 24 PosturaNet controls through `ingest/iac_checks.json`, each checked against the scanner's source. The Terraform address in the finding is resolved to the deployed resource through the state; undeployed or ambiguous resources stop.
+- Prowler and OCSF findings (FR-4a): `posturanet fix` accepts Prowler `json-ocsf` output, Prowler's ASFF output and OCSF compliance findings. The control comes from `compliance.control`, Prowler's FSBP mapping, or a bundled check map (`ingest/prowler_checks.json`, from Prowler 5.48.0). Only FAIL findings are fixable.
+- `posturanet findings list` and `posturanet findings split`: see which findings in a scan PosturaNet can fix, and write one file per finding. `posturanet fix` on a multi-finding file uses the one fixable finding when there is exactly one.
+
 ### Added (docs)
 - Workflow diagrams in the README and architecture doc: the fix pipeline, the contract check for changes by people and AI agents, and where PosturaNet runs (`docs/media/diagram-*.svg`, drawn by `python docs/media/diagrams.py`).
 - README images use absolute GitHub URLs so they also show on PyPI.

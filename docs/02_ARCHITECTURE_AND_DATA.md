@@ -50,7 +50,7 @@ Each stage is a pure function of its inputs plus read-only I/O, and returns eith
 
 | Stage | Module | Input → Output | Stops when |
 |---|---|---|---|
-| ingest | `posturanet.ingest` | ASFF / manual → `Finding` | Required fields missing, unsupported control |
+| ingest | `posturanet.ingest` | ASFF / OCSF (Prowler) / Checkov / Trivy / manual → `Finding` | Required fields missing, not a FAIL finding, several fixable controls, unsupported control |
 | locate | `posturanet.locate` | `Finding` + repo + state → `Location` | No match, remote module, drift, ambiguous with low confidence |
 | evidence | `posturanet.evidence` | `Location` + window → `Observations` | Confidence `none` (report-only) |
 | contract | `posturanet.contracts` | `Observations` (+ approved contract) → `BehaviorContract` | Unapproved rare sources in auto mode |
@@ -178,6 +178,9 @@ All models are Pydantic v2, serialized as JSON (machine) or YAML (human-edited c
   "provenance": { "raw_sha256": "…", "schema": "asff-2018-10-08" }
 }
 ```
+From Prowler (`prowler aws --output-formats json-ocsf`), the same finding has `source: "prowler"`, the Prowler finding uid as `finding_id`, `schema: "ocsf-<version>"`, and the control from `unmapped.compliance` (`AWS-Foundational-Security-Best-Practices`) or, failing that, `ingest/prowler_checks.json` (generated from Prowler's compliance data by `scripts/update_prowler_map.py`). OCSF compliance findings give it in `compliance.control`. A check that maps to two controls PosturaNet fixes stops: no guessing.
+
+Checkov and Trivy findings carry `resource.address` (a Terraform address) and `resource.id` holds the address until `locate.resolve_address` reads the deployed id and ARN from the state (for `aws_security_group_rule` and `aws_s3_bucket_public_access_block`, the group or bucket it belongs to). Check ids map to controls in `ingest/iac_checks.json`; with several candidates, the one whose catalog row matches the resource type wins, otherwise the run stops.
 `fix_type` ∈ `sg_ingress | s3_public | iam_least_privilege | unsupported`, mapped from `control_id` by `ingest/controls.json` (JSON so the core needs no extra parser at import time).
 
 ### 6.2 Location
@@ -409,7 +412,9 @@ Triggered by `posturanet verify <pr>` (scheduled workflow after apply) with the 
 ### CLI
 ```
 posturanet init
-posturanet fix <finding-id|resource-id|asff.json> [--dry-run | --open-pr] [--evidence-file flows.json] [--window 90d] [--format text|json]
+posturanet findings list <file.json> [--all] [--format text|json]   # ASFF or OCSF; which findings are fixable
+posturanet findings split <file.json> [--out findings/]            # one file per fixable finding
+posturanet fix <finding-id|resource-id|finding.json> [--dry-run | --open-pr] [--evidence-file flows.json] [--window 90d] [--format text|json]
 posturanet contract build <resource> [--evidence-file flows.json] [--window 90d] [--dry-run]
 posturanet contract check --plan tfplan.json          # exit 5 on BLOCK, 3 on UNKNOWN
 posturanet contract check --source [--file x.tf]      # offline, from HCL; same exit codes

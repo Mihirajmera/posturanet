@@ -72,7 +72,7 @@ Writing the fix is cheap. Everything around it is expensive and risky, so backlo
 | **R2: Verify + evidence** | Post-merge verification and revert PR (**built**: `posturanet verify`, FR-31..FR-33), S3 public-access fix (**built**: S3.1, S3.2, S3.3, S3.8, FR-17, FR-50), IAM least privilege (**built**: IAM.1, IAM.21, FR-16, FR-51) and the safety benchmark (**built**: 35 cases across SG, S3 and IAM, `bench/`), signed OSCAL evidence (pro) | Weeks 4–5 |
 | **R3: IAM + benchmark** | CloudTrail / last-accessed collector, IAM contract and least-privilege synthesis, benchmark v0 (20 cases), public launch | Week 6 |
 | **R4: Team plan** | Org-wide contract gate (one config for every repo), event triggers, license keys, Stripe, Slack notifications | Weeks 7–9 |
-| **R5: Living contracts** | New-behavior and drift PRs, periodicity, Prowler/ASR input, policy packs | Weeks 10–12 |
+| **R5: Living contracts** | New-behavior and drift PRs, periodicity, ASR input, policy packs (Prowler input shipped early, FR-4a) | Weeks 10–12 |
 
 ## 6. User stories with acceptance criteria
 
@@ -117,6 +117,8 @@ Writing the fix is cheap. Everything around it is expensive and risky, so backlo
 - **FR-2** Accept manual input by resource ID or ARN plus control ID.
 - **FR-3** Normalize to the internal OCSF-aligned `Finding` model. Reject findings missing required fields, with a clear error.
 - **FR-4** Record provenance (raw sha256, schema version).
+- **FR-4a** Accept OCSF findings: Prowler `json-ocsf` (and Prowler's ASFF output) and OCSF compliance findings. The control id comes from `compliance.control`, then Prowler's FSBP compliance mapping, then a bundled check → control map. Only FAIL findings are fixable. A file with many findings: use the one fixable finding if there is exactly one; otherwise `posturanet findings list|split`. (Pulled forward from R5.)
+- **FR-4b** Accept Terraform scanner reports: Checkov (`-o json`) and Trivy (`config -f json`). Check ids map to controls through a hand-curated table (`ingest/iac_checks.json`), each row checked against the scanner's source; unmapped checks are unsupported. The finding names a Terraform address; locate resolves it against the state (exact address, else the one instance of that type and name), and stops if the resource isn't deployed or the name is ambiguous.
 
 ### Locate
 - **FR-5** Find Terraform state using backend config (v1: S3 backend; local state file for tests).

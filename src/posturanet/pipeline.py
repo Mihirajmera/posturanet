@@ -47,7 +47,7 @@ from posturanet.iamfix.evidence import usage as iam_usage
 from posturanet.iamfix.shrink import shrink
 from posturanet.iamfix.validate import validate_iam_fix
 from posturanet.ingest import ingest
-from posturanet.locate import load_repo_state, locate_match, module_dir
+from posturanet.locate import load_repo_state, locate_match, module_dir, resolve_address
 from posturanet.locate.backend import boto3_s3_fetch
 from posturanet.locate.codeowners import find_codeowners, owners_for
 from posturanet.models import (
@@ -148,6 +148,11 @@ def _run(
     # --- ingest
     finding = ingest(target)
     record.finding = finding
+    if finding.resource.address and finding.fix_type is not FixType.UNSUPPORTED:
+        # IaC scanner finding: a Terraform address, resolved to the deployed resource.
+        fetch = boto3_s3_fetch(ctx.aws) if ctx.aws is not None else None
+        finding = resolve_address(finding, repo, config, ctx.state_path, fetch)
+        record.finding = finding
     if finding.fix_type is FixType.CONFIG_ATTRIBUTE:
         record.stages.append(_ingest_stage(finding))
         return _run_config(finding, repo, config, ctx, record)

@@ -13,7 +13,7 @@ policy changes against a behavior contract before anyone merges them.
 Needs the CLI on PATH: `pip install "posturanet[mcp]"`.
 
 ## When to use
-- The user has a Security Hub finding (JSON export, or a security group id) and wants it fixed in
+- The user has a finding from Security Hub, Prowler, Checkov or Trivy (their JSON output, or a security group id) and wants it fixed in
   Terraform. `posturanet fixes list` shows every supported control.
 - You (or another agent) are about to change `ingress` on an `aws_security_group`, an
   `aws_s3_bucket_policy` or public access block, or an `aws_iam_policy`: run the contract check

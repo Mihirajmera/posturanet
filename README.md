@@ -6,7 +6,7 @@ PosturaNet is a source-available remediation agent for AWS + Terraform. It takes
 
 It also checks every security group, S3 and IAM policy change, written by a person or an AI agent, against those contracts before it merges: a `PosturaNet contract` check on PRs, a step in any CI, a Claude Code plugin, and MCP setups for Cursor, Codex, Copilot, Gemini, Windsurf, Cline, Kiro, Continue, Zed and Goose. See [integrations/](integrations/README.md).
 
-> Status: early access (0.2.0). Security groups, S3 public access, IAM least privilege and 52 settings controls.
+> Status: early access (0.2.0). Security groups, S3 public access, IAM least privilege and 59 settings controls. Findings from Security Hub, Prowler, Checkov or Trivy.
 
 ## How it works
 
@@ -57,6 +57,24 @@ Recorded from real runs against the synthetic fixtures in `tests/fixtures/` (reg
 
 ![the PosturaNet hook reply to Claude Code](https://raw.githubusercontent.com/Mihirajmera/posturanet/main/docs/media/agent-hook.svg)
 
+## From your scanner
+PosturaNet doesn't detect; it fixes what your scanner already found. It reads findings from:
+
+| Scanner | Output to pass | Controls PosturaNet can fix from it |
+|---|---|---|
+| AWS Security Hub | ASFF JSON | all 73 |
+| Prowler | `prowler aws --output-formats json-ocsf` (or its ASFF output) | 57, from Prowler's own mapping to Security Hub controls |
+| Checkov | `checkov -d . -o json` | 41, from 47 Checkov checks |
+| Trivy | `trivy config -f json .` | 24, from 31 Trivy checks |
+
+A scan holds many findings. List the ones PosturaNet can fix, write one file each, then fix one:
+```bash
+posturanet findings list scan.json            # --all also shows the rest and why
+posturanet findings split scan.json --out findings/
+posturanet fix findings/EC2.13-sg-0a91f3c2.json --dry-run --repo infra/
+```
+Checkov and Trivy read your code, so their findings name a Terraform address. PosturaNet finds the deployed resource for that address in the Terraform state; a resource that isn't applied yet stops with a clear reason. Each Checkov and Trivy check was mapped by hand after reading the check's source, and a check that isn't mapped is listed as unsupported, never guessed (`src/posturanet/ingest/iac_checks.json`).
+
 ## Try it (offline, no AWS)
 From a clone of this repo:
 ```bash
@@ -70,7 +88,7 @@ With a read-only role: drop `--dry-run` to read flow logs and run `terraform pla
 
 ## What it fixes
 - **Security group ingress** (EC2.13, 14, 18, 19, 53, 54): replaces open rules with the sources seen in VPC flow logs, checked with Z3 against a behavior contract.
-- **52 more controls** as attribute fixes: settings that remove no access, like RDS deletion protection, DynamoDB point-in-time recovery, KMS key rotation, CloudTrail log validation and the IAM password policy. No evidence needed; same plan-scope checks.
+- **59 more controls** as attribute fixes: settings like RDS deletion protection and backups, DynamoDB point-in-time recovery, KMS key rotation, CloudTrail log validation and the IAM password policy. No evidence needed; same plan-scope checks. The few that can affect a client (IMDSv2 on EC2, ECR tag immutability, no public IPs on new subnet instances) are marked `risk: medium` and say what to check before merging.
 
 ```bash
 posturanet fixes list               # every control and what it changes

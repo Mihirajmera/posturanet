@@ -24,6 +24,7 @@ from posturanet.pipeline import Context, Mode, run_fix
 
 if TYPE_CHECKING:
     from posturanet.gate import GateResult
+    from posturanet.ingest import Entry
 
 app = typer.Typer(
     name="posturanet",
@@ -36,6 +37,10 @@ hook_app = typer.Typer(help="Editor and AI agent hooks.", no_args_is_help=True)
 app.add_typer(hook_app, name="hook")
 fixes_app = typer.Typer(help="List the controls PosturaNet fixes.", no_args_is_help=True)
 app.add_typer(fixes_app, name="fixes")
+findings_app = typer.Typer(
+    help="Read finding files from Security Hub, Prowler, Checkov or Trivy.", no_args_is_help=True
+)
+app.add_typer(findings_app, name="findings")
 
 
 class OutputFormat(StrEnum):
@@ -131,7 +136,9 @@ def _fail(exc: PosturaNetError) -> typer.Exit:
 
 @app.command()
 def fix(
-    target: Annotated[str, typer.Argument(help="ASFF finding file (.json) or a resource id.")],
+    target: Annotated[
+        str, typer.Argument(help="Finding file (ASFF, OCSF, Checkov, Trivy) or a resource id.")
+    ],
     dry_run: Annotated[
         bool, typer.Option("--dry-run", help="No AWS, GitHub or terraform plan; writes nothing.")
     ] = False,
@@ -356,6 +363,104 @@ def fixes_show(
             lines.append(f"  note      {f.note}")
         lines.append("")
     console.write("\n".join(lines))
+
+
+FindingsFileArg = Annotated[
+    Path,
+    typer.Argument(help="Finding file: Security Hub ASFF, OCSF (Prowler), Checkov or Trivy JSON."),
+]
+
+
+@findings_app.command("list")
+def findings_list(
+    path: FindingsFileArg,
+    show_all: Annotated[
+        bool, typer.Option("--all", help="Also show findings PosturaNet can't fix, and why.")
+    ] = False,
+    output_format: FormatOpt = OutputFormat.TEXT,
+) -> None:
+    """The findings in a file, and which ones PosturaNet can fix."""
+    from posturanet.ingest import read_findings
+
+    try:
+        found = read_findings(path)
+    except PosturaNetError as exc:
+        raise _fail(exc) from exc
+    shown = found.entries if show_all else found.fixable
+    rows = [_finding_row(e) for e in shown]
+    if output_format is OutputFormat.JSON:
+        console.write(json.dumps(rows, indent=2) + "\n")
+        raise typer.Exit(0)
+    dot = "-" if console.wants_ascii(sys.stdout) else "·"
+    lines = [
+        f"{path.name} {dot} {found.format.upper()} {dot} {len(found.entries)} findings "
+        f"{dot} {len(found.fixable)} PosturaNet can fix",
+        "",
+    ]
+    if rows:
+        lines.append(f"  {'#':>4}  {'control':<14} {'fix':<20} {'severity':<9} resource")
+    for r in rows:
+        resource = r["resource"] or "-"
+        line = f"  {r['index']:>4}  {r['control']:<14} {r['fix']:<20} {r['severity']:<9} {resource}"
+        if r["reason"]:
+            line += f"  ({r['reason']})"
+        lines.append(line)
+    if found.fixable:
+        lines += ["", f"Next: posturanet findings split {path} --out findings/"]
+    elif not show_all:
+        lines.append("Nothing to fix here. See every finding with --all.")
+    console.write("\n".join(lines) + "\n")
+
+
+@findings_app.command("split")
+def findings_split(
+    path: FindingsFileArg,
+    out: Annotated[Path, typer.Option("--out", help="Folder for one file per finding.")] = Path(
+        "findings"
+    ),
+) -> None:
+    """Write each finding PosturaNet can fix to its own file, ready for `posturanet fix`."""
+    from posturanet.ingest import document_for, read_findings
+
+    try:
+        found = read_findings(path)
+    except PosturaNetError as exc:
+        raise _fail(exc) from exc
+    if not found.fixable:
+        typer.echo(f"{path.name}: no failed findings PosturaNet can fix; nothing written")
+        raise typer.Exit(0)
+    out.mkdir(parents=True, exist_ok=True)
+    used: set[str] = set()
+    written: list[Path] = []
+    for e in found.fixable:
+        if e.finding is None:
+            continue
+        stem = re.sub(r"[^A-Za-z0-9._-]+", "_", f"{e.finding.control_id}-{e.finding.resource.id}")
+        name, n = stem, 2
+        while name in used:
+            name, n = f"{stem}-{n}", n + 1
+        used.add(name)
+        doc = document_for(e.item, found.format)
+        target = out / f"{name}.json"
+        target.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8", newline="\n")
+        written.append(target)
+    lines = [f"wrote {len(written)} findings to {out}", ""]
+    lines += [f"  {p.as_posix()}" for p in written]
+    lines += ["", f"Next: posturanet fix {written[0].as_posix()} --dry-run"]
+    console.write("\n".join(lines) + "\n")
+
+
+def _finding_row(e: Entry) -> dict[str, object]:
+    f = e.finding
+    return {
+        "index": e.index,
+        "finding_id": f.finding_id if f else None,
+        "control": e.control_id or "-",
+        "fix": f.fix_type.value if f else "-",
+        "severity": f.severity.value if f else "-",
+        "resource": f.resource.id if f else None,
+        "reason": e.reason or (None if e.fixable else "no fix for this control yet"),
+    }
 
 
 @app.command()
