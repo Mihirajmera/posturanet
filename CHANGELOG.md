@@ -4,6 +4,10 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Added (docs)
+- Workflow diagrams in the README and architecture doc: the fix pipeline, the contract check for changes by people and AI agents, and where PosturaNet runs (`docs/media/diagram-*.svg`, drawn by `python docs/media/diagrams.py`).
+- README images use absolute GitHub URLs so they also show on PyPI.
+
 ## [0.2.0] - 2026-11-06
 
 ### Changed (CLI output)
