@@ -194,7 +194,9 @@ def demo_check() -> tuple[str, str, str]:
 def demo_hook() -> tuple[str, str, str]:
     repo = _gate_repo()
     try:
-        event = json.dumps({"tool_name": "Edit", "tool_input": {"file_path": str(repo / "main.tf")}})
+        event = json.dumps(
+            {"tool_name": "Edit", "tool_input": {"file_path": str(repo / "main.tf")}}
+        )
         raw = run(["hook", "claude-code", "--repo", "."], cwd=repo, stdin=event)
     finally:
         shutil.rmtree(repo, ignore_errors=True)
@@ -202,7 +204,9 @@ def demo_hook() -> tuple[str, str, str]:
     wrapped = [textwrap.fill(p, 96) for p in reply["reason"].split("\n")]
     body = f"decision: {reply['decision']}\n\n" + "\n".join(wrapped)
     body = body.replace("PosturaNet", "\x1b[1mPosturaNet\x1b[0m", 1)
-    body = body.replace("BLOCK", "\x1b[31mBLOCK\x1b[0m", 1).replace("decision: block", "decision: \x1b[31mblock\x1b[0m")  # noqa: E501
+    body = body.replace("BLOCK", "\x1b[31mBLOCK\x1b[0m", 1).replace(
+        "decision: block", "decision: \x1b[31mblock\x1b[0m"
+    )  # noqa: E501
     title = "Claude Code hook: what the agent is told after its edit"
     return title, "(Claude Code runs after Edit) posturanet hook claude-code", body
 
@@ -220,7 +224,9 @@ def main() -> None:
         title, command, output = make()
         if not output.strip():
             raise SystemExit(f"{name}: the command printed nothing")
-        (OUT / f"{name}.svg").write_text(svg(title, command, output), encoding="utf-8", newline="\n")
+        (OUT / f"{name}.svg").write_text(
+            svg(title, command, output), encoding="utf-8", newline="\n"
+        )
         print(f"wrote docs/media/{name}.svg")
 
 
