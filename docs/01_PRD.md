@@ -106,7 +106,7 @@ Writing the fix is cheap. Everything around it is expensive and risky, so backlo
 - AC3: Records are hash-chained and signed, and tampering is detected by `posturanet evidence verify`.
 
 **US-7. AI agent checks a change** (Ava)
-- AC1: The MCP tool `check_change` accepts a plan JSON, or checks the Terraform source (optionally only edited files), and returns PASS/BLOCK/UNKNOWN with reasons.
+- AC1: The MCP tool `check_change` accepts a plan JSON, or checks the Terraform source (optionally only edited files), and returns PASS/BLOCK/UNKNOWN with reasons, for `network`, `s3_public` and `iam` contracts.
 - AC3: In Claude Code, a hook checks every `.tf` edit and hands a BLOCK reason back to the agent before it continues.
 - AC2: Read-only tools need no confirmation. `open_fix_pr` requires explicit user confirmation.
 

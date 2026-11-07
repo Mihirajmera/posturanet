@@ -6,7 +6,7 @@
     {
       "name": "posturanet",
       "source": "./plugin",
-      "description": "Evidence-backed Terraform fixes for AWS security groups, S3 public access and IAM least privilege, and a contract check on every security group edit. Read-only in AWS.",
+      "description": "Evidence-backed Terraform fixes for AWS security groups, S3 public access and IAM least privilege, and a contract check on every security group, S3 and IAM policy edit. Read-only in AWS.",
       "category": "security",
       "tags": ["aws", "terraform", "security", "remediation"]
     }

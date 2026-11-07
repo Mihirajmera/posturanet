@@ -425,7 +425,7 @@ posturanet schema export
 |---|---|---|---|
 | `explain_finding` | finding id / resource | Location + evidence summary | none |
 | `propose_fix` | finding id / resource | Diff + SafetyContract + ValidationReport | none |
-| `check_change` | plan JSON, or nothing + optional `files` (source mode) | PASS / BLOCK / UNKNOWN + reasons, contract lines | none |
+| `check_change` | plan JSON, or nothing + optional `files` (source mode) | PASS / BLOCK / UNKNOWN + reasons, contract lines; `network`, `s3_public` and `iam` contracts (`gate.py`, `s3fix/gate.py`, `iamfix/gate.py`) | none |
 | `open_fix_pr` | proposal id | PR URL | **write. Requires confirmation.** |
 
 ### GitHub Action inputs

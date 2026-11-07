@@ -2,7 +2,7 @@
 
 Each folder here holds the files one agent needs, at the paths they go in **your** Terraform
 repo: an MCP server entry (`posturanet mcp`, tools `explain_finding`, `propose_fix`,
-`check_change`) and a rule that tells the agent to check security group edits and stop on BLOCK.
+`check_change`) and a rule that tells the agent to check security group, S3 and IAM edits and stop on BLOCK.
 Every rule file has the same text as [RULES.md](RULES.md).
 
 First, on the machine the agent runs on:

@@ -4,6 +4,14 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Added (check_change for S3 and IAM)
+- The contract check (`posturanet contract check`, MCP `check_change`, the Claude Code hook) now judges S3 and IAM contracts as well as security groups, from a plan or offline from the source (US-4, US-7, FR-50, FR-51).
+- `s3_public`: BLOCK when a Block Public Access setting is turned off or the block deleted, a bucket policy allows `Principal *`, a policy denies a `must_keep` requester, or (plan only) a cross-account requester loses the grant it had. TLS-only Denies are ignored; other conditional Denies, non-literal flags and, without a plan, a cross-account requester with no grant are UNKNOWN.
+- `iam`: BLOCK when a `must_allow` action is no longer allowed or is denied, a `must_remove` wildcard comes back, or the policy is deleted. `NotAction` and grants that exist only under conditions are UNKNOWN.
+
+### Fixed
+- `posturanet contract check --source` reported S3 and IAM contracts as invalid; contracts are now loaded by their `kind`.
+
 ### Added (Claude Code plugin)
 - Installable Claude Code plugin: `/plugin marketplace add Mihirajmera/posturanet`, then `/plugin install posturanet@posturanet`. The repo is its own marketplace (`.claude-plugin/marketplace.json`); the plugin lives in `plugin/` (FR-41).
 - `integrations/agents/`: a ready-to-copy folder per coding agent (Cursor, OpenAI Codex, VS Code + Copilot, Gemini CLI, Windsurf/Devin, Cline, Kiro, Continue, Zed, Goose, and an `AGENTS.md` snippet for the rest), each with the MCP server entry and the same PosturaNet rule (FR-40, FR-41).
