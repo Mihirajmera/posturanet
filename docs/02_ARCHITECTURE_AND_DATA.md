@@ -13,6 +13,8 @@
 
 ## 1. System context
 
+![Where PosturaNet runs](media/diagram-trust.svg)
+
 ```
             ┌──────────────── customer environment ────────────────┐
  Security   │                                                       │
@@ -35,6 +37,8 @@
 **Trust boundary:** everything inside the box belongs to the customer. PosturaNet hosts only the license service. No customer data crosses the boundary (NFR-3).
 
 ## 2. Pipeline
+
+![The PosturaNet pipeline](media/diagram-pipeline.svg)
 
 ```
 ingest ─► locate ─► evidence ─► contract ─► synthesize ─► validate ─► deliver ─► verify ─► record
