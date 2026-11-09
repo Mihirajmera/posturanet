@@ -104,7 +104,9 @@ def _color_mode() -> str:
 
 def _logo_color(row: int, col: int) -> tuple[int, int, int]:
     """The P (its bowl and stem) is blue; everything else is the white cloud."""
-    if 3 <= row <= 7:
+    if row < 3:  # the top of the cloud
+        return _WHITE
+    if row <= 7:
         return _BLUE if 10 <= col <= 20 else _WHITE
     stem = {8: (10, 11), 9: (9, 10)}.get(row, (0, LOGO_WIDTH))  # rows 10-11: only the stem
     return _BLUE if stem[0] <= col <= stem[1] else _WHITE

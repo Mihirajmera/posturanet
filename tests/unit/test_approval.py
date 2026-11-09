@@ -90,6 +90,7 @@ def test_cli_asks_then_shows_the_change(repo: Path, monkeypatch: pytest.MonkeyPa
     typo = runner.invoke(cli.app, args, input="ec2:Foo\ns3:GetObject\ny\ny\n")
     assert "not s3 actions: ec2:Foo" in typo.output
     assert "Approve this change?" in typo.output and typo.exit_code == 0, typo.output
+    assert "nothing was written" in typo.output
     assert "s3:GetObject" in typo.output
 
     declined = runner.invoke(cli.app, args, input="\nn\n")

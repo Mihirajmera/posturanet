@@ -1002,10 +1002,10 @@ def _run_iam(
         write = not dry and not ctx.preview
         if write:
             iamcontract.write(cpath, contract)
-        verb = "approved" if ctx.approval is not None else "draft"
-        contract_summary = (
-            f"{verb} {'written' if write else 'built (not written)'} · {rel_contract}"
-        )
+        state = ("draft written" if write else "built (not written)") + f" · {rel_contract}"
+        if ctx.approval is not None:
+            state = f"approved by {ctx.approval.by} · " + state.replace("draft ", "")
+        contract_summary = state
     record.contract_file = rel_contract
 
     principals = len(ev.principals)

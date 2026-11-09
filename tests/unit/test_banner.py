@@ -57,6 +57,9 @@ def test_colors_and_ascii_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     word = banner._paint(banner.WORDMARK[0], banner._WORD_COLORS.__getitem__, "truecolor")
     assert word.startswith("\x1b[38;2;47;191;113m█")  # P green
     assert "\x1b[38;2;229;72;77m█" in word  # O and NET red
+    assert banner._logo_color(0, 12) == banner._WHITE  # top of the cloud
+    assert banner._logo_color(5, 11) == banner._BLUE  # the P's stem
+    assert banner._logo_color(5, 1) == banner._WHITE  # the cloud's left side
     assert "\x1b[38;5;" in banner.render(color="256")
     monkeypatch.setenv("NO_COLOR", "1")
     assert "\x1b[" not in banner.render()

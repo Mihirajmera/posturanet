@@ -65,7 +65,11 @@ def _spans(line: str) -> str:
             if bold:
                 attrs.append('font-weight="700"')
             out.append(f"<tspan {' '.join(attrs)}>{html.escape(chunk)}</tspan>")
-        for code in (m.group(1) or "0").split(";"):
+        codes = (m.group(1) or "0").split(";")
+        if codes[:2] == ["38", "2"] and len(codes) == 5:  # truecolor (the banner)
+            fill = "#{:02X}{:02X}{:02X}".format(*map(int, codes[2:]))
+            codes = []
+        for code in codes:
             if code == "0":
                 fill, bold, dim = None, False, False
             elif code == "1":
@@ -211,7 +215,55 @@ def demo_hook() -> tuple[str, str, str]:
     return title, "(Claude Code runs after Edit) posturanet hook claude-code", body
 
 
+def _in_process(args: list[str], answers: str = "") -> str:
+    """Run the CLI in this process, as if at a terminal, so prompts and answers show."""
+    os.environ.update({"FORCE_COLOR": "1", "POSTURANET_NO_BANNER": "1"})
+    os.environ.pop("NO_COLOR", None)
+    from typer.testing import CliRunner
+
+    from posturanet.cli import app as cli
+
+    cli._interactive = lambda: True  # type: ignore[assignment]
+    cwd = os.getcwd()
+    os.chdir(FIX)
+    try:
+        return CliRunner().invoke(cli.app, args, input=answers).output
+    finally:
+        os.chdir(cwd)
+
+
+def demo_start() -> tuple[str, str, str]:
+    from posturanet.output import banner
+
+    return "posturanet: every command, with an example", "posturanet", banner.render(color="truecolor")
+
+
+def demo_connect() -> tuple[str, str, str]:
+    title = "Connect a scanner, a coding agent or CI"
+    return title, "posturanet connect", run(["connect"], cwd=FIX)
+
+
+def demo_findings() -> tuple[str, str, str]:
+    args = ["findings", "list", "findings/prowler_ocsf_scan.json", "--all"]
+    title = "A Prowler scan: what each finding ends in, and coverage"
+    return title, "posturanet " + " ".join(args), run(args, cwd=FIX)
+
+
+def demo_approve() -> tuple[str, str, str]:
+    args = [
+        "fix", "findings/iam21_deploy.json", "--dry-run",
+        "--repo", "tf/iam", "--evidence-file", "iam/deploy.json",
+    ]  # fmt: skip
+    out = _in_process(args, answers="s3:GetObject\ny\ny\n")
+    title = "A person approves what IAM can't see, after the before and after"
+    return title, "posturanet " + " ".join(args), out
+
+
 DEMOS: dict[str, Callable[[], tuple[str, str, str]]] = {
+    "start": demo_start,
+    "connect": demo_connect,
+    "findings-outcomes": demo_findings,
+    "approve-iam": demo_approve,
     "fix-security-group": demo_sg,
     "fix-iam": demo_iam,
     "check-block": demo_check,

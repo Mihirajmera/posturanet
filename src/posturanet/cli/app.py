@@ -202,6 +202,7 @@ def fix(
         config, _ = load_config(repo)
         record = run_fix(target, repo, config, ctx)
         if record.approvals and output_format is OutputFormat.TEXT and _interactive():
+            record.next_steps = [s for s in record.next_steps if "at a terminal" not in s]
             _show(record, ascii_mode)
             approval = _ask_approval(record, ctx.clock().date().isoformat())
             if approval is None:
@@ -217,6 +218,9 @@ def fix(
             if not typer.confirm(question, default=False):
                 typer.echo("Not approved. Nothing was changed.")
                 raise typer.Exit(3)
+            if dry_run:  # a dry run writes nothing either way: the preview is the result
+                typer.echo("Approved. This was a dry run, so nothing was written.")
+                raise typer.Exit(0)
             ctx.preview = False
             record = run_fix(target, repo, config, ctx)
     except PosturaNetError as exc:

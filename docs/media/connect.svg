@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="725" height="792" viewBox="0 0 725 792" role="img" aria-label="Connect a scanner, a coding agent or CI">
+<title>Connect a scanner, a coding agent or CI</title>
+<style>
+.t { font: 13.5px 'JetBrains Mono','Cascadia Mono',Consolas,monospace; white-space: pre; }
+.ln { opacity: 0; animation: show .01s forwards; }
+.type { transform-box: fill-box; transform-origin: right; animation: type 0.54s steps(18) forwards; }
+@keyframes show { to { opacity: 1; } }
+@keyframes type { to { transform: scaleX(0); } }
+@media (prefers-reduced-motion: reduce) { .ln { opacity: 1; animation: none; } .type { display: none; } }
+</style>
+<rect width="725" height="792" rx="10" fill="#0B0E0F"/>
+<rect width="725" height="34" rx="10" fill="#1A1F1D"/>
+<rect y="24" width="725" height="10" fill="#1A1F1D"/>
+<circle cx="20" cy="17" r="6" fill="#E5484D"/><circle cx="40" cy="17" r="6" fill="#EAB308"/><circle cx="60" cy="17" r="6" fill="#2FBF71"/>
+<text x="362.5" y="22" text-anchor="middle" fill="#919693" style="font: 12px 'JetBrains Mono','Cascadia Mono',Consolas,monospace">Connect a scanner, a coding agent or CI</text>
+<text x="18" y="65" class="t"><tspan fill="#2FBF71">$ </tspan><tspan fill="#E8E6E1">posturanet connect</tspan></text>
+<rect x="34.8" y="52" width="151.2" height="19" fill="#0B0E0F" class="type"/>
+<text x="18" y="103" class="t ln" style="animation-delay:0.89s"><tspan fill="#919693">┌</tspan><tspan fill="#E8E6E1">  </tspan><tspan fill="#E8E6E1" font-weight="700">PosturaNet</tspan><tspan fill="#E8E6E1"> </tspan><tspan fill="#919693">0.2.0</tspan><tspan fill="#E8E6E1"> · connect</tspan></text>
+<text x="18" y="122" class="t ln" style="animation-delay:0.96s"><tspan fill="#919693">│</tspan></text>
+<text x="18" y="141" class="t ln" style="animation-delay:1.03s"><tspan fill="#919693">◇</tspan><tspan fill="#E8E6E1">  </tspan><tspan fill="#E8E6E1" font-weight="700">Scanners</tspan><tspan fill="#E8E6E1"> </tspan><tspan fill="#919693">────────────────────────────────────────────────────────────────────╮</tspan></text>
+<text x="18" y="160" class="t ln" style="animation-delay:1.10s"><tspan fill="#919693">│</tspan><tspan fill="#E8E6E1">                                                                               </tspan><tspan fill="#919693">│</tspan></text>
+<text x="18" y="179" class="t ln" style="animation-delay:1.17s"><tspan fill="#919693">│</tspan><tspan fill="#E8E6E1">  </tspan><tspan fill="#4C6EF5">securityhub</tspan><tspan fill="#E8E6E1">  AWS Security Hub findings (ASFF or OCSF) and remediation plans  </tspan><tspan fill="#919693">│</tspan></text>
+<text x="18" y="198" class="t ln" style="animation-delay:1.24s"><tspan fill="#919693">│</tspan><tspan fill="#E8E6E1">  </tspan><tspan fill="#4C6EF5">prowler    </tspan><tspan fill="#E8E6E1">  Prowler OCSF (or ASFF) output                                   </tspan><tspan fill="#919693">│</tspan></text>
+<text x="18" y="217" class="t ln" style="animation-delay:1.31s"><tspan fill="#919693">│</tspan><tspan fill="#E8E6E1">  </tspan><tspan fill="#4C6EF5">checkov    </tspan><tspan fill="#E8E6E1">  Checkov JSON on your Terraform                                  </tspan><tspan fill="#919693">│</tspan></text>
+<text x="18" y="236" class="t ln" style="animation-delay:1.38s"><tspan fill="#919693">│</tspan><tspan fill="#E8E6E1">  </tspan><tspan fill="#4C6EF5">trivy      </tspan><tspan fill="#E8E6E1">  Trivy misconfiguration JSON on your Terraform                   </tspan><tspan fill="#919693">│</tspan></text>
+<text x="18" y="255" class="t ln" style="animation-delay:1.45s"><tspan fill="#919693">│</tspan><tspan fill="#E8E6E1">  </tspan><tspan fill="#4C6EF5">wiz        </tspan><tspan fill="#E8E6E1">  not supported yet                                               </tspan><tspan fill="#919693">│</tspan></text>
+<text x="18" y="274" class="t ln" style="animation-delay:1.52s"><tspan fill="#919693">│</tspan><tspan fill="#E8E6E1">                                                                               </tspan><tspan fill="#919693">│</tspan></text>
+<text x="18" y="293" class="t ln" style="animation-delay:1.59s"><tspan fill="#919693">├───────────────────────────────────────────────────────────────────────────────╯</tspan></text>
+<text x="18" y="312" class="t ln" style="animation-delay:1.66s"><tspan fill="#919693">│</tspan></text>
+<text x="18" y="331" class="t ln" style="animation-delay:1.73s"><tspan fill="#919693">◇</tspan><tspan fill="#E8E6E1">  </tspan><tspan fill="#E8E6E1" font-weight="700">Coding agents</tspan><tspan fill="#E8E6E1"> </tspan><tspan fill="#919693">───────────────────────────────────────────────────────╮</tspan></text>
+<text x="18" y="350" class="t ln" style="animation-delay:1.80s"><tspan fill="#919693">│</tspan><tspan fill="#E8E6E1">                                                                       </tspan><tspan fill="#919693">│</tspan></text>
+<text x="18" y="369" class="t ln" style="animation-delay:1.87s"><tspan fill="#919693">│</tspan><tspan fill="#E8E6E1">  </tspan><tspan fill="#4C6EF5">claude-code</tspan><tspan fill="#E8E6E1">  plugin: skill, MCP server, a hook after every .tf edit  </tspan><tspan fill="#919693">│</tspan></text>
+<text x="18" y="388" class="t ln" style="animation-delay:1.94s"><tspan fill="#919693">│</tspan><tspan fill="#E8E6E1">  </tspan><tspan fill="#4C6EF5">cursor     </tspan><tspan fill="#E8E6E1">  MCP server + rule: check_change before merging          </tspan><tspan fill="#919693">│</tspan></text>
+<text x="18" y="407" class="t ln" style="animation-delay:2.01s"><tspan fill="#919693">│</tspan><tspan fill="#E8E6E1">  </tspan><tspan fill="#4C6EF5">codex      </tspan><tspan fill="#E8E6E1">  MCP server + rule: check_change before merging          </tspan><tspan fill="#919693">│</tspan></text>
+<text x="18" y="426" class="t ln" style="animation-delay:2.08s"><tspan fill="#919693">│</tspan><tspan fill="#E8E6E1">  </tspan><tspan fill="#4C6EF5">copilot    </tspan><tspan fill="#E8E6E1">  MCP server + rule: check_change before merging          </tspan><tspan fill="#919693">│</tspan></text>
+<text x="18" y="445" class="t ln" style="animation-delay:2.15s"><tspan fill="#919693">│</tspan><tspan fill="#E8E6E1">  </tspan><tspan fill="#4C6EF5">gemini     </tspan><tspan fill="#E8E6E1">  MCP server + rule: check_change before merging          </tspan><tspan fill="#919693">│</tspan></text>
+<text x="18" y="464" class="t ln" style="animation-delay:2.22s"><tspan fill="#919693">│</tspan><tspan fill="#E8E6E1">  </tspan><tspan fill="#4C6EF5">windsurf   </tspan><tspan fill="#E8E6E1">  MCP server + rule: check_change before merging          </tspan><tspan fill="#919693">│</tspan></text>
+<text x="18" y="483" class="t ln" style="animation-delay:2.29s"><tspan fill="#919693">│</tspan><tspan fill="#E8E6E1">  </tspan><tspan fill="#4C6EF5">cline      </tspan><tspan fill="#E8E6E1">  MCP server + rule: check_change before merging          </tspan><tspan fill="#919693">│</tspan></text>
+<text x="18" y="502" class="t ln" style="animation-delay:2.36s"><tspan fill="#919693">│</tspan><tspan fill="#E8E6E1">  </tspan><tspan fill="#4C6EF5">kiro       </tspan><tspan fill="#E8E6E1">  MCP server + rule: check_change before merging          </tspan><tspan fill="#919693">│</tspan></text>
+<text x="18" y="521" class="t ln" style="animation-delay:2.43s"><tspan fill="#919693">│</tspan><tspan fill="#E8E6E1">  </tspan><tspan fill="#4C6EF5">continue   </tspan><tspan fill="#E8E6E1">  MCP server + rule: check_change before merging          </tspan><tspan fill="#919693">│</tspan></text>
+<text x="18" y="540" class="t ln" style="animation-delay:2.50s"><tspan fill="#919693">│</tspan><tspan fill="#E8E6E1">  </tspan><tspan fill="#4C6EF5">zed        </tspan><tspan fill="#E8E6E1">  MCP server in Zed&#x27;s settings                            </tspan><tspan fill="#919693">│</tspan></text>
+<text x="18" y="559" class="t ln" style="animation-delay:2.57s"><tspan fill="#919693">│</tspan><tspan fill="#E8E6E1">  </tspan><tspan fill="#4C6EF5">goose      </tspan><tspan fill="#E8E6E1">  MCP extension                                           </tspan><tspan fill="#919693">│</tspan></text>
+<text x="18" y="578" class="t ln" style="animation-delay:2.64s"><tspan fill="#919693">│</tspan><tspan fill="#E8E6E1">  </tspan><tspan fill="#4C6EF5">other      </tspan><tspan fill="#E8E6E1">  any MCP client, and agents that read AGENTS.md          </tspan><tspan fill="#919693">│</tspan></text>
+<text x="18" y="597" class="t ln" style="animation-delay:2.71s"><tspan fill="#919693">│</tspan><tspan fill="#E8E6E1">                                                                       </tspan><tspan fill="#919693">│</tspan></text>
+<text x="18" y="616" class="t ln" style="animation-delay:2.78s"><tspan fill="#919693">├───────────────────────────────────────────────────────────────────────╯</tspan></text>
+<text x="18" y="635" class="t ln" style="animation-delay:2.85s"><tspan fill="#919693">│</tspan></text>
+<text x="18" y="654" class="t ln" style="animation-delay:2.92s"><tspan fill="#919693">◇</tspan><tspan fill="#E8E6E1">  </tspan><tspan fill="#E8E6E1" font-weight="700">CI</tspan><tspan fill="#E8E6E1"> </tspan><tspan fill="#919693">─────────────────────────────────────────────────────────────╮</tspan></text>
+<text x="18" y="673" class="t ln" style="animation-delay:2.99s"><tspan fill="#919693">│</tspan><tspan fill="#E8E6E1">                                                                  </tspan><tspan fill="#919693">│</tspan></text>
+<text x="18" y="692" class="t ln" style="animation-delay:3.06s"><tspan fill="#919693">│</tspan><tspan fill="#E8E6E1">  </tspan><tspan fill="#4C6EF5">github     </tspan><tspan fill="#E8E6E1">  a PosturaNet contract check on every pull request  </tspan><tspan fill="#919693">│</tspan></text>
+<text x="18" y="711" class="t ln" style="animation-delay:3.13s"><tspan fill="#919693">│</tspan><tspan fill="#E8E6E1">                                                                  </tspan><tspan fill="#919693">│</tspan></text>
+<text x="18" y="730" class="t ln" style="animation-delay:3.20s"><tspan fill="#919693">├──────────────────────────────────────────────────────────────────╯</tspan></text>
+<text x="18" y="749" class="t ln" style="animation-delay:3.27s"><tspan fill="#919693">│</tspan></text>
+<text x="18" y="768" class="t ln" style="animation-delay:3.34s"><tspan fill="#919693">└</tspan><tspan fill="#E8E6E1">  Next: posturanet connect &lt;name&gt;</tspan></text>
+</svg>
