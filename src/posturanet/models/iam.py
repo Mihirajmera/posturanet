@@ -55,6 +55,28 @@ class IamAllowed(BaseModel):
     ref: str | None = None
 
 
+class ApprovalItem(BaseModel):
+    """A stop a person can resolve: confirm a data-plane service's actions, or keep an
+    action last-accessed data can't see."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["data_plane", "untracked"]
+    name: str  # "s3" or "iam:PassRole"
+    used: list[str] = Field(default_factory=list)  # actions seen for that service
+
+
+class IamApproval(BaseModel):
+    """What a person approved at the terminal; written into the contract like a hand edit."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    reviewed_services: list[str] = Field(default_factory=list)
+    keep: list[str] = Field(default_factory=list)  # actions kept (must_allow, source: human)
+    by: str
+    at: str  # ISO date
+
+
 class IamContract(BaseModel):
     """Contract kind `iam`: the actions the policy must keep allowing."""
 

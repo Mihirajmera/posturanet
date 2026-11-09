@@ -102,8 +102,23 @@ def test_several_controls_narrow_by_resource_type(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(iac, "check_map", lambda tool: {"X": ["RDS.7", "RDS.8"]})
     assert iac.control_for("checkov", "X", "aws_db_instance") == "RDS.8"
     assert iac.control_for("checkov", "X", "aws_rds_cluster") == "RDS.7"
+    assert iac.control_for("checkov", "X", "aws_s3_bucket") is None  # no row for that type
+
+
+def test_control_without_a_row_for_the_type_is_unsupported() -> None:
+    assert iac.control_for("checkov", "CKV_AWS_88", "aws_launch_template") == "EC2.25"
+    assert iac.control_for("checkov", "CKV_AWS_88", "aws_instance") is None
+
+
+def test_twin_controls_with_the_same_fix_pick_one() -> None:
+    assert iac.control_for("checkov", "CKV_AWS_5", "aws_opensearch_domain") == "ES.1"
+    assert iac.control_for("trivy", "AWS-0043", "aws_elasticsearch_domain") == "ES.3"
+
+
+def test_different_fixes_on_one_type_still_stop(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(iac, "check_map", lambda tool: {"X": ["RDS.8", "RDS.10"]})
     with pytest.raises(StageStop, match="several controls"):
-        iac.control_for("checkov", "X", "aws_s3_bucket")
+        iac.control_for("checkov", "X", "aws_db_instance")
 
 
 @pytest.mark.parametrize("tool", ["checkov", "trivy"])

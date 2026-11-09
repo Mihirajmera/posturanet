@@ -38,6 +38,10 @@ ALLOWLIST: tuple[str, ...] = (
     "iam:GenerateServiceLastAccessedDetails",
     "iam:SimulatePrincipalPolicy",
     "securityhub:GetFindings",
+    # Remediation plans (FR-4c): the plans, their exposures, and those exposure findings.
+    "securityhub:GetFindingsV2",
+    "securityhub:GetRemediationsV2",
+    "securityhub:ListExposuresByRemediationV2",
     "access-analyzer:Get*",
     "access-analyzer:List*",
     "sts:GetCallerIdentity",

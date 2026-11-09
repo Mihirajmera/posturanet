@@ -50,15 +50,28 @@ Risk: `low` · `medium` · `high`. Disruption: `none` · `possible` · `restart`
 | info / step | `•` | `-` | primary |
 | arrow / next step | `→` | `->` | accent |
 
+Frame glyphs (`output/frame.py`), always muted, never the only signal of a status:
+
+| Part | Unicode | ASCII |
+|---|---|---|
+| open / close the rail | `┌` / `└` | `+` / `+` |
+| rail | `│` | `\|` |
+| step / info node | `◇` / `●` | `o` / `*` |
+| box edge | `─ ╮ ├ ╯` | `- + + +` |
+
 No other emoji in CLI or check runs. PR titles may start with `🔒` (one emoji, title only).
 
 ## 4. CLI output
 
 ### 4.1 Layout rules
 - Width: wrap at 100 columns. Labels are left-aligned and padded to 12 characters.
-- Sections in order: **header** → **steps** → **result** → **next steps**.
-- Header: `PosturaNet <version> · <command> · <target>`.
-- One line per pipeline stage, using the stage names from architecture §2.
+- Every text output hangs on one rail: `┌` header, `◇` steps, boxes, `└` closing line. The rail and boxes are muted; status still comes from the stage symbol and the result word.
+- Sections in order: **header** → **steps** → **proposed change box** → **Result box** (Result, PR, Why, Unknowns, Next) → **closing line**.
+- Header: `PosturaNet <version> · <command> · <target>`, after `┌`.
+- One `◇` line per pipeline stage, using the stage names from architecture §2. Detail lines sit on the rail under the summary.
+- Boxes (`◇  Title ───╮ … ├───╯`) size to their widest row. When that is wider than the terminal, the right edge is dropped instead of wrapping. Lists (`fixes list`, `findings list`) are tables inside a box.
+- Closing line: `Done. Nothing was changed.` (DRY RUN), `Done. Review the PR; a person merges it.` (OPENED), `Stopped. No PR opened.` (STOPPED).
+- The agent hooks send the unframed form (no rail, no boxes): it is read by a coding agent, not a person.
 - Numbers use thousands separators. Durations look like `1m 42s`. Dates are ISO (`2026-10-28`).
 - `--format json` prints one JSON object (the run record) and nothing else on stdout. Human logs go to stderr.
 - `--quiet` prints only the result line and next steps. `--verbose` adds reasoning lines indented under each stage.
@@ -68,43 +81,60 @@ No other emoji in CLI or check runs. PR titles may start with `🔒` (one emoji,
 
 ### 4.2 Example: success (`fix --open-pr`)
 ```text
-PosturaNet 0.1.0 · fix · sg-0a91f3c2
-
-  ✓ ingest      securityhub EC2.19 · port 22 open to 0.0.0.0/0 · HIGH
-  ✓ locate      infra/modules/bastion/main.tf:42 · module.bastion.aws_security_group.this · @acme/platform
-  ✓ evidence    vpc flow logs · 89 days · confidence high
-                  10.0.0.0/16      18,204 conns · daily
-                  203.0.113.7/32    1,112 conns · daily at 02:00 UTC  ! external, review owner
-  ✓ contract    draft written · posturanet/contracts/module.bastion.aws_security_group.this.yaml
-  ✓ fix         0.0.0.0/0:22 → 10.0.0.0/16:22, 203.0.113.7/32:22 (2 rules)
-  ✓ validate    6/6 required checks PASS · checkov SKIPPED (not installed)
-  ✓ deliver     PR opened → https://github.com/acme/infra/pull/412
-
-Result      OPENED · risk low · disruption none
-Unknowns    sources active less than once per 89 days are not observed
-Next        → review and merge PR #412 · run `posturanet verify` after apply
+┌  PosturaNet 0.2.0 · fix · sg-0a91f3c2
+│
+◇  ✓ ingest      securityhub EC2.19 · port 22 open to 0.0.0.0/0 · HIGH
+◇  ✓ locate      infra/modules/bastion/main.tf:42 · module.bastion.aws_security_group.this · @acme/platform
+◇  ✓ evidence    vpc flow logs · 89 days · confidence high
+│                  10.0.0.0/16      18,204 conns · daily
+│                  203.0.113.7/32    1,112 conns · daily at 02:00 UTC  ! external, review owner
+◇  ✓ contract    draft written · posturanet/contracts/module.bastion.aws_security_group.this.yaml
+◇  ✓ fix         0.0.0.0/0:22 → 10.0.0.0/16:22, 203.0.113.7/32:22 (2 rules)
+◇  ✓ validate    6/6 required checks PASS · checkov SKIPPED (not installed)
+◇  ✓ deliver     PR opened → https://github.com/acme/infra/pull/412
+│
+◇  Result ─────────────────────────────────────────────────────────────────────╮
+│                                                                              │
+│  Result      OPENED · risk low · disruption none                             │
+│  PR          https://github.com/acme/infra/pull/412                          │
+│  Unknowns    sources active less than once per 89 days are not observed      │
+│  Next        → review and merge PR #412 · run `posturanet verify` after apply │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────╯
+│
+└  Done. Review the PR; a person merges it.
 ```
 
 ### 4.3 Example: fail-closed stop
 ```text
-PosturaNet 0.1.0 · fix · sg-0b77e101
-
-  ✓ ingest      securityhub EC2.19 · port 3389 open to 0.0.0.0/0 · HIGH
-  ✓ locate      infra/rdp/main.tf:12 · aws_security_group.rdp · @acme/it
-  ? evidence    no flow logs found for 2 ENIs on this security group · confidence none
-
-Result      STOPPED · no PR opened (PosturaNet never changes a resource without usage evidence)
-Next        → enable VPC flow logs for vpc-0c1… (guide: posturanet.dev/docs/flow-logs)
-            → re-run in 14+ days: posturanet fix sg-0b77e101
+┌  PosturaNet 0.2.0 · fix · sg-0b77e101
+│
+◇  ✓ ingest      securityhub EC2.19 · port 3389 open to 0.0.0.0/0 · HIGH
+◇  ✓ locate      infra/rdp/main.tf:12 · aws_security_group.rdp · @acme/it
+◇  ? evidence    no flow logs found for 2 ENIs on this security group · confidence none
+│
+◇  Result ────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                                                                     │
+│  Result      STOPPED · no PR opened (PosturaNet never changes a resource without usage evidence)    │
+│  Next        → enable VPC flow logs for vpc-0c1… (guide: posturanet.dev/docs/flow-logs)             │
+│              → re-run in 14+ days: posturanet fix sg-0b77e101                                       │
+│                                                                                                     │
+├─────────────────────────────────────────────────────────────────────────────────────────────────────╯
+│
+└  Stopped. No PR opened.
 ```
 
 ### 4.4 Example: validation FAIL
 ```text
-  ✗ validate    plan_scope FAIL · plan also changes aws_instance.bastion (replace)
-
-Result      STOPPED · validation FAIL · no PR opened
-Why         the plan touches resources outside the target; this usually means drift or a shared module
-Next        → run `terraform plan` in infra/ and resolve the unrelated change, then re-run
+◇  ✗ validate    plan_scope FAIL · plan also changes aws_instance.bastion (replace)
+│
+◇  Result ─────╮   (box as in 4.3)
+│  Result      STOPPED · validation FAIL · no PR opened
+│  Why         the plan touches resources outside the target; this usually means drift or a shared module
+│  Next        → run `terraform plan` in infra/ and resolve the unrelated change, then re-run
+├──────────────╯
+│
+└  Stopped. No PR opened.
 ```
 
 ### 4.5 Upgrade prompt (FR-44): at most once per run, after Next
@@ -112,7 +142,17 @@ Next        → run `terraform plan` in infra/ and resolve the unrelated change,
 Tip         PosturaNet Team checks every Terraform PR against your contracts → posturanet.com/pricing
 ```
 
-### 4.6 Error messages
+### 4.6 Approving a stop at the terminal
+When an IAM fix stops only on items a person can confirm (a data-plane service's action list, or an action like `iam:PassRole` that last-accessed data can't see), and the command runs at an interactive terminal with text output, `fix` asks about each item after the stop:
+```text
+s3: actions seen in use: s3:ListAllMyBuckets, s3:PutBucketPolicy
+  IAM doesn't record s3 data actions (object or item reads and writes). After the fix, any s3 action not kept is denied.
+  Other s3 actions to keep, comma-separated (Enter for none): s3:GetObject
+Approve the s3 action list? [y/N]: y
+```
+It then shows the full run with the before/after diff, writing nothing, and asks `Approve this change? [y/N]` (`… and open the PR?` with `--open-pr`). Defaults are always the safe answer: `N` for approvals, `Y` for keeping an action. Declining prints `Not approved. Nothing was changed.` (exit 3). An approval is written into the contract as a hand edit would be (`reviewed_services`, `must_allow` with `source: human`, `status: approved`, `approved_by`, `approved_at`) and the PR table gets an `Approved` row. Never prompt in CI, pipes, JSON output, hooks or MCP.
+
+### 4.7 Error messages
 Format: **what happened**, then **why** (if known), then **what to do**. Never print a stack trace unless `--verbose` or an internal error (exit 10). On an internal error, print the run-record path and ask the user to file an issue, with no secrets in the record.
 
 ## 5. Behavior contract files (YAML)
@@ -214,7 +254,8 @@ One message per event. First line = result. Max 5 lines plus a link.
 - Wordmark: **PosturaNet** (capital P, capital N, one word). Never "Postura Net", "POSTURANET" or "Posturanet".
 - Tagline: *Fixes cloud security issues without breaking prod.*
 - Secondary line: *Evidence-backed remediation for AWS + Terraform.*
-- Terminal logo (`output/banner.py`): the logo SVG rasterized to half-block pixels, gradient `#3197F3` → `#0066FF`. Only on bare `posturanet` and `init` (stderr), only at an interactive terminal; never in JSON, pipes, CI, MCP or hooks. `NO_COLOR` → no color; non-UTF-8 → text only; `POSTURANET_NO_BANNER=1` → off.
+- Terminal banner (`output/banner.py`): the logo (cloud, P and arrow, in half blocks) beside the block-letter wordmark, gradient white cloud and blue P (`#0066FF`), the wordmark in `success` green with the O and NET in `critical` red, then a `Start here` box on the rail (§4.1) with every command and an example, grouped Set up / Bring your findings / Fix / Keep it fixed. Narrower terminals stack the logo over the wordmark, then show the logo only, then no art.
+- Every command's `--help` ends with `Examples:`: `# what it does` above `$ the command`, safe to copy as written. Only on bare `posturanet` and `init` (stderr), only at an interactive terminal; never in JSON, pipes, CI, MCP or hooks. `NO_COLOR` → no color; non-UTF-8 → text only; `POSTURANET_NO_BANNER=1` → off.
 
 ### 10.2 Color tokens
 Dark is the primary theme, matching `postura-frontend/tailwind.config.ts`. Light values are for docs, PDFs and light-mode sites.

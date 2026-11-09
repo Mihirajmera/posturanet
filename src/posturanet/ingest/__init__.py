@@ -1,7 +1,8 @@
 """Ingest stage: turn a finding file or a manual target into a `Finding` (FR-1..FR-4, FR-4a).
 
-A finding file is ASFF (Security Hub), OCSF (Prowler `json-ocsf`, Security Lake), or a
-Terraform scanner report (Checkov `-o json`, Trivy `config -f json`); the format is detected
+A finding file is ASFF (Security Hub), OCSF (Security Hub `get-findings-v2`, Prowler
+`json-ocsf`, Security Lake), a Terraform scanner report (Checkov `-o json`, Trivy
+`config -f json`), or Security Hub remediation plans (FR-4c); the format is detected
 from the content. A file may hold many findings: when exactly one of them is a
 failed finding PosturaNet can fix, that one is used; otherwise `posturanet findings` lists or
 splits them.
@@ -17,12 +18,12 @@ from pathlib import Path
 from typing import Any, Literal
 
 from posturanet.errors import StageStop, UsageError
-from posturanet.ingest import asff, iac, ocsf
+from posturanet.ingest import asff, iac, ocsf, plans
 from posturanet.ingest.asff import parse_asff_file
 from posturanet.ingest.manual import finding_from_resource_id
 from posturanet.models import Finding, FixType
 
-Format = Literal["asff", "ocsf", "checkov", "trivy"]
+Format = Literal["asff", "ocsf", "checkov", "trivy", "plan"]
 
 
 @dataclass(frozen=True)
@@ -73,6 +74,8 @@ def parse_item(item: dict[str, Any], fmt: Format, *, raw_sha256: str) -> Finding
         return iac.parse_checkov_item(item, raw_sha256=raw_sha256)
     if fmt == "trivy":
         return iac.parse_trivy_item(item, raw_sha256=raw_sha256)
+    if fmt == "plan":
+        return plans.parse_plan_item(item, raw_sha256=raw_sha256)
     return asff.parse_asff_item(item, raw_sha256=raw_sha256)
 
 
@@ -84,6 +87,8 @@ def document_for(item: dict[str, Any], fmt: Format) -> Any:
         return iac.trivy_document(item)
     if fmt == "ocsf":
         return item
+    if fmt == "plan":
+        return plans.plan_document(item)
     return {"Findings": [item]}
 
 
@@ -109,6 +114,9 @@ def ingest(target: str) -> Finding:
 
 
 def _items(doc: Any) -> tuple[Format, list[dict[str, Any]]]:
+    if plans.looks_like_plans(doc):
+        return "plan", plans.plan_items(doc)
+    doc = ocsf.unwrap(doc)  # get-findings-v2 output and EventBridge events hold OCSF
     if isinstance(doc, dict) and "Findings" in doc:
         return "asff", asff.findings_in(doc)
     if iac.looks_like_checkov(doc):

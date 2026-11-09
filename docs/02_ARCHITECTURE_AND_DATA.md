@@ -50,7 +50,7 @@ Each stage is a pure function of its inputs plus read-only I/O, and returns eith
 
 | Stage | Module | Input → Output | Stops when |
 |---|---|---|---|
-| ingest | `posturanet.ingest` | ASFF / OCSF (Prowler) / Checkov / Trivy / manual → `Finding` | Required fields missing, not a FAIL finding, several fixable controls, unsupported control |
+| ingest | `posturanet.ingest` | ASFF / OCSF (Security Hub, Prowler) / Checkov / Trivy / Security Hub remediation plans / manual → `Finding` | Required fields missing, not a FAIL finding, several fixable controls, unsupported control |
 | locate | `posturanet.locate` | `Finding` + repo + state → `Location` | No match, remote module, drift, ambiguous with low confidence |
 | evidence | `posturanet.evidence` | `Location` + window → `Observations` | Confidence `none` (report-only) |
 | contract | `posturanet.contracts` | `Observations` (+ approved contract) → `BehaviorContract` | Unapproved rare sources in auto mode |
@@ -70,7 +70,7 @@ posturanet/                         # FSL-1.1-ALv2 (this folder; becomes its own
     __init__.py  __main__.py
     models/       finding.py  location.py  observations.py  contract.py
                   diff.py  validation.py  safety_contract.py  outcome.py  config.py
-    ingest/       asff.py  manual.py
+    ingest/       asff.py  ocsf.py  iac.py  plans.py  manual.py
     locate/       backend.py  tfstate.py  hcl_index.py  codeowners.py  drift.py
     evidence/     flowlogs.py  cloudtrail.py  last_accessed.py  s3_access.py  confidence.py  periodicity.py
     contracts/    builder.py  loader.py  store.py
@@ -84,7 +84,7 @@ posturanet/                         # FSL-1.1-ALv2 (this folder; becomes its own
     record/       run_record.py
     llm/          client.py  redact.py  prompts/        # optional; never required for deterministic paths
     licensing/    verify.py  features.py
-    aws/          session.py  readonly.py           # read-only API allowlist (NFR-2)
+    aws/          session.py  readonly.py  remediation_plans.py   # read-only API allowlist (NFR-2)
     output/       console.py  symbols.py            # design-system rendering
     cli/          app.py
     mcp/          server.py
@@ -178,9 +178,13 @@ All models are Pydantic v2, serialized as JSON (machine) or YAML (human-edited c
   "provenance": { "raw_sha256": "…", "schema": "asff-2018-10-08" }
 }
 ```
-From Prowler (`prowler aws --output-formats json-ocsf`), the same finding has `source: "prowler"`, the Prowler finding uid as `finding_id`, `schema: "ocsf-<version>"`, and the control from `unmapped.compliance` (`AWS-Foundational-Security-Best-Practices`) or, failing that, `ingest/prowler_checks.json` (generated from Prowler's compliance data by `scripts/update_prowler_map.py`). OCSF compliance findings give it in `compliance.control`. A check that maps to two controls PosturaNet fixes stops: no guessing.
+From Prowler (`prowler aws --output-formats json-ocsf`), the same finding has `source: "prowler"`, the Prowler finding uid as `finding_id`, `schema: "ocsf-<version>"`, and the control from `unmapped.compliance` (`AWS-Foundational-Security-Best-Practices`) or, failing that, `ingest/prowler_checks.json` (generated from Prowler's compliance data by `scripts/update_prowler_map.py`). OCSF compliance findings give it in `compliance.control`. A check that maps to two controls PosturaNet fixes stops (no guessing), unless both make the identical change (twin controls such as ES.1 and OpenSearch.1), when the first is used.
 
-Checkov and Trivy findings carry `resource.address` (a Terraform address) and `resource.id` holds the address until `locate.resolve_address` reads the deployed id and ARN from the state (for `aws_security_group_rule` and `aws_s3_bucket_public_access_block`, the group or bucket it belongs to). Check ids map to controls in `ingest/iac_checks.json`; with several candidates, the one whose catalog row matches the resource type wins, otherwise the run stops.
+Checkov and Trivy findings carry `resource.address` (a Terraform address) and `resource.id` holds the address until `locate.resolve_address` reads the deployed id and ARN from the state (for `aws_security_group_rule` and `aws_s3_bucket_public_access_block`, the group or bucket it belongs to). Check ids map to controls in `ingest/iac_checks.json`; a catalog control only counts for resource types it has rows for, twin controls with the same change use the first, and any other tie stops the run.
+
+Security Hub writes OCSF too. `get-findings-v2` output (`{"Findings": [...]}`, which is also ASFF's key, so the items decide) and EventBridge "Findings Imported V2" events (`detail.findings`) are unwrapped first. A compliance finding's result is `compliance.status`; only `Fail` is fixable. An exposure finding (class 2004 from "Security Hub Exposure Detection") isn't fixed directly: its `finding_info.related_events` entries of type `Finding` are titled `<control> <title>`, and the stop reason names them.
+
+Remediation plans (FR-4c, `ingest/plans.py`) come from `GetRemediationsV2`. `posturanet findings pull-plans` (`aws/remediation_plans.py`) writes `{"PosturaNetRemediationPlans": "1", "Plans": [...]}`, each plan with its `Exposures` (`ListExposuresByRemediationV2`) and `ExposureFindings` (`GetFindingsV2` by `metadata.uid`). A plan becomes one `Finding`: `finding_id` = `TargetUid`, the resource from `Resource.Id` (an ARN), severity from `Priority`, and `control_id` from the exposure findings' linked controls: the attribute-fix controls sharing the most common Terraform resource type, joined with `+` (`RDS.2+RDS.8`). `configfix.catalog.fixes_for` merges such an id into one row per resource type (changes concatenated, conflicting values refuse to merge, `risk` medium if any part is), so validate and deliver run unchanged and one plan is one PR. With no attribute fixes the first evidence fix runs alone; controls left out are named in the title. Resolved plans and plans with no supported control are listed with the reason. The plan's guidance and Terraform example are stored as data and never shape the change.
 `fix_type` ∈ `sg_ingress | s3_public | iam_least_privilege | unsupported`, mapped from `control_id` by `ingest/controls.json` (JSON so the core needs no extra parser at import time).
 
 ### 6.2 Location
@@ -354,7 +358,7 @@ Verify (`verify/iam_signals.py`): CloudTrail `LookupEvents` per removed service 
 
 ### 7.3 Read-only allowlist (NFR-2)
 `aws/readonly.py` wraps boto3 clients and allows only listed operations. Anything else raises `MutatingCallBlocked`. The current allowlist:
-`ec2:Describe*`, `logs:StartQuery`, `logs:GetQueryResults`, `logs:DescribeLogGroups`, `athena:StartQueryExecution`, `athena:GetQueryExecution`, `athena:GetQueryResults`, `s3:GetObject` (state bucket, Athena results, access logs), `s3:ListBucket`, `s3:ListAllMyBuckets`, `s3:GetBucketPolicyStatus`, `s3:GetBucketAcl`, `s3:GetBucketOwnershipControls`, `s3:GetBucketWebsite`, `s3:GetBucketLogging`, `cloudfront:ListDistributions`, `iam:Get*`, `iam:List*`, `iam:GenerateServiceLastAccessedDetails`, `iam:SimulatePrincipalPolicy`, `cloudtrail:LookupEvents`, `securityhub:GetFindings`, `access-analyzer:Get*`, `access-analyzer:List*`, `sts:GetCallerIdentity`, `sts:AssumeRole`.
+`ec2:Describe*`, `logs:StartQuery`, `logs:GetQueryResults`, `logs:DescribeLogGroups`, `athena:StartQueryExecution`, `athena:GetQueryExecution`, `athena:GetQueryResults`, `s3:GetObject` (state bucket, Athena results, access logs), `s3:ListBucket`, `s3:ListAllMyBuckets`, `s3:GetBucketPolicyStatus`, `s3:GetBucketAcl`, `s3:GetBucketOwnershipControls`, `s3:GetBucketWebsite`, `s3:GetBucketLogging`, `cloudfront:ListDistributions`, `iam:Get*`, `iam:List*`, `iam:GenerateServiceLastAccessedDetails`, `iam:SimulatePrincipalPolicy`, `cloudtrail:LookupEvents`, `securityhub:GetFindings`, `securityhub:GetFindingsV2`, `securityhub:GetRemediationsV2`, `securityhub:ListExposuresByRemediationV2`, `access-analyzer:Get*`, `access-analyzer:List*`, `sts:GetCallerIdentity`, `sts:AssumeRole`.
 (Athena `StartQueryExecution` writes query results to the customer's results bucket. That's documented and is the only side effect.)
 
 **Customer IAM policy** is generated by `posturanet init` from the same allowlist, so the two can't drift apart.

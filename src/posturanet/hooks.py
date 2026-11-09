@@ -65,7 +65,7 @@ def claude_code(event_text: str, repo: Path) -> str:
         return _context(result) + "\n"
     if not result.results:
         return ""
-    report = render_gate(result, ascii_mode=True)
+    report = render_gate(result, ascii_mode=True, framed=False)
     if result.status == "BLOCK":
         reason = (
             report

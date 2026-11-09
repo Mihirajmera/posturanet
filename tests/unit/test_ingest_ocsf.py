@@ -77,6 +77,16 @@ def test_several_fixable_controls_stop() -> None:
         parse_ocsf_item(item, raw_sha256=SHA)
 
 
+def test_twin_controls_with_the_same_fix_pick_one() -> None:
+    item = _item()
+    item["metadata"]["event_code"] = "opensearch_service_domains_encryption_at_rest_enabled"
+    item["unmapped"]["compliance"]["AWS-Foundational-Security-Best-Practices"] = [
+        "OpenSearch.1",
+        "ES.1",
+    ]
+    assert parse_ocsf_item(item, raw_sha256=SHA).control_id == "ES.1"
+
+
 def test_one_fixable_control_among_others_is_picked() -> None:
     item = _item()
     item["unmapped"]["compliance"]["AWS-Foundational-Security-Best-Practices"] = [
@@ -182,8 +192,8 @@ def test_cli_findings_list_and_split(tmp_path: Path) -> None:
 
 def test_cli_list_all_explains_the_rest() -> None:
     out = runner.invoke(app, ["findings", "list", str(SCAN), "--all"]).output
-    assert "5 findings" in out and "3 PosturaNet can fix" in out
-    assert "nothing to fix" in out and "no fix for this control yet" in out
+    assert "4 failed · 3 fix" in out and "coverage 3/4" in out
+    assert "passed" in out and "no fix for this control yet" in out
 
 
 def test_split_names_never_collide(tmp_path: Path) -> None:

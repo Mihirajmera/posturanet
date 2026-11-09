@@ -2,9 +2,19 @@
   "_comment": "IaC scanner check id -> Security Hub control ids PosturaNet fixes. Hand-curated: each row was checked against the scanner's source (Checkov checkov/terraform/checks/resource/aws, 2026-11-02; Trivy trivy-checks checks/cloud/aws, 2026-11) so the check tests the attribute the fix changes, on the same resource type. A check with several controls is narrowed by the finding's resource type. Checks not listed are reported as unsupported, never guessed.",
   "_notes": {
     "trivy:AWS-0107": "SSH or RDP open to the internet. Both ports are in EC2.19's high-risk list, so the EC2.19 re-check covers either one.",
-    "trivy:AWS-0094": "The bucket has no public access block. The S3.8 fix adds the block settings to the bucket."
+    "trivy:AWS-0094": "The bucket has no public access block. The S3.8 fix adds the block settings to the bucket.",
+    "checkov:CKV_AWS_88": "Covers aws_instance and aws_launch_template. Only the launch template is fixable in place (EC2.25); aws_instance findings are reported as unsupported.",
+    "ES/OpenSearch": "Security Hub has twin controls for one domain setting (ES.1/OpenSearch.1, ES.3/OpenSearch.3). Both make the same change, so a check mapped to both uses the first."
   },
   "checkov": {
+    "CKV_AWS_5": [
+      "ES.1",
+      "OpenSearch.1"
+    ],
+    "CKV_AWS_6": [
+      "ES.3",
+      "OpenSearch.3"
+    ],
     "CKV_AWS_7": [
       "KMS.4"
     ],
@@ -26,11 +36,17 @@
     "CKV_AWS_15": [
       "IAM.7"
     ],
+    "CKV_AWS_17": [
+      "RDS.2"
+    ],
     "CKV_AWS_24": [
       "EC2.13"
     ],
     "CKV_AWS_25": [
       "EC2.14"
+    ],
+    "CKV_AWS_26": [
+      "SNS.1"
     ],
     "CKV_AWS_27": [
       "SQS.1"
@@ -40,6 +56,9 @@
     ],
     "CKV_AWS_36": [
       "CloudTrail.4"
+    ],
+    "CKV_AWS_39": [
+      "EKS.1"
     ],
     "CKV_AWS_43": [
       "Kinesis.1"
@@ -73,6 +92,12 @@
     ],
     "CKV_AWS_85": [
       "DocumentDB.4"
+    ],
+    "CKV_AWS_87": [
+      "Redshift.1"
+    ],
+    "CKV_AWS_88": [
+      "EC2.25"
     ],
     "CKV_AWS_101": [
       "Neptune.2"
@@ -125,11 +150,17 @@
     "CKV_AWS_293": [
       "RDS.8"
     ],
+    "CKV_AWS_307": [
+      "SageMaker.3"
+    ],
     "CKV_AWS_313": [
       "RDS.16"
     ],
     "CKV_AWS_328": [
       "ELB.12"
+    ],
+    "CKV_AWS_333": [
+      "ECS.2"
     ],
     "CKV_AWS_344": [
       "NetworkFirewall.9"
@@ -174,6 +205,17 @@
     ],
     "AWS-0031": [
       "ECR.2"
+    ],
+    "AWS-0040": [
+      "EKS.1"
+    ],
+    "AWS-0043": [
+      "ES.3",
+      "OpenSearch.3"
+    ],
+    "AWS-0048": [
+      "ES.1",
+      "OpenSearch.1"
     ],
     "AWS-0052": [
       "ELB.4"
@@ -223,6 +265,9 @@
     "AWS-0094": [
       "S3.8"
     ],
+    "AWS-0095": [
+      "SNS.1"
+    ],
     "AWS-0096": [
       "SQS.1"
     ],
@@ -237,6 +282,9 @@
     ],
     "AWS-0177": [
       "RDS.8"
+    ],
+    "AWS-0180": [
+      "RDS.2"
     ],
     "AWS-0343": [
       "RDS.7"

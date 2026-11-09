@@ -18,7 +18,7 @@ from typing import Any, Literal
 
 from pydantic import ValidationError
 
-from posturanet.configfix.catalog import fixes_for
+from posturanet.configfix.catalog import fixes_for, same_fix
 from posturanet.errors import StageStop
 from posturanet.ingest.controls import fix_type_for
 from posturanet.models import Finding, FixType, Provenance, ResourceRef, Severity
@@ -158,9 +158,15 @@ def parse_trivy_item(item: dict[str, Any], *, raw_sha256: str) -> Finding:
 def control_for(tool: Tool, check_id: str, resource_type: str) -> str | None:
     """The control PosturaNet fixes for this check on this resource type, or None."""
     candidates = check_map(tool).get(check_id, [])
-    if len(candidates) > 1:
-        typed = [c for c in candidates if resource_type in {f.resource_type for f in fixes_for(c)}]
-        candidates = typed or candidates
+    # A catalog control only fits the resource types it has rows for (CKV_AWS_88 covers
+    # aws_instance and aws_launch_template; EC2.25 fixes only the template).
+    candidates = [
+        c
+        for c in candidates
+        if not fixes_for(c) or resource_type in {f.resource_type for f in fixes_for(c)}
+    ]
+    if len(candidates) > 1 and same_fix(candidates, resource_type):
+        candidates = candidates[:1]
     if len(candidates) > 1:
         raise StageStop(
             "ingest",

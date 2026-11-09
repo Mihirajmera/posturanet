@@ -1,0 +1,36 @@
+{
+  "_about": "Controls that aren't fixed in Terraform: steps for a person, then re-run the scanner. Steps are data, shown as written.",
+  "Account.1": [
+    "Account > Alternate contacts > Security: add a team mailbox, not one person.",
+    "Or in Terraform: an aws_account_alternate_contact resource with alternate_contact_type = \"SECURITY\"."
+  ],
+  "IAM.3": [
+    "Credential report: find keys older than 90 days and what uses them (access key last used).",
+    "Create a second key, move the workload to it, and wait until the old key's last-used date stops changing.",
+    "Deactivate the old key, wait a cycle, then delete it. Better: move the workload to an IAM role."
+  ],
+  "IAM.4": [
+    "CloudTrail: check for recent calls where userIdentity.type is Root, so nothing still uses the key.",
+    "Sign in as the root user > Security credentials > Access keys: delete each key."
+  ],
+  "IAM.5": [
+    "Ask each console user to assign an MFA device (Security credentials > MFA).",
+    "Enforce it with a policy that denies actions without aws:MultiFactorAuthPresent, or move people to IAM Identity Center."
+  ],
+  "IAM.6": [
+    "Sign in as the root user > Security credentials > Assign MFA device: choose a hardware or passkey device.",
+    "Store it with your break-glass procedure, and record who holds it."
+  ],
+  "IAM.9": [
+    "Sign in as the root user > Security credentials > Assign MFA device.",
+    "Store it with your break-glass procedure, and record who holds it."
+  ],
+  "IAM.19": [
+    "Ask each IAM user to assign an MFA device (Security credentials > MFA).",
+    "Users who only need the API: move them to IAM roles instead of long-lived keys."
+  ],
+  "IAM.22": [
+    "Credential report: find passwords and keys unused for 45 days.",
+    "Deactivate them first (don't delete), wait a cycle for anyone who still needs them, then delete."
+  ]
+}

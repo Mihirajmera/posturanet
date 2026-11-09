@@ -18,6 +18,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from posturanet.configfix.catalog import same_fix
 from posturanet.errors import StageStop, UsageError
 from posturanet.ingest.controls import fix_type_for
 from posturanet.models import Finding, FixType, Provenance, ResourceRef, Severity
@@ -29,6 +30,28 @@ _SEVERITY_ALIASES = {"FATAL": Severity.CRITICAL}
 
 def looks_like_ocsf(item: dict[str, Any]) -> bool:
     return "class_uid" in item or "finding_info" in item
+
+
+def unwrap(doc: Any) -> Any:
+    """The OCSF findings inside a Security Hub wrapper, or `doc` unchanged.
+
+    `aws securityhub get-findings-v2` writes {"Findings": [...]}, which is ASFF's key, so
+    the items decide; an EventBridge "Findings Imported V2" event holds them in
+    detail.findings.
+    """
+    if not isinstance(doc, dict):
+        return doc
+    detail = _obj(doc.get("detail"))
+    if doc.get("source") == "aws.securityhub" and isinstance(detail.get("findings"), list):
+        return detail["findings"]
+    listed = doc.get("Findings")
+    if (
+        isinstance(listed, list)
+        and listed
+        and all(isinstance(x, dict) and looks_like_ocsf(x) for x in listed)
+    ):
+        return listed
+    return doc
 
 
 def findings_in(doc: Any) -> list[dict[str, Any]]:
@@ -67,8 +90,25 @@ def parse_ocsf_item(item: dict[str, Any], *, raw_sha256: str) -> Finding:
             f"finding status is {status}: there is nothing to fix",
             ["pass a failed finding (status_code FAIL)"],
         )
+    # Security Hub's compliance findings carry the result here and have no status_code.
+    result = str(_obj(item.get("compliance")).get("status") or "").upper()
+    if result and result != "FAIL":
+        raise StageStop(
+            "ingest",
+            f"control result is {result}: there is nothing to fix",
+            ["pass a failed finding (compliance.status Fail)"],
+        )
 
     control_id = control_id_of(item)
+    linked = related_controls(item)
+    if control_id is None and linked:
+        fixable = [c for c in linked if fix_type_for(c) is not FixType.UNSUPPORTED]
+        raise StageStop(
+            "ingest",
+            f"exposure finding: it links control findings {', '.join(linked)}"
+            + (f", and PosturaNet fixes {', '.join(fixable)}" if fixable else ""),
+            ["fix the linked control findings, or pass the Security Hub remediation plan"],
+        )
     meta = _obj(item.get("metadata"))
     product = str(_obj(meta.get("product")).get("name") or "").strip().lower()
     try:
@@ -95,6 +135,8 @@ def control_id_of(item: dict[str, Any]) -> str | None:
     """The Security Hub control id, or None. Several candidates: the one PosturaNet fixes."""
     candidates = _control_candidates(item)
     fixable = [c for c in candidates if fix_type_for(c) is not FixType.UNSUPPORTED]
+    if len(fixable) > 1 and same_fix(fixable):
+        fixable = fixable[:1]
     if len(fixable) > 1:
         raise StageStop(
             "ingest",
@@ -119,6 +161,23 @@ def _control_candidates(item: dict[str, Any]) -> list[str]:
         return sorted(found)
     check = str(_obj(item.get("metadata")).get("event_code") or "")
     return list(prowler_checks().get(check, []))
+
+
+_CONTROL_TITLE = re.compile(r"^([A-Za-z][A-Za-z0-9]*\.\d+)\s")
+
+
+def related_controls(item: dict[str, Any]) -> list[str]:
+    """Control ids an exposure finding links in finding_info.related_events, in order.
+
+    Security Hub titles a linked control finding "<control> <title>" ("RDS.8 RDS DB ...").
+    """
+    found: list[str] = []
+    for event in _obj(item.get("finding_info")).get("related_events") or []:
+        event = _obj(event)
+        m = _CONTROL_TITLE.match(str(event.get("title") or ""))
+        if event.get("type") == "Finding" and m and m.group(1) not in found:
+            found.append(m.group(1))
+    return found
 
 
 def _resource_ref(res: dict[str, Any], item: dict[str, Any]) -> ResourceRef:

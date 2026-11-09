@@ -10,7 +10,7 @@ from posturanet.deliver.idempotency import markers, verify_marker
 from posturanet.deliver.pr_body import _CHECK_LABELS, _cell, _sym
 from posturanet.iamfix.shrink import StatementChange
 from posturanet.models import Diff, Finding, Location, ValidationReport, VerifySpec
-from posturanet.models.iam import IamEvidence
+from posturanet.models.iam import IamApproval, IamEvidence
 
 WATCH_HOURS = 72
 _SOURCE = {
@@ -30,6 +30,7 @@ class IamProposal:
     contract_file: str
     form: str
     unknowns: list[str] = field(default_factory=list)
+    approval: IamApproval | None = None  # approved at the terminal
 
     @property
     def idempotency_key(self) -> str:
@@ -86,6 +87,13 @@ def labels(p: IamProposal, base: list[str]) -> list[str]:
     return list(dict.fromkeys([*base, "posturanet", f"risk:{p.risk}", "needs-review"]))
 
 
+def _approval_rows(a: IamApproval | None) -> list[str]:
+    if a is None:
+        return []
+    what = [f"reviewed {s}" for s in a.reviewed_services] + [f"kept `{x}`" for x in a.keep]
+    return [f"| Approved | {a.by} at the terminal on {a.at}: {', '.join(what) or 'as shown'} |"]
+
+
 def body(p: IamProposal, *, run_id: str) -> str:
     f, loc, ev = p.finding, p.location, p.evidence
     owners = ", ".join(loc.owners) if loc.owners else "unknown (no CODEOWNERS match)"
@@ -117,6 +125,7 @@ def body(p: IamProposal, *, run_id: str) -> str:
         f"| Evidence | {_SOURCE.get(ev.source, ev.source)} · policy age {ev.age_days} days · "
         f"confidence {ev.confidence.value} |",
         f"| Contract | `{p.contract_file}` |",
+        *_approval_rows(p.approval),
         "",
         "### Used actions kept",
         *(used_rows or ["- none from last-accessed data; only actions listed in the contract"]),
