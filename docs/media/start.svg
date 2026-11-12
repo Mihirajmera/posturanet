@@ -28,7 +28,7 @@
 <text x="18" y="293" class="t ln" style="animation-delay:1.35s"><tspan fill="#E8E6E1">          </tspan><tspan fill="#0066FF">█</tspan><tspan fill="#0066FF">█</tspan></text>
 <text x="18" y="312" class="t ln" style="animation-delay:1.42s"><tspan fill="#E8E6E1">          </tspan><tspan fill="#0066FF">▀</tspan><tspan fill="#0066FF">▀</tspan></text>
 <text x="18" y="331" class="t ln" style="animation-delay:1.49s"></text>
-<text x="18" y="350" class="t ln" style="animation-delay:1.56s"><tspan fill="#919693">┌</tspan><tspan fill="#E8E6E1">  </tspan><tspan fill="#E8E6E1" font-weight="700">PosturaNet</tspan><tspan fill="#E8E6E1"> 0.2.0 · Fixes cloud security issues without breaking prod.</tspan></text>
+<text x="18" y="350" class="t ln" style="animation-delay:1.56s"><tspan fill="#919693">┌</tspan><tspan fill="#E8E6E1">  </tspan><tspan fill="#E8E6E1" font-weight="700">PosturaNet</tspan><tspan fill="#E8E6E1"> 0.3.0 · Fixes cloud security issues without breaking prod.</tspan></text>
 <text x="18" y="369" class="t ln" style="animation-delay:1.63s"><tspan fill="#919693">│</tspan></text>
 <text x="18" y="388" class="t ln" style="animation-delay:1.70s"><tspan fill="#919693">◇</tspan><tspan fill="#E8E6E1">  </tspan><tspan fill="#E8E6E1" font-weight="700">Start here</tspan><tspan fill="#E8E6E1"> </tspan><tspan fill="#919693">──────────────────────────────────────────────────────────────────────────────────────────╮</tspan></text>
 <text x="18" y="407" class="t ln" style="animation-delay:1.77s"><tspan fill="#919693">│</tspan><tspan fill="#E8E6E1">                                                                                                       </tspan><tspan fill="#919693">│</tspan></text>

@@ -1,7 +1,7 @@
 {
   "name": "posturanet",
   "displayName": "PosturaNet",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Evidence-backed Terraform fixes for AWS security groups, S3 public access and IAM least privilege, and a contract check on every security group, S3 and IAM policy edit. Read-only in AWS. Needs the posturanet CLI: pip install \"posturanet[mcp]\".",
   "author": { "name": "PosturaNet", "url": "https://posturanet.com" },
   "homepage": "https://posturanet.com",

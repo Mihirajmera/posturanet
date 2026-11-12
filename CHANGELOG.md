@@ -4,6 +4,8 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-12
+
 ### Changed (CLI output)
 - Text output hangs on one rail: `┌` header, a `◇` line per stage, boxed sections (`Proposed change`, `Result`), and a `└` closing line (`Done. Nothing was changed.`, `Stopped. No PR opened.`). `fix`, `contract build`, `contract check`, `fixes list|show` and `findings list|split|pull-plans` all use it; lists are tables inside a box. A box wider than the terminal drops its right edge instead of wrapping. `--ascii` uses `+ | o * -`. JSON output and the agent-hook reply are unchanged.
 - The banner (bare `posturanet`, `init`) is the logo beside a block-letter POSTURANET wordmark (white cloud, blue P; green wordmark with the O and NET in red), then a `Start here` box listing every command with an example. Narrower terminals stack the art, then show the logo only.
