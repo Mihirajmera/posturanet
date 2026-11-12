@@ -15,7 +15,7 @@
 <text x="400.0" y="22" text-anchor="middle" fill="#919693" style="font: 12px 'JetBrains Mono','Cascadia Mono',Consolas,monospace">An agent puts ec2:* back: the contract check blocks it</text>
 <text x="18" y="65" class="t"><tspan fill="#2FBF71">$ </tspan><tspan fill="#E8E6E1">posturanet contract check --source</tspan></text>
 <rect x="34.8" y="52" width="285.6" height="19" fill="#0B0E0F" class="type"/>
-<text x="18" y="103" class="t ln" style="animation-delay:1.37s"><tspan fill="#919693">┌</tspan><tspan fill="#E8E6E1">  </tspan><tspan fill="#E8E6E1" font-weight="700">PosturaNet</tspan><tspan fill="#E8E6E1"> </tspan><tspan fill="#919693">0.2.0</tspan><tspan fill="#E8E6E1"> · contract check</tspan></text>
+<text x="18" y="103" class="t ln" style="animation-delay:1.37s"><tspan fill="#919693">┌</tspan><tspan fill="#E8E6E1">  </tspan><tspan fill="#E8E6E1" font-weight="700">PosturaNet</tspan><tspan fill="#E8E6E1"> </tspan><tspan fill="#919693">0.3.0</tspan><tspan fill="#E8E6E1"> · contract check</tspan></text>
 <text x="18" y="122" class="t ln" style="animation-delay:1.44s"><tspan fill="#919693">│</tspan></text>
 <text x="18" y="141" class="t ln" style="animation-delay:1.51s"><tspan fill="#E5484D">●</tspan><tspan fill="#E8E6E1">  </tspan><tspan fill="#E5484D">BLOCK</tspan><tspan fill="#E8E6E1"> · this change would break 1 contract</tspan></text>
 <text x="18" y="160" class="t ln" style="animation-delay:1.58s"><tspan fill="#919693">│</tspan></text>

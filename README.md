@@ -6,7 +6,7 @@ PosturaNet is a source-available remediation agent for AWS + Terraform. It takes
 
 It also checks every security group, S3 and IAM policy change, written by a person or an AI agent, against those contracts before it merges: a `PosturaNet contract` check on PRs, a step in any CI, a Claude Code plugin, and MCP setups for Cursor, Codex, Copilot, Gemini, Windsurf, Cline, Kiro, Continue, Zed and Goose.
 
-> Status: early access. 0.2.0 is on PyPI. This README describes `main` (0.3.0, not yet released): `connect`, outcomes, exceptions, runbooks and approval at the terminal are new. Until 0.3.0 is out, install from source: `pip install git+https://github.com/Mihirajmera/posturanet`.
+> Status: early access. 0.3.0 is on PyPI: `connect`, outcomes, exceptions, runbooks and approval at the terminal are new.
 >
 > 88 controls: security groups, S3 public access and IAM least privilege from usage evidence, plus 74 settings controls. Findings from Security Hub, Prowler, Checkov or Trivy.
 

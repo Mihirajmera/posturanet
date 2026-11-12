@@ -62,7 +62,7 @@ least privilege.
 
 ## Results today
 
-See [RESULTS.md](RESULTS.md) for every case. In short (PosturaNet 0.2.0):
+See [RESULTS.md](RESULTS.md) for every case. In short (PosturaNet 0.3.0):
 
 | Contender | Correct | Stopped | Outage | Still exposed | Invalid | Addresses opened |
 |---|---|---|---|---|---|---|

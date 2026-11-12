@@ -15,7 +15,7 @@
 <text x="593.5" y="22" text-anchor="middle" fill="#919693" style="font: 12px 'JetBrains Mono','Cascadia Mono',Consolas,monospace">A Prowler scan: what each finding ends in, and coverage</text>
 <text x="18" y="65" class="t"><tspan fill="#2FBF71">$ </tspan><tspan fill="#E8E6E1">posturanet findings list findings/prowler_ocsf_scan.json --all</tspan></text>
 <rect x="34.8" y="52" width="520.8" height="19" fill="#0B0E0F" class="type"/>
-<text x="18" y="103" class="t ln" style="animation-delay:1.95s"><tspan fill="#919693">┌</tspan><tspan fill="#E8E6E1">  </tspan><tspan fill="#E8E6E1" font-weight="700">PosturaNet</tspan><tspan fill="#E8E6E1"> </tspan><tspan fill="#919693">0.2.0</tspan><tspan fill="#E8E6E1"> · findings list · prowler_ocsf_scan.json</tspan></text>
+<text x="18" y="103" class="t ln" style="animation-delay:1.95s"><tspan fill="#919693">┌</tspan><tspan fill="#E8E6E1">  </tspan><tspan fill="#E8E6E1" font-weight="700">PosturaNet</tspan><tspan fill="#E8E6E1"> </tspan><tspan fill="#919693">0.3.0</tspan><tspan fill="#E8E6E1"> · findings list · prowler_ocsf_scan.json</tspan></text>
 <text x="18" y="122" class="t ln" style="animation-delay:2.02s"><tspan fill="#919693">│</tspan></text>
 <text x="18" y="141" class="t ln" style="animation-delay:2.09s"><tspan fill="#2FBF71">●</tspan><tspan fill="#E8E6E1">  OCSF · 4 failed · 3 fix · 0 runbook · 0 accepted · coverage 3/4 (75%)</tspan></text>
 <text x="18" y="160" class="t ln" style="animation-delay:2.16s"><tspan fill="#919693">│</tspan></text>
