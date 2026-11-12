@@ -4,6 +4,44 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Changed (CLI output)
+- Text output hangs on one rail: `┌` header, a `◇` line per stage, boxed sections (`Proposed change`, `Result`), and a `└` closing line (`Done. Nothing was changed.`, `Stopped. No PR opened.`). `fix`, `contract build`, `contract check`, `fixes list|show` and `findings list|split|pull-plans` all use it; lists are tables inside a box. A box wider than the terminal drops its right edge instead of wrapping. `--ascii` uses `+ | o * -`. JSON output and the agent-hook reply are unchanged.
+- The banner (bare `posturanet`, `init`) is the logo beside a block-letter POSTURANET wordmark (white cloud, blue P; green wordmark with the O and NET in red), then a `Start here` box listing every command with an example. Narrower terminals stack the art, then show the logo only.
+- Every command's `--help` ends with copyable examples.
+
+### Added (approval at the terminal)
+- When an IAM fix stops only on items a person can confirm (a data-plane service such as S3 whose data actions IAM doesn't track, or `iam:PassRole`), `posturanet fix` at an interactive terminal asks about each one: which extra actions to keep, and whether to keep `iam:PassRole`. It then previews the before/after diff with nothing written and asks `Approve this change?`. An approval goes into the contract like a hand edit (`reviewed_services`, `must_allow` with `source: human`, `status: approved`, `approved_by`, `approved_at`) and into the PR as an `Approved` row. CI, pipes, JSON output, hooks and MCP never prompt; the stop's next steps say approval is available at a terminal. Run records list these items under `approvals`.
+
+### Added (outcomes)
+- Every failed finding gets an outcome in `findings list`: `fix`, `runbook`, `exception` (accepted risk) or `none`, and the summary shows coverage (failed findings with an outcome ÷ all failed findings). Passed findings don't count. JSON rows carry `outcome`.
+- `.posturanet/exceptions.yaml` (or `--exceptions`): accepted risks with `control`, optional `resource`, `owner`, `reason` and `expires`. An accepted finding isn't split out for fixing; once `expires` passes it's back to its normal outcome, with a note.
+- Runbooks for controls that aren't a Terraform change (Account.1, IAM.3, IAM.4, IAM.5, IAM.6, IAM.9, IAM.19, IAM.22): `posturanet fixes show IAM.6` shows the steps.
+
+### Added (connect)
+- `posturanet connect`: how to feed Security Hub, Prowler, Checkov and Trivy findings in, and how to wire up coding agents (Claude Code, Cursor, Codex, Copilot, Gemini, Windsurf, Cline, Kiro, Continue, Zed, Goose, any MCP client or AGENTS.md) and the GitHub PR check. `connect <name> --write --repo .` copies the agent or CI files into the repo; it never overwrites a file, and appends to an existing AGENTS.md. The files ship in the wheel.
+
+### Added (fixes)
+- 7 attribute fixes, 59 settings controls in all (73 with the evidence fixes): RDS.11 automatic backups, EC2.8 IMDSv2 on instances, EC2.15 no public IPs by default on subnets, EC2.23 Transit Gateway attachment approval, ECR.2 tag immutability, ELB.14 Classic Load Balancer desync mitigation, ElastiCache.3 automatic failover. RDS.11, EC2.8, EC2.15 and ECR.2 are `risk: medium` with a note on what to check first.
+- 15 more attribute fixes for controls Prowler, Checkov and Trivy already report, 74 settings controls in all (88 with the evidence fixes): RDS.2 and Redshift.1 no public access, EKS.1 private API endpoint, EC2.25 no public IPs from launch templates, ECS.2 no public IPs on services, SageMaker.3 no notebook root access, CloudFront.8 SNI, ES.1/OpenSearch.1 encryption at rest, ES.3/OpenSearch.3 node-to-node encryption, RDS.35 cluster minor upgrades, S3.12 ACLs off, S3.17 KMS encryption, SNS.1 KMS encryption. Each was checked against the AWS provider source to update in place. All but RDS.35 and the domain encryption rows are `risk: medium`.
+- Attribute-fix runs and PRs no longer say "doesn't remove access" for `risk: medium` rows.
+
+### Added (Security Hub)
+- Security Hub remediation plans (FR-4c): `posturanet findings pull-plans` reads plans read-only (`GetRemediationsV2`, `ListExposuresByRemediationV2`, `GetFindingsV2`, added to the allowlist and generated IAM policy). Each plan becomes one finding whose controls come from its exposure findings; attribute fixes on the same resource merge into one change and one PR (`RDS.2+RDS.8`). AWS's guidance is kept as data only.
+- Security Hub OCSF findings: `get-findings-v2` output and EventBridge "Findings Imported V2" events. Exposure findings name the control findings they link.
+
+### Fixed (ingest)
+- A `get-findings-v2` file was read as ASFF because both use a `Findings` key.
+- An OCSF compliance finding that passed (`compliance.status` Pass, no `status_code`) was treated as fixable.
+
+### Changed (ingest)
+- A scanner check mapped to twin controls with the same fix (ES.1 and OpenSearch.1) uses the first instead of stopping. A Checkov or Trivy check on a resource type the control has no catalog row for is reported as unsupported (CKV_AWS_88 on `aws_instance`).
+- Checkov and Trivy now map 56 and 36 checks, to 52 and 31 controls; Prowler findings reach 72.
+
+### Added (ingest)
+- Checkov (`-o json`) and Trivy (`config -f json`) reports (FR-4b). 47 Checkov and 31 Trivy checks map to 41 and 24 PosturaNet controls through `ingest/iac_checks.json`, each checked against the scanner's source. The Terraform address in the finding is resolved to the deployed resource through the state; undeployed or ambiguous resources stop.
+- Prowler and OCSF findings (FR-4a): `posturanet fix` accepts Prowler `json-ocsf` output, Prowler's ASFF output and OCSF compliance findings. The control comes from `compliance.control`, Prowler's FSBP mapping, or a bundled check map (`ingest/prowler_checks.json`, from Prowler 5.48.0). Only FAIL findings are fixable.
+- `posturanet findings list` and `posturanet findings split`: see which findings in a scan PosturaNet can fix, and write one file per finding. `posturanet fix` on a multi-finding file uses the one fixable finding when there is exactly one.
+
 ### Added (docs)
 - Workflow diagrams in the README and architecture doc: the fix pipeline, the contract check for changes by people and AI agents, and where PosturaNet runs (`docs/media/diagram-*.svg`, drawn by `python docs/media/diagrams.py`).
 - README images use absolute GitHub URLs so they also show on PyPI.

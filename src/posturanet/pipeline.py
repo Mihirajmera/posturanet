@@ -47,7 +47,7 @@ from posturanet.iamfix.evidence import usage as iam_usage
 from posturanet.iamfix.shrink import shrink
 from posturanet.iamfix.validate import validate_iam_fix
 from posturanet.ingest import ingest
-from posturanet.locate import load_repo_state, locate_match, module_dir
+from posturanet.locate import load_repo_state, locate_match, module_dir, resolve_address
 from posturanet.locate.backend import boto3_s3_fetch
 from posturanet.locate.codeowners import find_codeowners, owners_for
 from posturanet.models import (
@@ -64,6 +64,7 @@ from posturanet.models import (
     StageStatus,
     ValidationReport,
 )
+from posturanet.models.iam import IamApproval
 from posturanet.models.s3 import S3Evidence
 from posturanet.proposal import Proposal
 from posturanet.s3fix import contract as s3contract
@@ -95,6 +96,8 @@ class Context:
     github: GitHub | None = None
     window_days: int | None = None
     stop_after: Literal["contract"] | None = None
+    approval: IamApproval | None = None  # approved at the terminal (IAM fixes)
+    preview: bool = False  # show the fix only: write no contract, open no PR
     command: str = "fix"
     env: dict[str, str] = field(default_factory=lambda: dict(os.environ))
 
@@ -148,6 +151,11 @@ def _run(
     # --- ingest
     finding = ingest(target)
     record.finding = finding
+    if finding.resource.address and finding.fix_type is not FixType.UNSUPPORTED:
+        # IaC scanner finding: a Terraform address, resolved to the deployed resource.
+        fetch = boto3_s3_fetch(ctx.aws) if ctx.aws is not None else None
+        finding = resolve_address(finding, repo, config, ctx.state_path, fetch)
+        record.finding = finding
     if finding.fix_type is FixType.CONFIG_ATTRIBUTE:
         record.stages.append(_ingest_stage(finding))
         return _run_config(finding, repo, config, ctx, record)
@@ -497,7 +505,11 @@ def _run_config(
         StageResult(
             name="evidence",
             status=StageStatus.SKIPPED,
-            summary="not needed: this setting doesn't remove access or traffic",
+            summary=(
+                "not collected for attribute fixes: this one can cut access, see the risk note"
+                if fix.risk == "medium"
+                else "not needed: this setting doesn't remove access or traffic"
+            ),
         )
     )
     record.stages.append(
@@ -964,11 +976,14 @@ def _run_iam(
     existing = iamcontract.load(cpath)
     original_contract = cpath.read_text(encoding="utf-8") if cpath.is_file() else None
     reviewed, extra = iamcontract.approved_extras(existing)
+    if ctx.approval is not None:
+        reviewed |= {s.lower() for s in ctx.approval.reviewed_services}
+        extra = [*extra, *ctx.approval.keep]
     result = shrink(control, doc.statements, use, reviewed=reviewed, extra=extra)
     removed = sorted({p for c in result.changes for p in c.removed})
 
     # --- contract (written before any evidence stop, so a human can review it)
-    if existing is not None and existing.status == "approved":
+    if existing is not None and existing.status == "approved" and ctx.approval is None:
         contract_text = None
         contract_summary = f"approved contract · {rel_contract}"
     else:
@@ -981,10 +996,16 @@ def _run_iam(
             today=today,
         )
         contract = iamcontract.merge(draft, existing)
+        if ctx.approval is not None:
+            contract = iamcontract.approve(contract, ctx.approval)
         contract_text = iamcontract.dump(contract)
-        if not dry:
+        write = not dry and not ctx.preview
+        if write:
             iamcontract.write(cpath, contract)
-        contract_summary = f"{'built (not written)' if dry else 'draft written'} · {rel_contract}"
+        state = ("draft written" if write else "built (not written)") + f" · {rel_contract}"
+        if ctx.approval is not None:
+            state = f"approved by {ctx.approval.by} · " + state.replace("draft ", "")
+        contract_summary = state
     record.contract_file = rel_contract
 
     principals = len(ev.principals)
@@ -1001,6 +1022,7 @@ def _run_iam(
             unknown=True,
         )
     if result.blockers:
+        record.approvals = result.approvable if result.only_approvable else []
         record.stages.append(
             StageResult(
                 name="evidence",
@@ -1019,6 +1041,11 @@ def _run_iam(
                 if not dry
                 else "re-run without --dry-run to write the draft contract",
                 f"then re-run `posturanet fix {record.target}`",
+                *(
+                    ["or run the same command at a terminal to approve each item there"]
+                    if record.approvals
+                    else []
+                ),
             ],
             why="PosturaNet never removes access it can't show is unused",
         )
@@ -1116,13 +1143,18 @@ def _run_iam(
         contract_file=rel_contract,
         form=doc.form,
         unknowns=unknowns,
+        approval=ctx.approval,
     )
     record.unknowns = unknowns
     detail = f"risk {proposal.risk} · disruption {proposal.disruption}"
 
     # --- deliver
-    if ctx.mode != "open-pr":
-        why = "dry run" if dry else "not requested (pass --open-pr)"
+    if ctx.mode != "open-pr" or ctx.preview:
+        why = (
+            "preview: waiting for your approval"
+            if ctx.preview
+            else ("dry run" if dry else "not requested (pass --open-pr)")
+        )
         record.stages.append(StageResult(name="deliver", status=StageStatus.SKIPPED, summary=why))
         record.result = "DRY RUN" if dry else "VALIDATED"
         record.result_detail = detail + (" · no AWS calls, no changes" if dry else "")

@@ -13,6 +13,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from posturanet.iamfix.doc import Statement
+from posturanet.models.iam import ApprovalItem
 
 _SERVICE_WILDCARD = re.compile(r"^([a-z0-9-]+):\*$", re.IGNORECASE)
 
@@ -65,6 +66,12 @@ class ShrinkResult:
     changes: list[StatementChange]
     blockers: list[str]
     unknown_services: list[str]  # accessed without action-level data
+    approvable: list[ApprovalItem] = field(default_factory=list)  # blockers a person can clear
+
+    @property
+    def only_approvable(self) -> bool:
+        """Every blocker is one a person can approve, so approving them all unblocks the fix."""
+        return bool(self.blockers) and len(self.blockers) == len(self.approvable)
 
 
 def targeted(control: str, action: str) -> bool:
@@ -90,6 +97,7 @@ def shrink(
     changes: list[StatementChange] = []
     blockers: list[str] = []
     unknown: set[str] = set()
+    approvable: dict[tuple[str, str], ApprovalItem] = {}
     for st in statements:
         if st.effect != "Allow":
             continue
@@ -116,6 +124,9 @@ def shrink(
                     )
                     continue
                 if svc.namespace in DATA_PLANE and svc.namespace not in reviewed:
+                    approvable[("data_plane", svc.namespace)] = ApprovalItem(
+                        kind="data_plane", name=svc.namespace, used=sorted(svc.actions)
+                    )
                     blockers.append(
                         f"{svc.namespace} data actions (for example object or item reads) aren't "
                         "in last-accessed data; list them in the contract and add "
@@ -135,6 +146,7 @@ def shrink(
                 and not any(_covers(a, act) for a in after)
                 and ns not in reviewed
             ):
+                approvable[("untracked", act)] = ApprovalItem(kind="untracked", name=act)
                 blockers.append(
                     f"{act} isn't in last-accessed data, so PosturaNet can't tell if it's used; "
                     f"add it to must_allow (source: human) to keep it, or add {ns} to "
@@ -144,7 +156,9 @@ def shrink(
             blockers.append(f"{name} allowed nothing that was used; remove it by hand")
             continue
         changes.append(StatementChange(st, list(st.actions), after, removed))
-    return ShrinkResult(changes, sorted(dict.fromkeys(blockers)), sorted(unknown))
+    return ShrinkResult(
+        changes, sorted(dict.fromkeys(blockers)), sorted(unknown), list(approvable.values())
+    )
 
 
 # --- re-check on policy JSON (plan or state) and invariants

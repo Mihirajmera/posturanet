@@ -51,8 +51,12 @@ posturanet = "posturanet.cli.app:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/posturanet"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"integrations/agents" = "posturanet/_integrations/agents"
+"integrations/github" = "posturanet/_integrations/github"
+
 [tool.hatch.build.targets.sdist]
-include = ["src/posturanet", "tests", "README.md", "CHANGELOG.md", "LICENSE.md", "pyproject.toml"]
+include = ["src/posturanet", "integrations", "tests", "README.md", "CHANGELOG.md", "LICENSE.md", "pyproject.toml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

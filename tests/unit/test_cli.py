@@ -11,20 +11,26 @@ from posturanet.cli.app import app
 
 runner = CliRunner()
 
-EXPECTED_DRY_RUN = f"""PosturaNet {__version__} - fix - {{target}}
-
-  [ok] ingest      securityhub EC2.19 - sg-0a91f3c2 - HIGH
-  [ok] locate      modules/bastion/main.tf:5 -> module.bastion.aws_security_group.this - @example-org/platform-network
-  [-]  evidence    dry run: pass --evidence-file to go further
-  [-]  contract    dry run: pass --evidence-file to go further
-  [-]  fix         dry run: pass --evidence-file to go further
-  [-]  validate    dry run: pass --evidence-file to go further
-  [-]  deliver     dry run: pass --evidence-file to go further
-
-Result      DRY RUN - ingest and locate complete - no AWS calls, no changes
-Unknowns    drift: not checked (needs terraform plan)
-Next        -> re-run with --evidence-file <flows.json> to see the proposed fix offline
-            -> or drop --dry-run to read flow logs with the read-only role
+EXPECTED_DRY_RUN = f"""+  PosturaNet {__version__} - fix - {{target}}
+|
+o  [ok] ingest      securityhub EC2.19 - sg-0a91f3c2 - HIGH
+o  [ok] locate      modules/bastion/main.tf:5 -> module.bastion.aws_security_group.this - @example-org/platform-network
+o  [-]  evidence    dry run: pass --evidence-file to go further
+o  [-]  contract    dry run: pass --evidence-file to go further
+o  [-]  fix         dry run: pass --evidence-file to go further
+o  [-]  validate    dry run: pass --evidence-file to go further
+o  [-]  deliver     dry run: pass --evidence-file to go further
+|
+o  Result ----------------------------------------------------------------------------------+
+|                                                                                           |
+|  Result      DRY RUN - ingest and locate complete - no AWS calls, no changes              |
+|  Unknowns    drift: not checked (needs terraform plan)                                    |
+|  Next        -> re-run with --evidence-file <flows.json> to see the proposed fix offline  |
+|              -> or drop --dry-run to read flow logs with the read-only role               |
+|                                                                                           |
++-------------------------------------------------------------------------------------------+
+|
++  Done. Nothing was changed.
 """
 
 

@@ -5,6 +5,7 @@ Never guesses. Anything ambiguous or outside the supported layout stops the run 
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,8 @@ from posturanet.locate.codeowners import find_codeowners, owners_for
 from posturanet.locate.hcl_index import find_module_source, find_resource_block, is_local_source
 from posturanet.locate.tfstate import (
     StateMatch,
+    addresses_named,
+    attributes_of,
     find_by_type,
     find_resource,
     load_state,
@@ -154,6 +157,64 @@ def resolve_block(
             ["check that the state matches this checkout (right branch or workspace)"],
         )
     return directory, block.line, block.file, steps
+
+
+# Resources whose fix acts on another resource: read that resource's id from state instead.
+_ID_ATTRIBUTE = {
+    "aws_security_group_rule": "security_group_id",
+    "aws_vpc_security_group_ingress_rule": "security_group_id",
+    "aws_s3_bucket_public_access_block": "bucket",
+    "aws_s3_bucket_versioning": "bucket",
+}
+
+
+def resolve_address(
+    finding: Finding,
+    repo: Path,
+    config: Config,
+    state_path: Path | None = None,
+    s3_fetch: S3Fetch | None = None,
+) -> Finding:
+    """An IaC scanner names a Terraform address; find the deployed resource it describes.
+
+    Exact address first; otherwise the one instance of that type and name in any module (a
+    scanner may report a module resource without its module path). Never logs state.
+    """
+    address = finding.resource.address
+    if not address:
+        return finding
+    state, label = load_repo_state(repo, config, state_path, s3_fetch)
+    attrs = attributes_of(state, address)
+    if attrs is None:
+        bare = re.sub(r"\[[^\]]*\]$", "", address)
+        rtype, name = bare.split(".")[-2:]
+        candidates = addresses_named(state, rtype, name)
+        if not candidates:
+            raise StageStop(
+                "locate",
+                f"{address} is not in the Terraform state ({label})",
+                [
+                    "PosturaNet fixes deployed resources: apply the change, then re-run",
+                    "or point --state at the state for this code",
+                ],
+            )
+        if len(candidates) > 1:
+            raise StageStop(
+                "locate",
+                f"{address} matches {len(candidates)} state entries: {', '.join(candidates)}",
+                ["re-run the scanner on a plan (full addresses), or pass a Security Hub finding"],
+            )
+        address = candidates[0]
+        attrs = attributes_of(state, address) or {}
+    rtype = re.sub(r"\[[^\]]*\]$", "", address).split(".")[-2]
+    rid = attrs.get(_ID_ATTRIBUTE.get(rtype, "id"))
+    if not isinstance(rid, str) or not rid:
+        raise StageStop("locate", f"{address} has no id in the Terraform state ({label})")
+    arn = attrs.get("arn") if rtype not in _ID_ATTRIBUTE else None
+    resource = finding.resource.model_copy(
+        update={"id": rid, "arn": arn if isinstance(arn, str) else None, "address": address}
+    )
+    return finding.model_copy(update={"resource": resource})
 
 
 def load_repo_state(

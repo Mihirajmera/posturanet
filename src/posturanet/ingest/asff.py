@@ -16,6 +16,7 @@ from pydantic import ValidationError
 
 from posturanet.errors import StageStop, UsageError
 from posturanet.ingest.controls import fix_type_for
+from posturanet.ingest.ocsf import control_id_of
 from posturanet.models import Finding, Provenance, ResourceRef, Severity
 
 ASFF_SCHEMA = "asff-2018-10-08"
@@ -35,13 +36,15 @@ def parse_asff_file(path: Path) -> Finding:
 
 
 def parse_asff(doc: Any, *, raw_sha256: str) -> Finding:
-    items = _findings_in(doc)
+    items = findings_in(doc)
     if len(items) != 1:
         raise UsageError(
             f"expected exactly 1 finding, got {len(items)}; pass a file with a single finding"
         )
-    item = items[0]
+    return parse_asff_item(items[0], raw_sha256=raw_sha256)
 
+
+def parse_asff_item(item: dict[str, Any], *, raw_sha256: str) -> Finding:
     missing = [k for k in ("Id", "Resources", "Severity") if k not in item]
     if missing:
         raise StageStop(
@@ -73,7 +76,7 @@ def parse_asff(doc: Any, *, raw_sha256: str) -> Finding:
         ) from exc
 
 
-def _findings_in(doc: Any) -> list[dict[str, Any]]:
+def findings_in(doc: Any) -> list[dict[str, Any]]:
     if isinstance(doc, dict) and "Findings" in doc:
         doc = doc["Findings"]
     if isinstance(doc, dict):
@@ -92,8 +95,14 @@ def _control_id(item: dict[str, Any]) -> str | None:
     product_fields = item.get("ProductFields") or {}
     if isinstance(product_fields, dict) and product_fields.get("ControlId"):
         return str(product_fields["ControlId"])
-    match = _CONTROL_IN_GENERATOR.search(str(item.get("GeneratorId", "")))
-    return match.group(1) if match else None
+    generator = str(item.get("GeneratorId", ""))
+    match = _CONTROL_IN_GENERATOR.search(generator)
+    if match:
+        return match.group(1)
+    if generator.startswith("prowler-"):
+        # Prowler's ASFF output: GeneratorId is "prowler-<check id>".
+        return control_id_of({"metadata": {"event_code": generator.removeprefix("prowler-")}})
+    return None
 
 
 def _resource_ref(res: dict[str, Any], item: dict[str, Any]) -> ResourceRef:

@@ -60,7 +60,7 @@ def short_name(p: ConfigProposal) -> str:
 
 def branch(p: ConfigProposal) -> str:
     short = short_name(p).replace("_", "-").lower()
-    control = p.fix.control.replace(".", "-").lower()
+    control = p.fix.control.replace(".", "-").replace("+", "_").lower()
     return f"posturanet/config/{control}-{short}-{p.idempotency_key[:8]}"
 
 
@@ -106,7 +106,11 @@ def body(p: ConfigProposal, *, run_id: str) -> str:
         f"| Resource | `{loc.address}` · `{loc.file}:{loc.line}` |",
         f"| Owner | {owners} |",
         f"| Risk / disruption | {p.risk} / {p.disruption} |",
-        "| Evidence | not needed: this setting doesn't remove access or traffic |",
+        (
+            "| Evidence | not collected: this setting can cut access; read the first unknown |"
+            if fix.risk == "medium"
+            else "| Evidence | not needed: this setting doesn't remove access or traffic |"
+        ),
         "",
         "### What changes",
         f"{p.diff.summary}. {fix.why}",
