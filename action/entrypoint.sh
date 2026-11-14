@@ -27,9 +27,26 @@ make_plan() {
   terraform -chdir="${tf_root}" show -json "${plan_bin}" >"$1" || return 1
 }
 
+# The PR number, when this run is for a pull request.
+pr_number() {
+  python - <<'PY2'
+import json, os
+path = os.environ.get("GITHUB_EVENT_PATH", "")
+if path and os.path.isfile(path):
+    print((json.load(open(path, encoding="utf-8")).get("pull_request") or {}).get("number") or "")
+PY2
+}
+
 check_args=()
 if [[ "${PN_CHECK_RUN}" == "true" ]]; then
   check_args=(--github-check --sha "$(head_sha)")
+fi
+# Only with a PosturaNet that has the flag (0.3.1+), so an older pinned `version` still runs.
+if [[ "${PN_COMMENT:-false}" == "true" ]] && posturanet contract check --help | grep -q -- --github-comment; then
+  pr="$(pr_number)"
+  if [[ -n "${pr}" ]]; then
+    check_args+=(--github-comment "${pr}")
+  fi
 fi
 
 case "${PN_COMMAND}" in
@@ -78,6 +95,7 @@ except (OSError, ValueError):
 print(f"result={doc.get('result') or doc.get('status', '')}")
 print(f"pr_url={doc.get('pr_url') or ''}")
 print(f"check_url={doc.get('check_url') or ''}")
+print(f"comment_url={doc.get('comment_url') or ''}")
 PY
 
 # Human-readable summary on the job page.

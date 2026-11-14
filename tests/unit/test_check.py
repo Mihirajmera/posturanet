@@ -6,11 +6,19 @@ import json
 from pathlib import Path
 
 import httpx
+import pytest
 from typer.testing import CliRunner
 
 from fakes import FakeTerraform, plan_for
 from posturanet.cli.app import app
-from posturanet.deliver.checks import CHECK_NAME, payload, publish
+from posturanet.deliver.checks import (
+    CHECK_NAME,
+    COMMENT_MARKER,
+    comment,
+    comment_body,
+    payload,
+    publish,
+)
 from posturanet.deliver.github import GitHub
 from posturanet.evidence import FileSource
 from posturanet.gate import check_plan, check_source
@@ -198,3 +206,103 @@ def test_mcp_check_change_source_mode(
     assert doc["results"][0]["violations"][0]["contract_line"] is not None
     assert check_change(repo=str(tmp_repo), files=["main.tf"])["status"] == "PASS"
     assert sorted(p.as_posix() for p in tmp_repo.rglob("*")) == before
+
+
+def _comments_api(comments: list[dict[str, object]], status: int = 200) -> GitHub:
+    """Issue comments on PR 7 of acme/infra, in memory."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if status != 200:
+            return httpx.Response(status, json={})
+        path, method = request.url.path, request.method
+        if method == "GET" and path == "/repos/acme/infra/issues/7/comments":
+            return httpx.Response(200, json=comments)
+        if method == "POST" and path == "/repos/acme/infra/issues/7/comments":
+            new = {"id": len(comments) + 1, "body": json.loads(request.content)["body"]}
+            comments.append({**new, "html_url": f"https://github.com/c/{new['id']}"})
+            return httpx.Response(201, json=comments[-1])
+        if method == "PATCH" and path.startswith("/repos/acme/infra/issues/comments/"):
+            c = next(c for c in comments if str(c["id"]) == path.rsplit("/", 1)[1])
+            c["body"] = json.loads(request.content)["body"]
+            return httpx.Response(200, json=c)
+        raise AssertionError(f"unexpected {method} {path}")
+
+    return GitHub("t", "acme/infra", httpx.Client(base_url="https://api.github.com", transport=httpx.MockTransport(handler)))  # fmt: skip
+
+
+def test_pr_comment_is_sticky_and_quiet_when_green(
+    tmp_repo: Path, flows_path: Path, sg_finding_path: Path
+) -> None:
+    _with_contract(tmp_repo, flows_path, sg_finding_path)
+    config, _ = load_config(tmp_repo)
+    comments: list[dict[str, object]] = [{"id": 1, "body": "LGTM", "html_url": "u1"}]
+    gh = _comments_api(comments)
+
+    assert comment(gh, check_source(tmp_repo, config), 7, "https://x/runs/1")
+    assert len(comments) == 2 and str(comments[1]["body"]).startswith(COMMENT_MARKER)
+    assert "this change breaks a contract" in str(comments[1]["body"])
+    assert "[Annotated lines in the check run](https://x/runs/1)" in str(comments[1]["body"])
+
+    _set_cidrs(tmp_repo, SOURCES)  # fixed: the same comment turns green, no new one
+    comment(gh, check_source(tmp_repo, config), 7)
+    assert len(comments) == 2 and "check passed" in str(comments[1]["body"])
+
+    quiet: list[dict[str, object]] = []  # a PR that was always green gets no comment
+    assert comment(_comments_api(quiet), check_source(tmp_repo, config), 7) is None
+    assert quiet == []
+    for banned in ("proven safe", "guaranteed"):
+        assert banned not in comment_body(check_source(tmp_repo, config)).lower()
+
+
+def test_refused_comment_keeps_the_check_result(
+    tmp_repo: Path, flows_path: Path, sg_finding_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _with_contract(tmp_repo, flows_path, sg_finding_path)
+    monkeypatch.setenv("GITHUB_TOKEN", "t")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "acme/infra")
+    refused = _comments_api([], status=403)
+    monkeypatch.setattr("posturanet.deliver.github.GitHub", lambda *a, **k: refused)
+    args = ["contract", "check", "--source", "--repo", str(tmp_repo), "--github-comment", "7"]
+    out = CliRunner().invoke(app, [*args, "--format", "json"])
+    assert out.exit_code == 5  # still BLOCK
+    assert "warning: PR comment not written" in out.stderr
+    assert "comment_url" not in json.loads(out.stdout)
+
+
+def test_marketplace_action_matches_action_folder() -> None:
+    root = Path(__file__).resolve().parents[2]
+    top = (root / "action.yml").read_text(encoding="utf-8")
+    sub = (root / "action/action.yml").read_text(encoding="utf-8")
+    body = "\n".join(line for line in top.splitlines() if not line.startswith("#"))
+    assert body.replace("/action/entrypoint.sh", "/entrypoint.sh") == sub.rstrip("\n")
+    from posturanet import __version__
+
+    assert f'default: "{__version__}"' in sub  # RELEASING.md step 1 bumps both
+
+
+def test_contract_build_all_lists_every_group(tmp_repo: Path) -> None:
+    from posturanet.locate.tfstate import ids_of
+
+    state = {
+        "resources": [
+            {
+                "mode": "managed",
+                "type": "aws_security_group",
+                "instances": [{"attributes": {"id": "sg-2"}}, {"attributes": {"id": "sg-1"}}],
+            },  # fmt: skip
+            {
+                "mode": "data",
+                "type": "aws_security_group",
+                "instances": [{"attributes": {"id": "sg-9"}}],
+            },  # fmt: skip
+        ]
+    }
+    assert ids_of(state, "aws_security_group") == ["sg-1", "sg-2"]
+
+    out = CliRunner().invoke(app, ["contract", "build", "--all", "--dry-run", "--repo", str(tmp_repo), "--format", "json"])  # fmt: skip
+    assert out.exit_code == 0, out.output
+    assert [r["group"] for r in json.loads(out.stdout)] == ["sg-0a91f3c2"]
+    both = CliRunner().invoke(app, ["contract", "build", "sg-1", "--all", "--repo", str(tmp_repo)])
+    assert both.exit_code == 2 and "not both" in both.stderr
+    flows = CliRunner().invoke(app, ["contract", "build", "--all", "--repo", str(tmp_repo), "--evidence-file", str(tmp_repo / "main.tf")])  # fmt: skip
+    assert flows.exit_code == 2 and "each group's own flow logs" in flows.stderr

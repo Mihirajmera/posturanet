@@ -4,6 +4,11 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Added (contract check on every PR)
+- `contract check --github-comment <PR>` and the Action's `comment` input (on by default): one PR comment with the result, posted on BLOCK or UNKNOWN and edited on later pushes, so a fixed PR turns it green. A PR that's green from the start gets no comment. If GitHub refuses the comment (fork PR, no `pull-requests: write`), PosturaNet warns and keeps the check's result and exit code. The Action skips the comment when its pinned `version` predates the flag. The example workflow asks for `pull-requests: write`.
+- `contract build --all`: a draft contract for every security group in the Terraform state, each from its own flow logs. A group that stops (no flow logs, say) is listed with its reason and doesn't stop the rest; the exit code is the worst one. `--evidence-file` is refused with `--all`, since it holds one group's flows.
+- `action.yml` at the repo root, so the Action can be listed on GitHub Marketplace (`uses: Mihirajmera/posturanet@<tag>`). `action/action.yml` keeps working; a test keeps the two identical.
+
 ## [0.3.0] - 2026-11-12
 
 ### Changed (CLI output)

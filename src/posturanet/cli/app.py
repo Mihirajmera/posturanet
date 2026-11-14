@@ -294,9 +294,16 @@ _ACTION = re.compile(r"^[a-z0-9-]+:[A-Za-z0-9]+$")
 @contract_app.command("build", epilog=_examples(
     ("posturanet contract build sg-0a91f3c2 --repo infra/", "draft the contract from flow logs"),
     ("posturanet contract build sg-0a91f3c2 --repo infra/ --dry-run", "show it; write nothing"),
+    ("posturanet contract build --all --repo infra/", "every security group in the Terraform state"),  # noqa: E501 (copyable example)
 ))  # fmt: skip
 def contract_build(
-    target: Annotated[str, typer.Argument(help="ASFF finding file or security group id.")],
+    target: Annotated[
+        str | None, typer.Argument(help="ASFF finding file or security group id.")
+    ] = None,
+    build_all: Annotated[
+        bool,
+        typer.Option("--all", help="Every security group in the Terraform state, from flow logs."),
+    ] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Don't write the contract.")] = False,
     repo: RepoOpt = Path("."),
     state: StateOpt = None,
@@ -306,6 +313,10 @@ def contract_build(
     ascii_mode: AsciiOpt = False,
 ) -> None:
     """Build a draft behavior contract from observed usage."""
+    if build_all:
+        _contract_build_all(target, dry_run, repo, state, evidence_file, window, output_format)
+    if target is None:
+        raise _fail(UsageError("give a finding file or security group id, or --all"))
     try:
         ctx = _context("dry-run" if dry_run else "check", repo, state, evidence_file, window)
         ctx.stop_after = "contract"
@@ -315,6 +326,60 @@ def contract_build(
     except PosturaNetError as exc:
         raise _fail(exc) from exc
     _emit(record, output_format, ascii_mode)
+
+
+def _contract_build_all(
+    target: str | None,
+    dry_run: bool,
+    repo: Path,
+    state: Path | None,
+    evidence_file: Path | None,
+    window: str | None,
+    output_format: OutputFormat,
+) -> None:
+    """One contract per security group in the state. A group that stops doesn't stop the rest."""
+    from posturanet.locate import load_repo_state
+    from posturanet.locate.backend import boto3_s3_fetch
+    from posturanet.locate.tfstate import ids_of
+
+    try:
+        if target is not None:
+            raise UsageError("use a target or --all, not both")
+        if evidence_file is not None:  # FR-12: never reuse one group's flows for another
+            raise UsageError("--all reads each group's own flow logs; --evidence-file holds one")
+        mode: Mode = "dry-run" if dry_run else "check"
+        probe = _context(mode, repo, state, None, window)
+        config, _ = load_config(repo)
+        s3_fetch = boto3_s3_fetch(probe.aws) if probe.aws is not None else None
+        tf_state, _ = load_repo_state(repo, config, state, s3_fetch)
+        groups = ids_of(tf_state, "aws_security_group")
+        if not groups:
+            raise UsageError("no aws_security_group in the Terraform state")
+        records = []
+        for sg in groups:
+            ctx = _context(mode, repo, state, None, window)
+            ctx.stop_after, ctx.command = "contract", "contract build"
+            records.append((sg, run_fix(sg, repo, config, ctx)))
+    except PosturaNetError as exc:
+        raise _fail(exc) from exc
+    if output_format is OutputFormat.JSON:
+        rows = [{"group": sg, "result": r.result, "detail": r.result_detail} for sg, r in records]
+        console.write(json.dumps(rows, indent=2) + "\n")
+    else:
+        f = _frame()
+        n = len(groups)
+        title = f"{n} security group{'s' if n != 1 else ''}"
+        lines = f.open(console.header("contract build", title, f.style))
+        table = [f"{sg:<24} {r.result:<10} {r.result_detail}" for sg, r in records]
+        lines += f.box("Contracts", table)
+        built = sum(r.exit_code == 0 for _, r in records)
+        lines += f.close(
+            "Dry run: nothing written."
+            if dry_run
+            else f"{built} of {n} built. Review each draft before you commit it."
+        )
+        _framed(f, lines)
+    raise typer.Exit(max(r.exit_code for _, r in records))
 
 
 _GATE_EXIT = {"PASS": 0, "BLOCK": 5, "UNKNOWN": 3}
@@ -332,6 +397,24 @@ def _publish_check(result: GateResult, sha: str | None) -> str:
             "--github-check needs GITHUB_TOKEN, GITHUB_REPOSITORY and --sha (or GITHUB_SHA)"
         )
     return publish(GitHub(token, repo_slug), result, head)
+
+
+def _comment(result: GateResult, pr: int, check_url: str | None) -> str | None:
+    """The PR comment is a courtesy: if it can't be written (fork PR, missing permission), warn
+    and keep the check's own result and exit code."""
+    from posturanet.deliver.checks import comment
+    from posturanet.deliver.github import GitHub
+
+    token = os.environ.get("GITHUB_TOKEN")
+    repo_slug = os.environ.get("GITHUB_REPOSITORY")
+    if not token or not repo_slug:
+        typer.echo("warning: --github-comment needs GITHUB_TOKEN and GITHUB_REPOSITORY", err=True)
+        return None
+    try:
+        return comment(GitHub(token, repo_slug), result, pr, check_url)
+    except StageStop as exc:
+        typer.echo(f"warning: PR comment not written: {exc.reason}", err=True)
+        return None
 
 
 @contract_app.command("check", epilog=_examples(
@@ -355,6 +438,14 @@ def contract_check(
         bool, typer.Option("--github-check", help="Publish the result as a GitHub check run.")
     ] = False,
     sha: Annotated[str | None, typer.Option(help="Commit for the check run.")] = None,
+    github_comment: Annotated[
+        int | None,
+        typer.Option(
+            "--github-comment",
+            metavar="PR",
+            help="Also keep one comment on this PR up to date (needs pull-requests:write).",
+        ),
+    ] = None,
     repo: RepoOpt = Path("."),
     output_format: FormatOpt = OutputFormat.TEXT,
     ascii_mode: AsciiOpt = False,
@@ -381,11 +472,14 @@ def contract_check(
         check_url = _publish_check(result, sha) if github_check else None
     except PosturaNetError as exc:
         raise _fail(exc) from exc
+    comment_url = _comment(result, github_comment, check_url) if github_comment else None
 
     if output_format is OutputFormat.JSON:
         doc = result.to_dict()
         if check_url is not None:
             doc["check_url"] = check_url
+        if comment_url:
+            doc["comment_url"] = comment_url
         console.write(json.dumps(doc, indent=2) + "\n")
     else:
         f = _frame(ascii_mode)
