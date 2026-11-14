@@ -190,7 +190,7 @@ def body(p: Proposal, *, run_id: str) -> str:
     unknown_lines = [f"- {u}" for u in unknowns] or ["- None identified"]
 
     parts = [
-        markers(p.idempotency_key, f.finding_id),
+        markers(p.idempotency_key, p.issue),
         verify_marker(verify_spec(p)),
         f"**PosturaNet** found a fix for **{f.control_id} · {f.title}** and checked it "
         "against real usage.",

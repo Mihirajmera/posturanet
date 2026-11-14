@@ -159,7 +159,7 @@ Writing the fix is cheap. Everything around it is expensive and risky, so backlo
 
 ### Delivery
 - **FR-27** Create a branch and PR with the body defined in the design system (evidence table, safety contract, validation, residual risk, unknowns, reviewer checklist, revert notes).
-- **FR-28** Idempotency key `sha256(finding_id + contract_sha + diff_sha)`. Never open duplicate PRs.
+- **FR-28** Idempotency key `sha256(issue + contract_sha + diff_sha)`, where `issue` is `control@terraform_address`, so the same problem reported by several scanners maps to one PR. An open PR matches on its issue marker, or on its finding id for PRs opened before 0.3.1. Never open duplicate PRs. `findings list|split` take several files and list each control-on-resource once.
 - **FR-29** Publish a check run with the summary.
 - **FR-30** Never merge. Never apply.
 

@@ -196,7 +196,7 @@ def test_cli_list_all_explains_the_rest() -> None:
     assert "passed" in out and "no fix for this control yet" in out
 
 
-def test_split_names_never_collide(tmp_path: Path) -> None:
+def test_same_issue_twice_in_a_file_is_one_finding(tmp_path: Path) -> None:
     scan = json.loads(SCAN.read_text("utf-8"))
     twin = copy.deepcopy(scan[0])
     twin["finding_info"]["uid"] += "-twin"
@@ -204,7 +204,23 @@ def test_split_names_never_collide(tmp_path: Path) -> None:
     p.write_text(json.dumps([scan[0], twin]), encoding="utf-8")
     out = tmp_path / "split"
     assert runner.invoke(app, ["findings", "split", str(p), "--out", str(out)]).exit_code == 0
-    assert sorted(x.name for x in out.iterdir()) == [
-        "EC2.13-sg-0a91f3c2-2.json",
-        "EC2.13-sg-0a91f3c2.json",
-    ]
+    assert sorted(x.name for x in out.iterdir()) == ["EC2.13-sg-0a91f3c2.json"]
+
+
+def test_two_scanner_files_one_row_per_issue(tmp_path: Path) -> None:
+    scan = json.loads(SCAN.read_text("utf-8"))
+    other = copy.deepcopy(scan[0])  # same rule on the same group, from a second export
+    other["finding_info"]["uid"] = "second-export-ec2-13"
+    other["resources"][0]["uid"] = "sg-0a91f3c2"  # short id instead of the ARN
+    p = tmp_path / "second.json"
+    p.write_text(json.dumps([other]), encoding="utf-8")
+    listed = runner.invoke(app, ["findings", "list", str(SCAN), str(p), "--format", "json"])
+    assert listed.exit_code == 0, listed.output
+    rows = json.loads(listed.output)
+    assert [r["control"] for r in rows] == ["EC2.13", "S3.8", "RDS.8"]
+    assert rows[0]["also"].startswith("also ") and rows[0]["file"] == SCAN.name
+    text = runner.invoke(app, ["findings", "list", str(SCAN), str(p)]).output
+    assert "1 reported by more than one scanner, listed once" in text
+    out = tmp_path / "split"
+    assert runner.invoke(app, ["findings", "split", str(SCAN), str(p), "--out", str(out)]).exit_code == 0  # fmt: skip
+    assert len(list(out.iterdir())) == 3

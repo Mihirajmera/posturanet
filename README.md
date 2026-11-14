@@ -122,6 +122,8 @@ PosturaNet doesn't detect; it fixes what your scanner already found. It reads fi
 | Checkov | `checkov -d . -o json` | 52, from 56 Checkov checks |
 | Trivy | `trivy config -f json .` | 31, from 36 Trivy checks |
 
+Run several scanners? Pass all their files: `posturanet findings list securityhub.json prowler.ocsf.json`. The same control on the same resource is listed once, with the other scanners noted, and `findings split` writes one file for it. PRs are keyed on the control and the Terraform address, so a problem gets one PR whichever scanner reported it, including Checkov and Trivy.
+
 Wiz, Orca, Prisma Cloud and other platforms can send findings to Security Hub, but with their own rule names. PosturaNet doesn't map those to controls yet, so they show as `none`.
 
 A Security Hub remediation plan targets one resource and groups the exposures one fix would close. PosturaNet reads the controls those exposures link, fixes the ones it supports on that resource as one change (for example `RDS.2+RDS.8`: no public access and deletion protection), and opens one PR for the plan. AWS's own guidance text is shown to you but never used to write the change.
