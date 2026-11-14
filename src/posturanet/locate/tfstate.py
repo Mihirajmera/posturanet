@@ -118,6 +118,19 @@ def find_by_type(state: dict[str, Any], rtype: str) -> list[StateMatch]:
     return sorted(matches, key=lambda m: m.address)
 
 
+def ids_of(state: dict[str, Any], rtype: str) -> list[str]:
+    """The `id` of every managed instance of `rtype`, sorted."""
+    return sorted(
+        {
+            str(inst["attributes"]["id"])
+            for res in state.get("resources", [])
+            if isinstance(res, dict) and res.get("mode") == "managed" and res.get("type") == rtype
+            for inst in res.get("instances", [])
+            if isinstance(inst.get("attributes"), dict) and inst["attributes"].get("id")
+        }
+    )
+
+
 def _address(res: dict[str, Any], index_key: Any) -> str:
     base = f"{res['type']}.{res['name']}"
     if res.get("module"):

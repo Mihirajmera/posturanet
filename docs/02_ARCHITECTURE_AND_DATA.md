@@ -445,6 +445,7 @@ posturanet schema export
 `command` (fix | verify | gate), `target`, `license`, `config` (path), `model` (none | bedrock | …), `dry-run`.
 R1 ships `command: fix | contract-check`, `target`, `open-pr`, `dry-run`, `evidence-file`, `working-directory`, `version`; outputs `result` and `pr-url`.
 R1.5 adds `command: check` (runs `terraform plan -lock=false` itself, or takes `plan`), `source-only`, `fail-on-unknown`, `check-run`, `github-token`; output `check-url`.
+0.3.1 adds `comment` (default on): one sticky PR comment, marked `<!-- posturanet:contract-check -->`, posted on BLOCK or UNKNOWN and edited on later runs; a PASS never posts a new one. A refused comment (fork PR, no `pull-requests: write`) is a warning and never changes the result. Output `comment-url`. CLI: `contract check --github-comment <PR>`. The Action's metadata is also at the repo root (`action.yml`, `uses: Mihirajmera/posturanet@<tag>`) so it can be listed on GitHub Marketplace; `action/action.yml` stays for existing workflows.
 
 ## 13. Reuse from `postura-backend`
 | Source | Target | Change |

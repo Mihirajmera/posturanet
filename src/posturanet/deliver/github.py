@@ -197,6 +197,33 @@ class GitHub:
         )
         return data
 
+    def upsert_comment(self, number: int, marker: str, body: str, *, create: bool) -> str | None:
+        """Edit the PR comment starting with `marker`, or post one if `create`. Returns its URL."""
+        path = f"/repos/{self.repo}/issues/{number}/comments"
+        mine: dict[str, Any] | None = None
+        page = 1
+        while mine is None:
+            data = self._ok(
+                self._req("GET", f"{path}?per_page=100&page={page}", need="pull-requests:write"),
+                f"list comments on #{number}",
+            )
+            mine = next((c for c in data if str(c.get("body", "")).startswith(marker)), None)
+            if len(data) < 100:
+                break
+            page += 1
+        if mine is not None:
+            resp = self._req(
+                "PATCH",
+                f"/repos/{self.repo}/issues/comments/{mine['id']}",
+                need="pull-requests:write",
+                json={"body": body},
+            )
+        elif create:
+            resp = self._req("POST", path, need="pull-requests:write", json={"body": body})
+        else:
+            return None
+        return str(self._ok(resp, "comment on the pull request").get("html_url", ""))
+
     def add_labels(self, number: int, labels: list[str]) -> None:
         self._ok(
             self._req(

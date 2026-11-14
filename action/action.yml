@@ -42,6 +42,10 @@ inputs:
     description: "check / contract-check: publish a \"PosturaNet contract\" check run with annotations (needs `checks: write`)."
     required: false
     default: "true"
+  comment:
+    description: "check / contract-check on a pull request: keep one PR comment with the result (needs `pull-requests: write`). Posted on BLOCK or UNKNOWN; a later PASS edits it. Never fails the job."
+    required: false
+    default: "true"
   github-token:
     description: Token for check runs and PRs.
     required: false
@@ -65,6 +69,9 @@ outputs:
   check-url:
     description: URL of the published check run, if any.
     value: ${{ steps.run.outputs.check_url }}
+  comment-url:
+    description: URL of the PR comment, if one was written.
+    value: ${{ steps.run.outputs.comment_url }}
 
 runs:
   using: composite
@@ -91,5 +98,6 @@ runs:
         PN_SOURCE_ONLY: ${{ inputs.source-only }}
         PN_FAIL_ON_UNKNOWN: ${{ inputs.fail-on-unknown }}
         PN_CHECK_RUN: ${{ inputs.check-run }}
+        PN_COMMENT: ${{ inputs.comment }}
         GITHUB_TOKEN: ${{ inputs.github-token }}
       run: bash "${GITHUB_ACTION_PATH}/entrypoint.sh"

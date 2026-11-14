@@ -8,6 +8,7 @@ on:
 permissions:
   contents: read
   checks: write        # publish the "PosturaNet contract" check run
+  pull-requests: write # one comment with the result on BLOCK or UNKNOWN (set comment: "false" to skip)
   id-token: write      # only for the AWS OIDC role below
 
 jobs:

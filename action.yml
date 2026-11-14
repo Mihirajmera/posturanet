@@ -1,0 +1,105 @@
+# GitHub Marketplace lists only this root file. action/action.yml is the same Action for
+# workflows that use Mihirajmera/posturanet/action@<tag>; keep the two in step (a test checks).
+name: PosturaNet
+description: Evidence-backed Terraform fixes and contract checks for cloud security findings. Read-only in AWS; never merges or applies.
+author: PosturaNet
+branding:
+  icon: shield
+  color: green
+
+inputs:
+  command:
+    description: "fix | check (contract check on a PR) | contract-check (check an existing plan file)"
+    required: false
+    default: fix
+  target:
+    description: "fix: ASFF finding file or security group id. contract-check: path to `terraform show -json` output."
+    required: false
+    default: ""
+  open-pr:
+    description: "fix: open or update the PR when every required check passes."
+    required: false
+    default: "false"
+  dry-run:
+    description: "fix: no AWS, GitHub or terraform plan; writes nothing."
+    required: false
+    default: "false"
+  evidence-file:
+    description: "fix: exported flow-log aggregate (JSON) instead of reading flow logs from AWS."
+    required: false
+    default: ""
+  plan:
+    description: "check: `terraform show -json` output to check. Empty = run `terraform plan` here (needs terraform and read-only AWS credentials)."
+    required: false
+    default: ""
+  source-only:
+    description: "check: check the Terraform source instead of a plan. Offline (no terraform, no AWS); literal ingress blocks only, anything else is UNKNOWN."
+    required: false
+    default: "false"
+  fail-on-unknown:
+    description: "check: fail the job on UNKNOWN as well as BLOCK."
+    required: false
+    default: "true"
+  check-run:
+    description: "check / contract-check: publish a \"PosturaNet contract\" check run with annotations (needs `checks: write`)."
+    required: false
+    default: "true"
+  comment:
+    description: "check / contract-check on a pull request: keep one PR comment with the result (needs `pull-requests: write`). Posted on BLOCK or UNKNOWN; a later PASS edits it. Never fails the job."
+    required: false
+    default: "true"
+  github-token:
+    description: Token for check runs and PRs.
+    required: false
+    default: ${{ github.token }}
+  working-directory:
+    description: Terraform repo root.
+    required: false
+    default: "."
+  version:
+    description: PosturaNet version to install from PyPI.
+    required: false
+    default: "0.3.0"
+
+outputs:
+  result:
+    description: "Run result: OPENED, VALIDATED, DRY RUN, STOPPED, PASS, BLOCK or UNKNOWN."
+    value: ${{ steps.run.outputs.result }}
+  pr-url:
+    description: URL of the opened or updated PR, if any.
+    value: ${{ steps.run.outputs.pr_url }}
+  check-url:
+    description: URL of the published check run, if any.
+    value: ${{ steps.run.outputs.check_url }}
+  comment-url:
+    description: URL of the PR comment, if one was written.
+    value: ${{ steps.run.outputs.comment_url }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+    - name: Install PosturaNet
+      shell: bash
+      env:
+        PN_VERSION: ${{ inputs.version }}
+      run: python -m pip install --quiet "posturanet==${PN_VERSION}"
+    - id: run
+      name: Run PosturaNet
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        PN_COMMAND: ${{ inputs.command }}
+        PN_TARGET: ${{ inputs.target }}
+        PN_OPEN_PR: ${{ inputs.open-pr }}
+        PN_DRY_RUN: ${{ inputs.dry-run }}
+        PN_EVIDENCE: ${{ inputs.evidence-file }}
+        PN_PLAN: ${{ inputs.plan }}
+        PN_SOURCE_ONLY: ${{ inputs.source-only }}
+        PN_FAIL_ON_UNKNOWN: ${{ inputs.fail-on-unknown }}
+        PN_CHECK_RUN: ${{ inputs.check-run }}
+        PN_COMMENT: ${{ inputs.comment }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: bash "${GITHUB_ACTION_PATH}/action/entrypoint.sh"

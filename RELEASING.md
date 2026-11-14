@@ -14,7 +14,7 @@ token exists to leak, and PyPI stores signed build attestations.
 
 ## Each release
 1. Update `version` in `pyproject.toml`, `src/posturanet/__init__.py`, the Action's default
-   `version` in `action/action.yml`, `plugin/.claude-plugin/plugin.json` and the Action tag in
+   `version` in `action.yml` and `action/action.yml`, `plugin/.claude-plugin/plugin.json` and the Action tag in
    `integrations/github/posturanet-check.yml`; re-record the demos (`python docs/media/make.py`); move CHANGELOG `[Unreleased]` to the new version.
 2. Merge to `main` with CI green (CI builds the wheel, runs `twine check` and installs it).
 3. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.

@@ -53,7 +53,12 @@ check fails and annotates the exact contract line and the resource block:
   → keep the access, or update the contract in the same PR with owner approval
 ```
 
-The job needs `checks: write`. Make it a required status check in branch protection to stop a
+On BLOCK or UNKNOWN the Action also leaves one comment on the PR with the same result, and edits
+that comment on later pushes (it turns green when the change is fixed). A PR that is green from
+the start gets no comment. Set `comment: "false"` to turn it off.
+
+The job needs `checks: write` and, for the comment, `pull-requests: write`. A fork PR's token
+can't comment; the check still runs. Make it a required status check in branch protection to stop a
 merge on BLOCK. Set `fail-on-unknown: "false"` if UNKNOWN should not fail the job.
 
 ## 2. Any other CI
