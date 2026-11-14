@@ -32,6 +32,12 @@ class Proposal:
     unknowns: list[str] = field(default_factory=list)
 
     @property
+    def issue(self) -> str:
+        from posturanet.deliver.idempotency import issue  # deliver imports this module
+
+        return issue(self.finding.control_id, self.location.address)
+
+    @property
     def needs_review(self) -> bool:
         return bool(self.contract.needs_review)
 

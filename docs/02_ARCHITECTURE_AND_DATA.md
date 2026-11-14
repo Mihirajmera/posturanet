@@ -416,8 +416,8 @@ Triggered by `posturanet verify <pr>` (scheduled workflow after apply) with the 
 ### CLI
 ```
 posturanet init
-posturanet findings list <file.json> [--all] [--format text|json]   # ASFF or OCSF; which findings are fixable
-posturanet findings split <file.json> [--out findings/]            # one file per fixable finding
+posturanet findings list <file.json>... [--all] [--format text|json]   # one or more scanner files; each issue once
+posturanet findings split <file.json>... [--out findings/]            # one file per fixable issue
 posturanet fix <finding-id|resource-id|finding.json> [--dry-run | --open-pr] [--evidence-file flows.json] [--window 90d] [--format text|json]
 posturanet contract build <resource> [--evidence-file flows.json] [--window 90d] [--dry-run]
 posturanet contract check --plan tfplan.json          # exit 5 on BLOCK, 3 on UNKNOWN

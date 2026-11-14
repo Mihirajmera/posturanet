@@ -4,6 +4,10 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Changed (one PR per issue across scanners)
+- The PR idempotency key and the `posturanet:finding` marker now use the issue, `control@terraform_address`, instead of the scanner's finding id. Security Hub, Prowler, Checkov and Trivy reporting the same problem update one PR instead of opening one each. Open PRs from earlier versions still match on their finding id (FR-28).
+- `findings list` and `findings split` take several files. The same control on the same resource (an ARN and its short id count as one) is listed once, with `also <scanner>` on the row and a count in the summary; `split` writes one file for it. JSON rows add `file` (with several files) and `also`. Twin controls such as EC2.13 and EC2.19 are still separate.
+
 ## [0.3.0] - 2026-11-12
 
 ### Changed (CLI output)

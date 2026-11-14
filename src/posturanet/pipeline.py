@@ -36,6 +36,7 @@ from posturanet.contracts import (
 )
 from posturanet.deliver import GitHub, deliver, idempotency_key
 from posturanet.deliver.github import PullRequest, push_pr
+from posturanet.deliver.idempotency import issue
 from posturanet.errors import StageStop
 from posturanet.evidence import FlowSource, LogsInsightsSource, collect
 from posturanet.evidence.confidence import at_least
@@ -338,7 +339,7 @@ def _run(
     record.validation = report
     _record_validation(record, report, dry=dry)
 
-    key = idempotency_key(finding.finding_id, contract, diff.sha256)
+    key = idempotency_key(issue(finding.control_id, loc.address), contract, diff.sha256)
     proposal = Proposal(
         finding=finding,
         location=loc,
@@ -590,6 +591,7 @@ def _run_config(
         gh,
         PullRequest(
             finding_id=finding.finding_id,
+            issue=proposal.issue,
             key=proposal.idempotency_key,
             branch=config_pr.branch(proposal),
             title=config_pr.title(proposal),
@@ -881,6 +883,7 @@ def _run_s3(
         gh,
         PullRequest(
             finding_id=finding.finding_id,
+            issue=proposal.issue,
             key=proposal.idempotency_key,
             branch=s3pr.branch(proposal),
             title=s3pr.title(proposal),
@@ -1176,6 +1179,7 @@ def _run_iam(
         gh,
         PullRequest(
             finding_id=finding.finding_id,
+            issue=proposal.issue,
             key=proposal.idempotency_key,
             branch=iampr.branch(proposal),
             title=iampr.title(proposal),
