@@ -30,6 +30,15 @@ def contract_sha(contract: BehaviorContract) -> str:
     )
 
 
+def issue(control: str, address: str) -> str:
+    """One problem, whichever scanner reported it: the control on the resolved Terraform address.
+
+    Security Hub, Prowler, Checkov and Trivy give the same problem different finding ids; keying
+    PRs on this instead means they all update one PR (FR-28).
+    """
+    return f"{control}@{address}"
+
+
 def idempotency_key(finding_id: str, contract: BehaviorContract, diff_sha: str) -> str:
     return _sha(finding_id + contract_sha(contract) + diff_sha)
 

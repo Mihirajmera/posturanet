@@ -8,6 +8,7 @@ import re
 import shutil
 import sys
 from collections import Counter
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -31,7 +32,8 @@ from posturanet.pipeline import Context, Mode, run_fix
 
 if TYPE_CHECKING:
     from posturanet.gate import GateResult
-    from posturanet.ingest import Entry
+    from posturanet.ingest import Entry, FindingsFile
+    from posturanet.models.exceptions import AcceptedRisk
 
 app = typer.Typer(
     name="posturanet",
@@ -527,65 +529,105 @@ def fixes_show(
 
 
 FindingsFileArg = Annotated[
-    Path,
-    typer.Argument(help="Finding file: Security Hub ASFF, OCSF (Prowler), Checkov or Trivy JSON."),
+    list[Path],
+    typer.Argument(
+        help="One or more finding files: Security Hub ASFF, OCSF (Prowler), Checkov or Trivy "
+        "JSON. A problem reported in more than one file is listed once."
+    ),
 ]
+
+
+@dataclass
+class _Row:
+    file: FindingsFile
+    entry: Entry
+    result: tuple[str, str | None]
+    also: list[str] = field(default_factory=list)  # other scanners that reported the same issue
+
+
+def _read_merged(paths: list[Path], exceptions: Path) -> list[_Row]:
+    """Every finding in every file; a problem several scanners report is kept once (FR-28)."""
+    from posturanet.ingest import issue_of, read_findings
+
+    try:
+        files = [read_findings(p) for p in paths]
+        accepted: list[AcceptedRisk] = load_exceptions(exceptions)
+    except PosturaNetError as exc:
+        raise _fail(exc) from exc
+    today = datetime.now(UTC).date()
+    rows: list[_Row] = []
+    first: dict[tuple[str, str, str], _Row] = {}
+    for found in files:
+        for e in found.entries:
+            row = _Row(found, e, outcome(e, accepted, today))
+            if e.finding is not None and row.result[0] != "passed":
+                key = issue_of(e.finding)
+                if key in first:
+                    first[key].also.append(e.finding.source)
+                    continue
+                first[key] = row
+            rows.append(row)
+    return rows
 
 
 @findings_app.command("list", epilog=_examples(
     ("posturanet findings list scan.json", "the findings PosturaNet can fix"),
     ("posturanet findings list scan.json --all", "every finding, and why the rest can't be fixed yet"),  # noqa: E501 (copyable example)
+    ("posturanet findings list securityhub.json prowler.ocsf.json", "several scanners; each problem once"),  # noqa: E501 (copyable example)
     ("posturanet findings list plans.json --all", "Security Hub remediation plans"),
 ))  # fmt: skip
 def findings_list(
-    path: FindingsFileArg,
+    paths: FindingsFileArg,
     show_all: Annotated[
         bool, typer.Option("--all", help="Also show findings PosturaNet can't fix, and why.")
     ] = False,
     output_format: FormatOpt = OutputFormat.TEXT,
     exceptions: ExceptionsOpt = EXCEPTIONS_FILE,
 ) -> None:
-    """The findings in a file, and how each one ends: a fix, a runbook or an accepted risk."""
-    from posturanet.ingest import read_findings
-
-    try:
-        found = read_findings(path)
-        accepted = load_exceptions(exceptions)
-    except PosturaNetError as exc:
-        raise _fail(exc) from exc
-    today = datetime.now(UTC).date()
-    outcomes = {e.index: outcome(e, accepted, today) for e in found.entries}
-    shown = found.entries if show_all else found.fixable
-    rows = [_finding_row(e, outcomes[e.index]) for e in shown]
+    """The findings in one or more files, and how each one ends: a fix, a runbook or an
+    accepted risk."""
+    merged = _read_merged(paths, exceptions)
+    many = len(paths) > 1
+    shown = merged if show_all else [r for r in merged if r.entry.fixable]
+    rows = [_finding_row(r, many) for r in shown]
     if output_format is OutputFormat.JSON:
         console.write(json.dumps(rows, indent=2) + "\n")
         raise typer.Exit(0)
     f = _frame()
-    lines = f.open(console.header("findings list", path.name, f.style))
-    counts = Counter(kind for kind, _ in outcomes.values())
-    total = len(found.entries) - counts["passed"]  # coverage counts failed findings only
+    names = [p.name for p in paths]  # with several files, `#` is file number:index
+    lines = f.open(console.header("findings list", ", ".join(names), f.style))
+    counts = Counter(r.result[0] for r in merged)
+    total = len(merged) - counts["passed"]  # coverage counts failed findings only
     covered = total - counts["none"]
+    formats = " + ".join(dict.fromkeys(r.file.format.upper() for r in merged)) or "-"
     summary = (
-        f"{found.format.upper()} · {total} failed · {counts['fix']} fix · "
+        f"{formats} · {total} failed · {counts['fix']} fix · "
         f"{counts['runbook']} runbook · {counts['exception']} accepted · "
         f"coverage {covered}/{total}" + (f" ({100 * covered // total}%)" if total else "")
     )
-    lines += [f.step(summary, info=True, token="success" if covered else "muted"), f.bar()]
+    lines += [f.step(summary, info=True, token="success" if covered else "muted")]
+    dupes = sum(len(r.also) for r in merged)
+    if dupes:
+        lines += [f.step(f"{dupes} reported by more than one scanner, listed once", info=True)]
+    lines += [f.bar()]
     if rows:
         head = f"{'#':>4}  {'outcome':<10} {'control':<14} {'fix':<20} {'severity':<9} resource"
         table = [f.style("bold", head)]
         for r in rows:
             resource = r["resource"] or "-"
+            index = f"{names.index(str(r['file'])) + 1}:{r['index']}" if many else r["index"]
             line = (
-                f"{r['index']:>4}  {r['outcome']:<10} {r['control']:<14} {r['fix']:<20} "
+                f"{index:>4}  {r['outcome']:<10} {r['control']:<14} {r['fix']:<20} "
                 f"{r['severity']:<9} {resource}"
             )
-            if r["reason"]:
-                line += f.style("muted", f"  ({r['reason']})")
+            notes = "; ".join(str(n) for n in (r["reason"], r.get("also")) if n)
+            if notes:
+                line += f.style("muted", f"  ({notes})")
             table.append(line)
         lines += f.box("Findings", table)
-    if found.fixable:
-        lines += f.close(f"Next: posturanet findings split {path} --out findings/")
+    if any(r.entry.fixable for r in merged):
+        args = " ".join(str(p) for p in paths)
+        lines += f.close(f"Next: posturanet findings split {args} --out findings/")
     elif show_all:
         lines += f.close("Nothing PosturaNet can fix in this file yet.")
     else:
@@ -595,32 +637,31 @@ def findings_list(
 
 @findings_app.command("split", epilog=_examples(
     ("posturanet findings split scan.json --out findings/", "one file per fixable finding"),
+    ("posturanet findings split securityhub.json prowler.ocsf.json --out findings/", "one file per problem"),  # noqa: E501 (copyable example)
 ))  # fmt: skip
 def findings_split(
-    path: FindingsFileArg,
+    paths: FindingsFileArg,
     out: Annotated[Path, typer.Option("--out", help="Folder for one file per finding.")] = Path(
         "findings"
     ),
     exceptions: ExceptionsOpt = EXCEPTIONS_FILE,
 ) -> None:
-    """Write each finding PosturaNet can fix to its own file, ready for `posturanet fix`."""
-    from posturanet.ingest import document_for, read_findings
+    """Write each problem PosturaNet can fix to its own file, ready for `posturanet fix`."""
+    from posturanet.ingest import document_for
 
-    try:
-        found = read_findings(path)
-        accepted = load_exceptions(exceptions)
-    except PosturaNetError as exc:
-        raise _fail(exc) from exc
-    today = datetime.now(UTC).date()
-    to_fix = [e for e in found.fixable if outcome(e, accepted, today)[0] == "fix"]
-    skipped = len(found.fixable) - len(to_fix)
+    merged = _read_merged(paths, exceptions)
+    fixable = [r for r in merged if r.entry.fixable]
+    to_fix = [r for r in fixable if r.result[0] == "fix"]
+    skipped = len(fixable) - len(to_fix)
+    names = ", ".join(p.name for p in paths)
     if not to_fix:
-        typer.echo(f"{path.name}: no failed findings PosturaNet can fix; nothing written")
+        typer.echo(f"{names}: no failed findings PosturaNet can fix; nothing written")
         raise typer.Exit(0)
     out.mkdir(parents=True, exist_ok=True)
     used: set[str] = set()
     written: list[Path] = []
-    for e in to_fix:
+    for r in to_fix:
+        e = r.entry
         if e.finding is None:
             continue
         stem = re.sub(r"[^A-Za-z0-9._-]+", "_", f"{e.finding.control_id}-{e.finding.resource.id}")
@@ -628,13 +669,16 @@ def findings_split(
         while name in used:
             name, n = f"{stem}-{n}", n + 1
         used.add(name)
-        doc = document_for(e.item, found.format)
+        doc = document_for(e.item, r.file.format)
         target = out / f"{name}.json"
         target.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8", newline="\n")
         written.append(target)
     f = _frame()
-    lines = f.open(console.header("findings split", path.name, f.style))
-    lines += [f.step(f"Read {len(found.fixable)} findings PosturaNet can fix"), f.bar()]
+    lines = f.open(console.header("findings split", names, f.style))
+    lines += [f.step(f"Read {len(fixable)} findings PosturaNet can fix"), f.bar()]
+    dupes = sum(len(r.also) for r in to_fix)
+    if dupes:
+        lines += [f.step(f"Merged {dupes} reported by more than one scanner", info=True), f.bar()]
     if skipped:
         lines += [f.step(f"Skipped {skipped} accepted in {exceptions.as_posix()}", info=True)]
         lines += [f.bar()]
@@ -698,12 +742,12 @@ def findings_pull_plans(
     _framed(f, lines)
 
 
-def _finding_row(e: Entry, result: tuple[str, str | None]) -> dict[str, object]:
-    f = e.finding
-    kind, note = result
+def _finding_row(r: _Row, many: bool) -> dict[str, object]:
+    e, f = r.entry, r.entry.finding
+    kind, note = r.result
     if kind == "none" and not note:
         note = e.reason or (None if e.fixable else "no fix for this control yet")
-    return {
+    row: dict[str, object] = {
         "index": e.index,
         "outcome": kind,
         "finding_id": f.finding_id if f else None,
@@ -713,6 +757,11 @@ def _finding_row(e: Entry, result: tuple[str, str | None]) -> dict[str, object]:
         "resource": f.resource.id if f else None,
         "reason": note,
     }
+    if many:
+        row["file"] = r.file.path.name
+    if r.also:
+        row["also"] = "also " + ", ".join(sorted(set(r.also)))
+    return row
 
 
 @app.command(epilog=_examples(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -49,7 +50,7 @@ def test_title_and_labels(tmp_repo: Path, flows_path: Path, sg_finding_path: Pat
 def test_body_sections(tmp_repo: Path, flows_path: Path, sg_finding_path: Path) -> None:
     p = _proposal(tmp_repo, flows_path, sg_finding_path)
     text = body(p, run_id="run_x")
-    assert text.startswith(markers(p.idempotency_key, p.finding.finding_id))
+    assert text.startswith(markers(p.idempotency_key, p.issue))
     assert key_in(text) == p.idempotency_key
     for heading in (
         "### What changes",
@@ -117,6 +118,43 @@ def test_existing_pr_for_finding_is_updated(
     assert result.action == "updated" and result.number == 7  # type: ignore[attr-defined]
     assert ("PATCH", "/repos/acme/infra/pulls/7") in fake.writes
     assert not any(m == "POST" and path.endswith("/pulls") for m, path in fake.writes)
+
+
+def _same_issue_other_scanner(tmp_path: Path, finding: Path) -> Path:
+    """The same open SSH rule, reported under another finding id (as a second scanner would)."""
+    doc = json.loads(finding.read_text(encoding="utf-8"))
+    doc["Findings"][0]["Id"] = "prowler-ec2-19-sg-0a91f3c2"
+    other = tmp_path / "other.json"
+    other.write_text(json.dumps(doc), encoding="utf-8")
+    return other
+
+
+def test_two_scanners_one_issue_one_key(
+    tmp_repo: Path, tmp_path: Path, flows_path: Path, sg_finding_path: Path
+) -> None:
+    p = _proposal(tmp_repo, flows_path, sg_finding_path)
+    q = _proposal(tmp_repo, flows_path, _same_issue_other_scanner(tmp_path, sg_finding_path))
+    assert p.finding.finding_id != q.finding.finding_id
+    assert p.issue == q.issue == "EC2.19@module.bastion.aws_security_group.this"
+    assert p.idempotency_key == q.idempotency_key
+
+
+def test_second_scanner_reuses_the_open_pr(
+    tmp_repo: Path, tmp_path: Path, flows_path: Path, sg_finding_path: Path
+) -> None:
+    p = _proposal(tmp_repo, flows_path, sg_finding_path)
+    q = _proposal(tmp_repo, flows_path, _same_issue_other_scanner(tmp_path, sg_finding_path))
+    open_pr = {
+        "number": 9,
+        "html_url": "https://github.com/acme/infra/pull/9",
+        "body": markers(p.idempotency_key, p.issue),
+        "labels": [{"name": "posturanet"}],
+        "head": {"ref": "posturanet/sg_ingress/bastion-12345678"},
+    }
+    fake = FakeGitHub({TF: (tmp_repo / TF).read_text(encoding="utf-8")}, [open_pr])
+    result = _deliver(_gh(fake), q, {TF: (tmp_repo / TF).read_text(encoding="utf-8")})
+    assert result.action == "unchanged" and result.number == 9  # type: ignore[attr-defined]
+    assert fake.writes == []
 
 
 def test_refuses_non_posturanet_branch() -> None:

@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 from posturanet import __version__
 from posturanet.configfix.catalog import ConfigFix
-from posturanet.deliver.idempotency import markers, verify_marker
+from posturanet.deliver.idempotency import issue, markers, verify_marker
 from posturanet.deliver.pr_body import _CHECK_LABELS, _cell, _sym
 from posturanet.models import Diff, Finding, Location, ValidationReport, VerifySpec
 from posturanet.models.s3 import S3Evidence
@@ -35,8 +35,12 @@ class S3Proposal:
     unknowns: list[str] = field(default_factory=list)
 
     @property
+    def issue(self) -> str:
+        return issue(self.fix.control, self.location.address)
+
+    @property
     def idempotency_key(self) -> str:
-        text = self.finding.finding_id + self.fix.control + self.diff.sha256
+        text = self.issue + self.diff.sha256
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
     @property
@@ -133,7 +137,7 @@ def body(p: S3Proposal, *, run_id: str) -> str:
     unknown_lines = [f"- {u}" for u in p.unknowns] or ["- None identified"]
     what = "adds a public access block" if p.target.action == "create" else "turns on"
     parts = [
-        markers(p.idempotency_key, f.finding_id),
+        markers(p.idempotency_key, p.issue),
         verify_marker(verify_spec(p)),
         f"**PosturaNet** found a fix for **{f.control_id} · {f.title or p.fix.title}**. It "
         f"{what} all four S3 Block Public Access settings and changes nothing else.",

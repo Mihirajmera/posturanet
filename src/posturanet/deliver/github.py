@@ -233,6 +233,7 @@ def deliver(
         gh,
         PullRequest(
             finding_id=p.finding.finding_id,
+            issue=p.issue,
             key=p.idempotency_key,
             branch=branch_name(p),
             title=pr_body.title(p),
@@ -258,6 +259,7 @@ class PullRequest:
     labels: list[str]
     writes: list[tuple[str, str, str]]  # (path, content, commit message)
     deletes: list[tuple[str, str]] = field(default_factory=list)  # (path, commit message)
+    issue: str = ""  # idempotency.issue(); empty for PRs that aren't per-finding (revert)
 
 
 def push_pr(
@@ -272,8 +274,9 @@ def push_pr(
     ours = [
         pr for pr in prs if any(lbl.get("name") == "posturanet" for lbl in pr.get("labels", []))
     ]
-    tag = finding_tag(pr_in.finding_id)
-    existing = next((pr for pr in prs if finding_in(pr.get("body")) == tag), None)
+    # One PR per issue across scanners; finding_id still matches PRs opened before 0.3.1.
+    tags = {finding_tag(pr_in.issue or pr_in.finding_id), finding_tag(pr_in.finding_id)}
+    existing = next((pr for pr in prs if finding_in(pr.get("body")) in tags), None)
 
     if existing is not None and key_in(existing.get("body")) == pr_in.key:
         return Delivery(
