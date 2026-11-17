@@ -224,3 +224,13 @@ def test_two_scanner_files_one_row_per_issue(tmp_path: Path) -> None:
     out = tmp_path / "split"
     assert runner.invoke(app, ["findings", "split", str(SCAN), str(p), "--out", str(out)]).exit_code == 0  # fmt: skip
     assert len(list(out.iterdir())) == 3
+
+
+def test_related_controls_from_two_scanners_are_one_row(tmp_path: Path) -> None:
+    asff = Path(__file__).resolve().parents[1] / "fixtures" / "findings" / "sg_ssh_open.json"
+    scan = json.loads(SCAN.read_text("utf-8"))
+    p = tmp_path / "prowler.json"
+    p.write_text(json.dumps([scan[0]]), encoding="utf-8")  # EC2.13 on sg-0a91f3c2
+    rows = json.loads(runner.invoke(app, ["findings", "list", str(asff), str(p), "--format", "json"]).output)  # fmt: skip
+    assert len(rows) == 1 and rows[0]["control"] == "EC2.19"  # ASFF's EC2.19 on the same group
+    assert rows[0]["also"] == "also prowler"

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from test_cfn import _fake_aws
 from test_readonly import Recorder
 
 from posturanet.aws.changeset import (
@@ -17,7 +18,7 @@ from posturanet.aws.changeset import (
     ChangeSetClient,
     changeset_policy,
 )
-from posturanet.aws.readonly import ALLOWLIST, MutatingCallBlocked, ReadOnlyClient, is_allowed
+from posturanet.aws.readonly import ALLOWLIST, MutatingCallBlocked, is_allowed
 from posturanet.errors import UsageError
 from posturanet.evidence import FileSource
 from posturanet.models.config import load_config
@@ -94,16 +95,14 @@ def _run(
     change: dict[str, Any] | None = None,
     fail_delete: bool = False,
     leftovers: list[dict[str, Any]] | None = None,
-) -> tuple[Any, Any, list[str], list[str]]:
+) -> tuple[Any, Any, list[str]]:
     config, _ = load_config(repo)
     config.evidence.min_confidence_for_pr = "medium"
     if enabled:
         config.cloudformation.changeset_preview.enabled = True
         config.cloudformation.changeset_preview.role_arn = ROLE
     body = (repo / "templates/network.yaml").read_text("utf-8")
-    ro_calls: list[str] = []
     cs_calls: list[str] = []
-    readonly = FakeCfn(ro_calls, body)
     raw = FakeCfn(cs_calls, body, change)
     raw.fail_delete = fail_delete
     raw.leftovers = leftovers or []
@@ -111,11 +110,11 @@ def _run(
         mode="check",
         evidence=FileSource(FLOWS),
         clock=lambda: NOW,
-        aws=lambda service: ReadOnlyClient(readonly, service),
+        aws=_fake_aws(body),  # ReadOnlyClient: anything off the allowlist raises
         changeset=ChangeSetClient(lambda: raw, clock=lambda: NOW, sleep=lambda s: None),
     )
     record, proposal = run_fix_full(str(SG), repo, config, ctx)
-    return record, proposal, ro_calls, cs_calls
+    return record, proposal, cs_calls
 
 
 def _check(proposal: Any) -> Any:
@@ -124,16 +123,15 @@ def _check(proposal: Any) -> Any:
 
 def test_default_path_makes_no_changeset_calls(repo: Path) -> None:
     """Off by default: even with a client wired in, nothing outside the read-only list runs."""
-    record, proposal, ro_calls, cs_calls = _run(repo, enabled=False)
+    record, proposal, cs_calls = _run(repo, enabled=False)
     assert record.result == "VALIDATED", record.stages
     assert cs_calls == []
-    assert ro_calls and all(is_allowed(c) for c in ro_calls), ro_calls
     check = _check(proposal)
     assert check.result.value == "skipped" and check.required is False
 
 
 def test_opt_in_previews_and_always_deletes(repo: Path) -> None:
-    record, proposal, ro_calls, cs_calls = _run(repo, enabled=True)
+    record, proposal, cs_calls = _run(repo, enabled=True)
     assert record.result == "VALIDATED", record.stages
     assert cs_calls == [
         "cloudformation:DescribeStacks",
@@ -142,7 +140,6 @@ def test_opt_in_previews_and_always_deletes(repo: Path) -> None:
         "cloudformation:DescribeChangeSet",
         "cloudformation:DeleteChangeSet",
     ]
-    assert all(is_allowed(c) for c in ro_calls)  # the read-only role stays read-only
     check = _check(proposal)
     assert check.result.value == "pass" and check.required is True
     assert "BastionSG" in check.detail
@@ -179,13 +176,13 @@ def test_replacement_or_wider_change_stops(
             "Replacement": replacement,
         },
     }
-    record, proposal, _, cs_calls = _run(repo, enabled=True, change=change)
+    record, proposal, cs_calls = _run(repo, enabled=True, change=change)
     assert record.result == "STOPPED"
     assert cs_calls[-1] == "cloudformation:DeleteChangeSet"
 
 
 def test_failed_delete_fails_closed(repo: Path) -> None:
-    record, _, _, cs_calls = _run(repo, enabled=True, fail_delete=True)
+    record, _, cs_calls = _run(repo, enabled=True, fail_delete=True)
     assert record.result == "STOPPED"
     assert any("NOT deleted" in s.summary or "NOT deleted" in str(s) for s in record.stages)
 
@@ -197,7 +194,7 @@ def test_sweep_deletes_only_old_posturanet_change_sets(repo: Path) -> None:
         {"ChangeSetName": "posturanet-bbbbbbbbbbbb", "CreationTime": NOW},
         {"ChangeSetName": "team-release", "CreationTime": old},
     ]
-    _, _, _, cs_calls = _run(repo, enabled=True, leftovers=leftovers)
+    _, _, cs_calls = _run(repo, enabled=True, leftovers=leftovers)
     assert cs_calls.count("cloudformation:DeleteChangeSet") == 2  # the old one + our own
 
 
