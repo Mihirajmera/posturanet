@@ -4,7 +4,9 @@ A CloudFormation change set would be the template's own preview, but creating on
 `cloudformation:CreateChangeSet`, a write PosturaNet doesn't hold (NFR-2). So the template is
 validated statically: it parses, only the target resource changed, the edited resource passes
 the control and the contract, and (with AWS access) the repo template still matches what the
-stack deployed (`cloudformation:GetTemplate`, read-only). `cfn-lint` runs when installed.
+stack deployed (`cloudformation:GetTemplate`, read-only) and, for security groups, the live
+group's ingress (`ec2:DescribeSecurityGroups`) still matches the template. `cfn-lint` runs when
+installed.
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from typing import Any
 
 from posturanet.aws.session import ClientFactory
 from posturanet.cfn.edit import (
+    SG_TYPE,
     CfnPolicy,
     CfnSecurityGroup,
     iam_edit,
@@ -49,6 +52,7 @@ from posturanet.models import (
     ValidationReport,
 )
 from posturanet.synth.hcl_render import rules_diff, unified_diff
+from posturanet.synth.sg_rules import Rule, norm_proto
 from posturanet.synth.sg_z3 import Synthesis
 from posturanet.validate.guardrails import check_paths
 from posturanet.validate.invariants import MODEL_SCOPE, check_contract
@@ -193,7 +197,63 @@ def _drift(res: CfnResource, aws: ClientFactory | None, offline: bool) -> Check:
             CheckResult.FAIL,
             f"{res.logical_id} in the repo differs from stack {res.stack}; deploy or pull first",
         )
+    if res.type == SG_TYPE:
+        return _live_sg(res, aws, check)
     return check(CheckResult.PASS, f"{res.logical_id} matches the template stack {res.stack} runs")
+
+
+def _norm(r: Rule) -> Rule:
+    # "-1" (all traffic) has no ports: AWS returns none, templates may write any.
+    lo, hi = (-1, -1) if r.proto == "-1" else (r.from_port, r.to_port)
+    return Rule(str(r.net), lo, hi, r.proto)
+
+
+def _live_sg(
+    res: CfnResource, aws: ClientFactory, check: Callable[[CheckResult, str], Check]
+) -> Check:
+    """Compare the live group's CIDR ingress with the template's, before the edit."""
+    try:
+        rows = aws("cloudformation").describe_stack_resources(
+            StackName=res.stack, LogicalResourceId=res.logical_id
+        )["StackResources"]
+        group_id = next(
+            r["PhysicalResourceId"]
+            for r in rows
+            if r.get("LogicalResourceId") == res.logical_id and r.get("PhysicalResourceId")
+        )
+        groups = aws("ec2").describe_security_groups(GroupIds=[group_id])["SecurityGroups"]
+    except StopIteration:
+        return check(
+            CheckResult.ERROR, f"stack {res.stack} has no physical id for {res.logical_id}"
+        )
+    except Exception as exc:  # botocore ClientError; boto3 is only imported in aws/
+        return check(CheckResult.ERROR, f"reading the live security group failed: {exc}")
+    # shortcut: only CIDR sources are compared (as parse_sg models them); add group/prefix-list
+    # sources when parse_sg reads SourceSecurityGroupId.
+    live = {
+        _norm(Rule(cidr, int(p.get("FromPort", -1)), int(p.get("ToPort", -1)), proto))
+        for g in groups
+        for p in g.get("IpPermissions", [])
+        for proto in [norm_proto(p.get("IpProtocol", ""))]
+        for cidr in [x["CidrIp"] for x in p.get("IpRanges", [])]
+        + [x["CidrIpv6"] for x in p.get("Ipv6Ranges", [])]
+    }
+    try:
+        planned = {_norm(r) for r in parse_sg(res).rules()}
+    except StageStop as exc:
+        return check(CheckResult.ERROR, exc.reason)
+    if live != planned:
+        extra, missing = len(live - planned), len(planned - live)
+        return check(
+            CheckResult.FAIL,
+            f"live group {group_id} differs from {res.logical_id} in the template "
+            f"({extra} rule(s) only live, {missing} only in the template); "
+            "someone changed it outside CloudFormation. Reconcile it first",
+        )
+    return check(
+        CheckResult.PASS,
+        f"{res.logical_id} matches stack {res.stack}; live group {group_id} ingress matches",
+    )
 
 
 def _cfn_lint(diff: Diff, timeout_s: int) -> Check:
