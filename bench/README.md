@@ -1,7 +1,7 @@
 # PosturaNet benchmark (v1)
 
 How safe is an automatic fix for an open security group, a public bucket or a wildcard IAM
-policy? This benchmark answers that with 35 cases whose right answer is known in advance, and
+policy? This benchmark answers that with 56 cases whose right answer is known in advance, and
 publishes PosturaNet's misses next to its wins.
 
 | Family | Cases | PosturaNet correct | Stopped (needed / unneeded) | Outage | Fewest outages, any baseline |
@@ -9,6 +9,7 @@ publishes PosturaNet's misses next to its wins.
 | Security groups | 13 | 10 | 2 | 1 | 3 |
 | S3 public access (S3.8) | 10 | 4 | 3 / 2 | 1 | 3 |
 | IAM least privilege (IAM.1, IAM.21) | 12 | 6 | 4 / 1 | 1 | 7 |
+| CloudFormation and SAM (all three) | 21 | 9 | 12 / 0 | 0 | - |
 
 "Needed" stops are cases with no safe automatic fix (a public website, a role that passes an
 untracked `iam:PassRole`). "Unneeded" stops are safe fixes PosturaNet declined for lack of
@@ -126,6 +127,17 @@ let PosturaNet write its draft contract, then approve it as a reviewer would.
 A fix is an **outage** when it takes away something a legit user needs (S3: a requester that
 only gets in through public access; IAM: an action the workload calls). **Still exposed** means
 the targeted wildcard is still there. Pinned verdicts are in `tests/unit/test_bench.py`.
+
+## CloudFormation and SAM family
+
+[`cfn.py`](cfn.py) runs the same three fixes on templates copied from `tests/fixtures/cfn/basic`,
+with read-only doubles for `GetTemplate`, `DescribeStackResources` and
+`DescribeSecurityGroups`. Per fix type: a fixable template in YAML, JSON and with short-form
+intrinsics, and four traps that must stop: an intrinsic in the field the fix edits, a
+SAM-generated resource, a resource defined in two templates, and drift (the deployed stack or
+the live group differs from the repo). Fixes are scored on the edited template. The family
+reports **wrongly reported safe** (a validated fix that breaks a need, leaves the exposure, or
+exists where no safe fix does); `python -m bench` exits 1 if it isn't 0.
 
 ## Limits
 

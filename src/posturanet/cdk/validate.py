@@ -69,7 +69,18 @@ def sg_diff(repo: Path, t: CdkTarget, synth: Synthesis) -> Diff:
     c = t.construct
     calls = source.ingress_calls(c)
     in_source = sorted({source.norm(k.rule) for k in calls})
-    in_template_ = sorted({source.norm(r) for r in parse_sg(t.res).rules()})
+    sg = parse_sg(t.res)
+    in_template_ = sorted({source.norm(r) for r in sg.rules()})
+    # Group peers (no CIDR rule) and standalone ingress come from `connections`, not literals.
+    foreign = [e.resource or "an ingress entry" for e in sg.entries if e.resource or not e.rules]
+    if foreign:
+        raise StageStop(
+            "fix",
+            f"{t.construct_path} gets ingress from {', '.join(foreign)} in the template, "
+            "which no literal addIngressRule call explains",
+            [f"rules from connections.allowFrom or security-group peers aren't edited; {_HAND}"],
+            unknown=True,
+        )
     if in_source != in_template_:
         raise StageStop(
             "fix",

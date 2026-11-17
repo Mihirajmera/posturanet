@@ -24,7 +24,10 @@ from posturanet.cfn.edit import (
     SG_TYPE,
     CfnPolicy,
     CfnSecurityGroup,
+    attr_edit,
+    attr_unmet,
     iam_edit,
+    owned_ingress,
     parse_policy,
     parse_sg,
     render_sg,
@@ -33,6 +36,7 @@ from posturanet.cfn.edit import (
 )
 from posturanet.cfn.locate import CfnResource
 from posturanet.cfn.template import TemplateError, get, parse, value
+from posturanet.configfix.catalog import ConfigFix
 from posturanet.errors import StageStop
 from posturanet.iamfix.shrink import (
     ServiceUse,
@@ -103,6 +107,20 @@ def s3_diff(repo: Path, res: CfnResource) -> tuple[Diff, list[str]]:
     return _diff(repo, res, new, summary, "template:s3_public@1:cloudformation"), already
 
 
+def attr_diff(repo: Path, res: CfnResource, fix: ConfigFix) -> tuple[Diff, list[str]]:
+    """(diff, changes already met) for an attribute fix with CloudFormation paths."""
+    new, changed, already = attr_edit(res, fix)
+    if not changed:
+        raise StageStop(
+            "fix",
+            f"the template already meets {fix.control}, so the live resource has drifted",
+            ["deploy the stack through your pipeline; the fix is already in the code"],
+            why="PosturaNet fixes code, and this code is already fixed; the live resource isn't",
+        )
+    summary = f"{res.logical_id} " + "; ".join(changed)
+    return _diff(repo, res, new, summary, "template:config_attribute@1:cloudformation"), already
+
+
 def iam_diff(repo: Path, policy: CfnPolicy, changes: list[StatementChange]) -> Diff:
     new = iam_edit(policy, {c.statement.index: c.after for c in changes})
     removed = sorted({p for c in changes for p in c.removed})
@@ -132,10 +150,17 @@ def _edited(res: CfnResource, diff: Diff) -> CfnResource | str:
     return CfnResource(res.stack, res.logical_id, res.type, t, node, res.line)
 
 
+def _own(resources: dict[str, Any], logical_id: str) -> dict[str, Any]:
+    """The resource and any SecurityGroupIngress resources that add rules to it."""
+    keep = {logical_id, *owned_ingress(resources, logical_id)}
+    return {k: v for k, v in resources.items() if k in keep}
+
+
 def _scope(res: CfnResource, edited: CfnResource) -> Check:
     def rest(root: Any) -> Any:
         out = dict(value(root))
-        out["Resources"] = {k: v for k, v in out["Resources"].items() if k != res.logical_id}
+        own = _own(out["Resources"], res.logical_id)
+        out["Resources"] = {k: v for k, v in out["Resources"].items() if k not in own}
         return out
 
     if rest(res.template.root) != rest(edited.template.root):
@@ -145,7 +170,8 @@ def _scope(res: CfnResource, edited: CfnResource) -> Check:
             result=CheckResult.FAIL,
             detail="the edit changes more than the target resource",
         )
-    before, after = value(res.node), value(edited.node)
+    before = _own(value(get(res.template.root, "Resources")), res.logical_id)
+    after = _own(value(get(edited.template.root, "Resources")), res.logical_id)
     if value(get(res.node, "Type")) != value(get(edited.node, "Type")):
         return Check(
             id="template_scope",
@@ -177,12 +203,13 @@ def drift(res: CfnResource, aws: ClientFactory | None, offline: bool) -> Check:
         return check(CheckResult.ERROR, f"cloudformation:GetTemplate failed: {exc}")
     if isinstance(body, str):
         try:
-            deployed = value(parse(body, res.template.path).resources.get(res.logical_id))
+            deployed = value(get(parse(body, res.template.path).root, "Resources"))
         except TemplateError:
             return check(CheckResult.ERROR, "the deployed template could not be read")
     else:
-        deployed = (body.get("Resources") or {}).get(res.logical_id)
-    if deployed != value(res.node):
+        deployed = body.get("Resources") or {}
+    repo_side = _own(value(get(res.template.root, "Resources")), res.logical_id)
+    if _own(deployed, res.logical_id) != repo_side:
         return check(
             CheckResult.FAIL,
             f"{res.logical_id} in the repo differs from stack {res.stack}; deploy or pull first",
@@ -385,6 +412,31 @@ def s3_checks(control: str) -> Checks:
         ]
 
     return specific
+
+
+def validate_attr(
+    res: CfnResource,
+    diff: Diff,
+    fix: ConfigFix,
+    config: Config,
+    aws: ClientFactory | None,
+    *,
+    offline: bool,
+) -> ValidationReport:
+    def specific(edited: CfnResource) -> list[Check]:
+        unmet = attr_unmet(edited, fix)
+        return [
+            Check(
+                id="recheck",
+                required=True,
+                result=CheckResult.FAIL if unmet else CheckResult.PASS,
+                detail="edited template still fails: " + "; ".join(unmet)
+                if unmet
+                else f"edited template meets {fix.control} ({len(fix.changes)} setting(s))",
+            )
+        ]
+
+    return _validate(res, diff, config, aws, offline, specific)
 
 
 def validate_s3(

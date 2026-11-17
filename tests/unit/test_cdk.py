@@ -336,6 +336,27 @@ def test_sg_rules_outside_the_source_stop_unknown(ts: Path) -> None:
     assert fix.status.value == "unknown" and "3 ingress rule(s) in the template" in fix.summary
 
 
+def test_sg_peer_from_standalone_ingress_stops_unknown(ts: Path) -> None:
+    # e.g. webSg.connections.allowFrom(bastionSg, ...) synthesizes a standalone ingress
+    tpl = ts / "cdk.out" / "network.template.json"
+    doc = json.loads(tpl.read_text("utf-8"))
+    doc["Resources"]["BastionSgfromWebSg5432"] = {
+        "Type": "AWS::EC2::SecurityGroupIngress",
+        "Properties": {
+            "GroupId": {"Fn::GetAtt": ["BastionSg1A2B3C4D", "GroupId"]},
+            "SourceSecurityGroupId": {"Fn::GetAtt": ["WebSgE5F6A7B8", "GroupId"]},
+            "FromPort": 5432,
+            "ToPort": 5432,
+            "IpProtocol": "tcp",
+        },
+    }
+    tpl.write_text(json.dumps(doc), "utf-8")
+    record = run_fix(str(SG), ts, load_config(ts)[0], _ctx(FLOWS))
+    assert record.result == "STOPPED" and record.exit_code == 3, record.stages
+    assert record.diff is None
+    assert any(s.status.value == "unknown" for s in record.stages)
+
+
 def test_s3_fix_both_languages(ts: Path, py: Path) -> None:
     ev = _ctx(FIX / "s3/public_unused.json")
     record, _ = run_fix_full(str(S3), ts, load_config(ts)[0], ev)
