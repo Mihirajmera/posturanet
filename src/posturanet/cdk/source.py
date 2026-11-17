@@ -17,7 +17,7 @@ from typing import Literal
 
 from posturanet.errors import StageStop
 from posturanet.synth.hcl_render import DEFAULT_DESCRIPTION
-from posturanet.synth.sg_rules import Rule
+from posturanet.synth.sg_rules import Rule, norm_proto
 
 Lang = Literal["ts", "py"]
 SUFFIXES: dict[str, Lang] = {".ts": "ts", ".py": "py"}
@@ -298,7 +298,24 @@ _PEER_CIDR = re.compile(r"((?:\w+\.)*)Peer\s*\.\s*(ipv4|ipv6)\s*\(\s*(['\"])([^'
 _PORT = re.compile(r"((?:\w+\.)*)Port\s*\.\s*(\w+)\s*(?:\(\s*([\d\s,]*?)\s*\))?")
 _PORT_CONST = {"SSH": 22, "HTTP": 80, "HTTPS": 443, "RDP": 3389}
 _FULL = {"allTcp": "tcp", "all_tcp": "tcp", "allUdp": "udp", "all_udp": "udp"}
-_INGRESS_ARGS = ("peer", "connection", "description", "remote_rule")
+# Methods that add ingress to the group they're called on → names of their positional args.
+_METHODS: dict[str, tuple[str, ...]] = {
+    "addIngressRule": ("peer", "connection", "description", "remote_rule"),
+    "add_ingress_rule": ("peer", "connection", "description", "remote_rule"),
+    "connections.allowFrom": ("peer", "connection", "description"),
+    "connections.allow_from": ("peer", "connection", "description"),
+    "connections.allowFromAnyIpv4": ("connection", "description"),
+    "connections.allow_from_any_ipv4": ("connection", "description"),
+}
+_KWARGS = {"other": "peer", "port_range": "connection"}  # Python names on `connections`
+_CALL = (
+    r"(addIngressRule|add_ingress_rule|connections\s*\.\s*"
+    r"(?:allowFromAnyIpv4|allow_from_any_ipv4|allowFrom|allow_from))"
+)
+_ALLOW_TO = re.compile(r"(?<![\w.])([\w.]+)\s*\.\s*connections\s*\.\s*(?:allowTo|allow_to)\s*\(")
+_GROUP = re.compile(r"(?!.*\bPeer\b)[A-Za-z_][\w.]*")  # a group variable used as a peer
+
+PeerPorts = tuple[str, int, int]  # (protocol, from, to) of a rule whose source is a group
 
 
 @dataclass
@@ -314,6 +331,35 @@ class IngressCall:
     @property
     def is_open(self) -> bool:
         return self.rule.is_world
+
+
+@dataclass
+class L1Ingress:
+    """A literal `CfnSecurityGroupIngress` whose groupId is the group's variable."""
+
+    construct_id: str
+    start: int  # the statement, from its line start
+    end: int  # past its line end
+    rule: Rule
+    description: str | None
+    quote: str | None
+    removable: bool  # a statement of its own whose value isn't used elsewhere
+
+    @property
+    def is_open(self) -> bool:
+        return self.rule.is_world
+
+
+@dataclass
+class SgSource:
+    calls: list[IngressCall]  # CIDR rules added on the group's variable
+    peers: list[PeerPorts]  # rules whose source is another group (never edited)
+    l1: list[L1Ingress]
+
+    def rules(self) -> list[Rule]:
+        return sorted(
+            {norm(r) for r in [*(k.rule for k in self.calls), *(x.rule for x in self.l1)]}
+        )
 
 
 def _peer(text: str) -> tuple[str, str] | None:
@@ -350,37 +396,56 @@ def _port(text: str) -> tuple[str, int, int, str] | None:
     return None
 
 
-def ingress_calls(c: Construct) -> list[IngressCall]:
-    """Every `addIngressRule` on the construct's variable in its file."""
+def peer_ports(proto: str, lo: int, hi: int) -> PeerPorts:
+    return (proto, -1, -1) if proto == "-1" else (proto, lo, hi)
+
+
+def _args(c: Construct, o: int, cl: int, names: tuple[str, ...], where: str) -> dict[str, Span]:
+    named: dict[str, Span] = {}
+    for pos, (s, e) in enumerate(items(c.masked, o, cl)):
+        k = re.match(r"(\w+)\s*=(?!=)\s*", c.masked[s:e]) if c.lang == "py" else None
+        if k:
+            named[_KWARGS.get(k.group(1), k.group(1))] = (s + k.end(), e)
+        elif pos < len(names):
+            named[names[pos]] = (s, e)
+        else:
+            raise unsupported(f"the arguments of {where}")
+    if set(named) - {"peer", "connection", "description"}:
+        raise unsupported(f"the arguments of {where} (a remote rule)")
+    return named
+
+
+def _raw(c: Construct, span: Span) -> str:
+    return re.sub(r"\s+", " ", c.text[span[0] : span[1]])
+
+
+def sg_source(c: Construct) -> SgSource:
+    """Every literal way the construct's file adds ingress to it."""
+    out = SgSource([], [], [])
     if c.var is None:
-        return []
+        return out
     var = re.escape(c.var)
     if len(re.findall(r"(?<![\w.])" + var + r"\s*(?::[^=\n]+)?=(?!=)", c.masked)) != 1:
         raise unsupported(f"`{c.var}`, assigned more than once in {c.file.name},")
-    method = "addIngressRule" if c.lang == "ts" else "add_ingress_rule"
-    out = []
-    for m in re.finditer(r"(?<![\w.])" + var + r"\s*\.\s*" + method + r"\s*\(", c.masked):
+    for m in re.finditer(r"(?<![\w.])" + var + r"\s*\.\s*" + _CALL + r"\s*\(", c.masked):
+        method = re.sub(r"\s+", "", m.group(1))
         o = m.end() - 1
         cl = close_of(c.masked, o)
         where = f"{c.var}.{method} on line {c.text.count(chr(10), 0, o) + 1}"
-        named: dict[str, Span] = {}
-        for pos, (s, e) in enumerate(items(c.masked, o, cl)):
-            k = re.match(r"(\w+)\s*=(?!=)\s*", c.masked[s:e]) if c.lang == "py" else None
-            if k:
-                named[k.group(1)] = (s + k.end(), e)
-            elif pos < len(_INGRESS_ARGS):
-                named[_INGRESS_ARGS[pos]] = (s, e)
-            else:
-                raise unsupported(f"the arguments of {where}")
-        if set(named) - set(_INGRESS_ARGS[:3]):
-            raise unsupported(f"the arguments of {where} (a remote rule)")
-        raw = {k: re.sub(r"\s+", " ", c.text[s:e]) for k, (s, e) in named.items()}
-        peer = _peer(raw.get("peer", ""))
-        port = _port(raw.get("connection", ""))
+        named = _args(c, o, cl, _METHODS[method], where)
+        port = _port(_raw(c, named["connection"])) if "connection" in named else None
+        if "peer" in named:
+            raw = _raw(c, named["peer"])
+            peer = _peer(raw)
+            if peer is None and port is not None and _GROUP.fullmatch(raw):
+                out.peers.append(peer_ports(port[3], port[1], port[2]))
+                continue
+        else:
+            peer = (c.qualifier, "0.0.0.0/0")  # allowFromAnyIpv4
         if peer is None or port is None:
             raise unsupported(f"the peer or port of {where}")
         desc = str_lit(c.text, named["description"]) if "description" in named else None
-        out.append(
+        out.calls.append(
             IngressCall(
                 m.start(),
                 cl + 1,
@@ -390,6 +455,80 @@ def ingress_calls(c: Construct) -> list[IngressCall]:
                 peer[0],
                 port[0],
             )
+        )
+    for m in _ALLOW_TO.finditer(c.masked):
+        o = m.end() - 1
+        cl = close_of(c.masked, o)
+        args = items(c.masked, o, cl)
+        if not args or _raw(c, args[0]) != c.var:
+            continue
+        where = f"{m.group(1)}.connections.allowTo on line {c.text.count(chr(10), 0, o) + 1}"
+        named = _args(c, o, cl, ("peer", "connection", "description"), where)
+        port = _port(_raw(c, named["connection"])) if "connection" in named else None
+        if port is None:
+            raise unsupported(f"the port of {where}")
+        out.peers.append(peer_ports(port[3], port[1], port[2]))
+    out.l1 = _l1_ingress(c)
+    return out
+
+
+_L1_KEYS = {"groupid", "cidrip", "cidripv6", "ipprotocol", "fromport", "toport", "description"}
+
+
+def _l1_ingress(c: Construct) -> list[L1Ingress]:
+    assert c.var is not None
+    targets = {
+        f"{c.var}.{a}"
+        for a in ("securityGroupId", "attrGroupId", "security_group_id", "attr_group_id")
+    }
+    out = []
+    for m in _call_re("CfnSecurityGroupIngress", c.lang).finditer(c.masked):
+        o = m.end() - 1
+        cl = close_of(c.masked, o)
+        if not re.search(r"(?<![\w.])" + re.escape(c.var) + r"\b", c.masked[o:cl]):
+            continue  # not about this group
+        k = Construct(c.file, c.lang, c.text, c.crlf, c.masked, m.start(), o, cl, m.group(1),
+                      None, "CfnSecurityGroupIngress", "")  # fmt: skip
+        what = f"the CfnSecurityGroupIngress on line {k.line}"
+        args = k.args
+        lit = str_lit(c.text, args[1]) if len(args) >= 2 else None
+        entries, _ = props(k, what)
+        v: dict[str, Span] = {}
+        for key, span in entries.items():
+            name = key.replace("_", "").lower()
+            if name not in _L1_KEYS or span is None:
+                raise unsupported(f"{key} of {what}")
+            v[name] = span
+        if lit is None or "groupid" not in v or _raw(c, v["groupid"]) not in targets:
+            raise unsupported(f"the id or groupId of {what}")
+        cidr = [str_lit(c.text, v[x]) for x in ("cidrip", "cidripv6") if x in v]
+        proto = str_lit(c.text, v["ipprotocol"]) if "ipprotocol" in v else None
+        ports = [_raw(c, v[x]) if x in v else "-1" for x in ("fromport", "toport")]
+        if len(cidr) != 1 or cidr[0] is None or proto is None:
+            raise unsupported(f"the source or protocol of {what}")
+        if not all(re.fullmatch(r"-?\d+", p) for p in ports):
+            raise unsupported(f"the ports of {what}")
+        try:
+            rule = Rule(cidr[0][0], int(ports[0]), int(ports[1]), norm_proto(proto[0]))
+        except ValueError as exc:
+            raise unsupported(f"the source of {what}") from exc
+        desc = str_lit(c.text, v["description"]) if "description" in v else None
+        ls, le = line_start(c.text, m.start()), line_end(c.text, cl + 1)
+        before = c.masked[ls : m.start()]
+        a = _ASSIGN[c.lang].fullmatch(before) if before.strip() else None
+        uses = len(re.findall(r"(?<![\w.])" + re.escape(a.group(1)) + r"\b", c.masked)) if a else 1
+        removable = (not before.strip() or a is not None) and uses == 1
+        removable = removable and c.masked[cl + 1 : le].strip() in ("", ";")
+        out.append(
+            L1Ingress(
+                lit[0],
+                ls,
+                le,
+                rule,
+                desc[0] if desc else None,
+                desc[1] if desc else None,
+                removable,
+            )  # fmt: skip
         )
     return out
 
@@ -410,8 +549,9 @@ def _port_expr(c: Construct, q: str, r: Rule) -> str:
     return f"{q}Port.{name}({r.from_port}, {r.to_port})"
 
 
-def _description(calls: list[IngressCall], r: Rule) -> tuple[str, str | None]:
-    for k in calls:
+def _description(src: SgSource, r: Rule) -> tuple[str, str | None]:
+    found: list[IngressCall | L1Ingress] = [*src.calls, *src.l1]
+    for k in found:
         o = k.rule
         if (
             k.is_open
@@ -422,26 +562,39 @@ def _description(calls: list[IngressCall], r: Rule) -> tuple[str, str | None]:
     return DEFAULT_DESCRIPTION, None
 
 
-def render_sg(c: Construct, calls: list[IngressCall], added: list[Rule]) -> str:
-    """New source text: open `addIngressRule` calls removed, the synthesized rules where the
-    first one was, in that call's style."""
+def render_sg(c: Construct, src: SgSource, added: list[Rule]) -> str:
+    """New source text: open ingress calls and open `CfnSecurityGroupIngress` statements
+    removed, the synthesized rules as `addIngressRule` calls where the first one was, in that
+    statement's indent and style. Group-peer rules are never touched."""
     text, masked = c.text, c.masked
-    open_calls = [k for k in calls if k.is_open]
     method = "addIngressRule" if c.lang == "ts" else "add_ingress_rule"
-    edits: list[tuple[int, int, str]] = []
-    for idx, k in enumerate(open_calls):
+    spans: list[tuple[int, int, str, str, str]] = []  # (from, to, semi, peer_q, port_q)
+    for k in src.calls:
+        if not k.is_open:
+            continue
         ls, le = line_start(text, k.start), line_end(text, k.end)
         tail = masked[k.end : le].strip()
         if masked[ls : k.start].strip() or tail not in ("", ";"):
-            raise unsupported(f"a {method} call that isn't a statement on its own line")
-        indent, semi = text[ls : k.start], ";" if tail == ";" else ""
+            raise unsupported(f"an ingress call on `{c.var}` that isn't a statement of its own")
+        spans.append((ls, le, ";" if tail == ";" else "", k.peer_q, k.port_q))
+    for x in src.l1:
+        if not x.is_open:
+            continue
+        if not x.removable:
+            raise unsupported(f"CfnSecurityGroupIngress {x.construct_id}, which isn't removable,")
+        semi = ";" if masked[x.start : x.end].rstrip().endswith(";") else ""
+        spans.append((x.start, x.end, semi, c.qualifier, c.qualifier))
+    spans.sort()
+    edits: list[tuple[int, int, str]] = []
+    for idx, (ls, le, semi, peer_q, port_q) in enumerate(spans):
+        indent = text[ls:le][: len(text[ls:le]) - len(text[ls:le].lstrip(" \t"))]
         lines = []
         for r in added if idx == 0 else []:
-            desc, quote = _description(calls, r)
+            desc, quote = _description(src, r)
             q = quote or ("'" if c.lang == "ts" else '"')
             q = '"' if q in desc and q == "'" else "'" if q in desc else q
-            peer = f"{k.peer_q}Peer.ipv{r.net.version}({q}{r.cidr}{q})"
-            port = _port_expr(c, k.port_q, r)
+            peer = f"{peer_q}Peer.ipv{r.net.version}({q}{r.cidr}{q})"
+            port = _port_expr(c, port_q, r)
             lines.append(f"{indent}{c.var}.{method}({peer}, {port}, {q}{desc}{q}){semi}\n")
         edits.append((ls, le, "".join(lines)))
     for s, e, new in sorted(edits, key=lambda x: -x[0]):
@@ -459,7 +612,7 @@ def norm(r: Rule) -> Rule:
 
 
 def source_rules(c: Construct) -> list[Rule]:
-    return sorted({norm(k.rule) for k in ingress_calls(c)})
+    return sg_source(c).rules()
 
 
 # --- S3 Block Public Access
