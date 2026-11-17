@@ -435,6 +435,7 @@ def _comment(result: GateResult, pr: int, check_url: str | None) -> str | None:
 @contract_app.command("check", epilog=_examples(
     ("posturanet contract check --source --repo infra/", "offline, from the edited .tf files"),
     ("posturanet contract check --source --file infra/sg.tf", "only groups in one file"),
+    ("posturanet contract check --source --file templates/net.yaml", "one CloudFormation template"),
     ("terraform show -json plan.out > plan.json && posturanet contract check --plan plan.json", "in CI, from a plan"),  # noqa: E501 (copyable example)
 ))  # fmt: skip
 def contract_check(
@@ -443,11 +444,16 @@ def contract_check(
     ] = None,
     source: Annotated[
         bool,
-        typer.Option("--source", help="Check the Terraform source instead of a plan (offline)."),
+        typer.Option(
+            "--source",
+            help="Check the Terraform or CloudFormation source instead of a plan (offline).",
+        ),
     ] = False,
     files: Annotated[
         list[Path] | None,
-        typer.Option("--file", help="With --source: only groups defined in this .tf file."),
+        typer.Option(
+            "--file", help="With --source: only resources defined in this .tf file or template."
+        ),
     ] = None,
     github_check: Annotated[
         bool, typer.Option("--github-check", help="Publish the result as a GitHub check run.")
