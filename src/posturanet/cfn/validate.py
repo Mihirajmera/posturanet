@@ -1,12 +1,13 @@
-"""Diffs and static validation for CloudFormation fixes (FR-21..FR-26).
+"""Diffs and validation for CloudFormation fixes (FR-21..FR-26).
 
-A CloudFormation change set would be the template's own preview, but creating one needs
-`cloudformation:CreateChangeSet`, a write PosturaNet doesn't hold (NFR-2). So the template is
-validated statically: it parses, only the target resource changed, the edited resource passes
-the control and the contract, and (with AWS access) the repo template still matches what the
-stack deployed (`cloudformation:GetTemplate`, read-only) and, for security groups, the live
-group's ingress (`ec2:DescribeSecurityGroups`) still matches the template. `cfn-lint` runs when
-installed.
+The template is validated statically: it parses, only the target resource changed, the edited
+resource passes the control and the contract, and (with AWS access) the repo template still
+matches what the stack deployed (`cloudformation:GetTemplate`, read-only) and, for security
+groups, the live group's ingress (`ec2:DescribeSecurityGroups`) still matches the template.
+`cfn-lint` runs when installed. A change set, CloudFormation's own preview, needs
+`cloudformation:CreateChangeSet` (a write), so it runs only when the customer opts in
+(`cloudformation.changeset_preview`): an UPDATE change set under its own role, never executed,
+always deleted.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from posturanet.aws.changeset import NAME_PREFIX, ChangeSetClient
 from posturanet.aws.session import ClientFactory
 from posturanet.cfn.edit import (
     SG_TYPE,
@@ -63,6 +65,8 @@ from posturanet.validate.recheck import recheck as sg_recheck
 from posturanet.validate.recheck import supported
 
 CHANGESET_NOTE = "needs cloudformation:CreateChangeSet (a write); validated statically"
+TEMPLATE_BODY_MAX = 51_200  # bytes; larger templates need TemplateURL, an S3 upload (a write)
+_POLL_S = 2.0
 
 
 def _rel(res: CfnResource, repo: Path) -> str:
@@ -129,6 +133,7 @@ def iam_diff(repo: Path, policy: CfnPolicy, changes: list[StatementChange]) -> D
     diff = _diff(repo, policy.res, new, summary, "template:iam_least_privilege@1:cloudformation")
     return diff.model_copy(
         update={
+            "target_address": policy.address,
             "rules_before": [a for c in changes for a in c.before],
             "rules_after": [a for c in changes for a in c.after],
         }
@@ -273,6 +278,122 @@ def _live_sg(
     )
 
 
+def _changeset(
+    res: CfnResource,
+    diff: Diff,
+    config: Config,
+    client: ChangeSetClient | None,
+    offline: bool,
+) -> Check:
+    """Opt-in change-set preview; SKIPPED and not required unless the customer opted in."""
+    if not config.cloudformation.changeset_preview.enabled:
+        return Check(
+            id="changeset", required=False, result=CheckResult.SKIPPED, detail=CHANGESET_NOTE
+        )
+    if offline:
+        return Check(
+            id="changeset",
+            required=False,
+            result=CheckResult.SKIPPED,
+            detail="dry run: no change set created",
+        )
+    body = diff.files[0].new_content
+    if len(body.encode("utf-8")) > TEMPLATE_BODY_MAX:
+        return Check(
+            id="changeset",
+            required=False,
+            result=CheckResult.SKIPPED,
+            detail="template is over 51,200 bytes; a change set would need an S3 upload",
+        )
+
+    def check(result: CheckResult, detail: str) -> Check:
+        return Check(id="changeset", required=True, result=result, detail=detail)
+
+    if client is None:
+        return check(CheckResult.ERROR, "changeset_preview is on but no change-set client is set")
+    name = f"{NAME_PREFIX}{diff.sha256[:12]}"
+    created = False
+    try:
+        stack = client.describe_stack(res.stack)
+        status = str(stack.get("StackStatus", ""))
+        if status.endswith("IN_PROGRESS"):
+            return check(CheckResult.ERROR, f"stack {res.stack} is busy ({status}); retry later")
+        _sweep(client, res.stack, name)
+        client.create(
+            res.stack,
+            name,
+            body,
+            sorted(p["ParameterKey"] for p in stack.get("Parameters", [])),
+            # Only what the stack already acknowledged; a fix needing more stops for a human.
+            sorted(stack.get("Capabilities", [])),
+        )
+        created = True
+        result, detail = _judge(res, _wait(client, res.stack, name, config.validation.timeout_s))
+    except Exception as exc:  # botocore errors; boto3 is only imported in aws/
+        result, detail = CheckResult.ERROR, f"change set failed: {exc}"
+    finally:
+        if created:
+            try:
+                client.delete(res.stack, name)
+            except Exception as exc:
+                result = CheckResult.ERROR
+                detail = f"{detail}; change set {name} was NOT deleted ({exc}): delete it by hand"
+    return check(result, detail)
+
+
+def _sweep(client: ChangeSetClient, stack: str, keep: str) -> None:
+    """Delete PosturaNet change sets older than an hour (leftovers of crashed runs)."""
+    now = client.clock()
+    for cs in client.list_change_sets(stack):
+        name = str(cs.get("ChangeSetName", ""))
+        made = cs.get("CreationTime")
+        if (
+            name.startswith(NAME_PREFIX)
+            and name != keep
+            and made is not None
+            and (now - made).total_seconds() > 3600
+        ):
+            client.delete(stack, name)
+
+
+def _wait(client: ChangeSetClient, stack: str, name: str, timeout_s: int) -> dict[str, Any]:
+    for _ in range(max(1, int(timeout_s / _POLL_S))):
+        cs = client.describe(stack, name)
+        if cs.get("Status") in ("CREATE_COMPLETE", "FAILED"):
+            return cs
+        client.sleep(_POLL_S)
+    raise TimeoutError(f"change set not ready after {timeout_s}s")
+
+
+def _judge(res: CfnResource, cs: dict[str, Any]) -> tuple[CheckResult, str]:
+    """PASS only for one in-place Modify of the target resource."""
+    if cs.get("Status") == "FAILED":
+        reason = str(cs.get("StatusReason", ""))
+        if "didn't contain changes" in reason or "No updates" in reason:
+            return CheckResult.FAIL, "the change set is empty; the edit changes nothing deployed"
+        if "apabilit" in reason:
+            return CheckResult.FAIL, (
+                "the fix needs a CloudFormation capability the stack hasn't acknowledged; "
+                "review it by hand"
+            )
+        return CheckResult.FAIL, f"CloudFormation rejected the change set: {reason}"
+    changes = [
+        c.get("ResourceChange", {}) for c in cs.get("Changes", []) if c.get("Type") == "Resource"
+    ]
+    ids = sorted(str(c.get("LogicalResourceId")) for c in changes)
+    if ids != [res.logical_id]:
+        return CheckResult.FAIL, f"the change set touches {len(ids)} resource(s): {', '.join(ids)}"
+    change = changes[0]
+    if change.get("Action") != "Modify":
+        return CheckResult.FAIL, f"CloudFormation would {change.get('Action')} {res.logical_id}"
+    replacement = change.get("Replacement", "False")
+    if replacement != "False":
+        return CheckResult.FAIL, (
+            f"CloudFormation would replace {res.logical_id} (Replacement: {replacement})"
+        )
+    return CheckResult.PASS, f"CloudFormation would modify only {res.logical_id}, in place"
+
+
 def _cfn_lint(diff: Diff, timeout_s: int) -> Check:
     exe = shutil.which("cfn-lint")
     if exe is None:
@@ -306,6 +427,7 @@ def _validate(
     aws: ClientFactory | None,
     offline: bool,
     specific: Callable[[CfnResource], list[Check]],
+    changeset: ChangeSetClient | None,
 ) -> ValidationReport:
     checks = [check_paths(diff, config.validation.allowed_paths, config.contracts.dir)]
     edited = _edited(res, diff)
@@ -322,9 +444,7 @@ def _validate(
                 Check(id="recheck", required=True, result=CheckResult.FAIL, detail=exc.reason)
             )
     checks.append(drift(res, aws, offline))
-    checks.append(
-        Check(id="changeset", required=False, result=CheckResult.SKIPPED, detail=CHANGESET_NOTE)
-    )
+    checks.append(_changeset(res, diff, config, changeset, offline))
     checks.append(_cfn_lint(diff, config.validation.timeout_s))
     return ValidationReport(checks=checks)
 
@@ -393,8 +513,11 @@ def validate_sg(
     aws: ClientFactory | None,
     *,
     offline: bool,
+    changeset: ChangeSetClient | None = None,
 ) -> ValidationReport:
-    return _validate(res, diff, config, aws, offline, sg_checks(synth, contract, control))
+    return _validate(
+        res, diff, config, aws, offline, sg_checks(synth, contract, control), changeset
+    )
 
 
 def s3_checks(control: str) -> Checks:
@@ -422,6 +545,7 @@ def validate_attr(
     aws: ClientFactory | None,
     *,
     offline: bool,
+    changeset: ChangeSetClient | None = None,
 ) -> ValidationReport:
     def specific(edited: CfnResource) -> list[Check]:
         unmet = attr_unmet(edited, fix)
@@ -436,7 +560,7 @@ def validate_attr(
             )
         ]
 
-    return _validate(res, diff, config, aws, offline, specific)
+    return _validate(res, diff, config, aws, offline, specific, changeset)
 
 
 def validate_s3(
@@ -447,17 +571,22 @@ def validate_s3(
     aws: ClientFactory | None,
     *,
     offline: bool,
+    changeset: ChangeSetClient | None = None,
 ) -> ValidationReport:
-    return _validate(res, diff, config, aws, offline, s3_checks(control))
+    return _validate(res, diff, config, aws, offline, s3_checks(control), changeset)
 
 
 def iam_checks(
-    control: str, changes: list[StatementChange], usage: dict[str, ServiceUse], extra: list[str]
+    control: str,
+    changes: list[StatementChange],
+    usage: dict[str, ServiceUse],
+    extra: list[str],
+    name: str | None = None,
 ) -> Checks:
     bad = check_invariants(changes, usage, extra)
 
     def specific(edited: CfnResource) -> list[Check]:
-        statements = parse_policy(edited).statements
+        statements = parse_policy(edited, name).statements
         as_json: list[dict[str, object]] = [
             {"Sid": s.sid, "Effect": s.effect, "Action": s.actions or [], "Resource": s.resources}
             for s in statements
@@ -500,6 +629,8 @@ def validate_iam(
     aws: ClientFactory | None,
     *,
     offline: bool,
+    changeset: ChangeSetClient | None = None,
+    name: str | None = None,
 ) -> ValidationReport:
-    checks = iam_checks(control, changes, usage, extra)
-    return _validate(res, diff, config, aws, offline, checks)
+    checks = iam_checks(control, changes, usage, extra, name)
+    return _validate(res, diff, config, aws, offline, checks, changeset)

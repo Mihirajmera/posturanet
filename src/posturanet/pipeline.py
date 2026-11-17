@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Literal
 
 from posturanet import __version__, cdk, cfn, iamfix, s3fix
+from posturanet.aws.changeset import ChangeSetClient
 from posturanet.aws.session import ClientFactory
 from posturanet.configfix import edit_resource, fixes_for
 from posturanet.configfix import pr as config_pr
@@ -96,6 +97,7 @@ class Context:
     state_path: Path | None = None
     evidence: FlowSource | None = None
     aws: ClientFactory | None = None
+    changeset: ChangeSetClient | None = None  # opt-in only (cloudformation.changeset_preview)
     terraform: TerraformRunner | None = None
     cdk: cdk.CdkRunner | None = None
     github: GitHub | None = None
@@ -424,7 +426,15 @@ def _run_sg(
         )
     elif res is not None:
         report = cfn.validate_sg(
-            res, diff, synth, contract, finding.control_id, config, ctx.aws, offline=dry
+            res,
+            diff,
+            synth,
+            contract,
+            finding.control_id,
+            config,
+            ctx.aws,
+            offline=dry,
+            changeset=ctx.changeset,
         )
     else:
         tf = ctx.terraform or SubprocessTerraform(
@@ -676,7 +686,9 @@ def _run_config(
 
     # --- validate
     if res is not None:
-        report = cfn.validate_attr(res, diff, fix, config, ctx.aws, offline=dry)
+        report = cfn.validate_attr(
+            res, diff, fix, config, ctx.aws, offline=dry, changeset=ctx.changeset
+        )
     else:
         tf = ctx.terraform or SubprocessTerraform(
             config.terraform.binary, config.validation.timeout_s
@@ -1004,7 +1016,9 @@ def _run_s3(
     if target_cdk is not None:
         report = cdk.validate_s3(target_cdk, diff, control, config, ctx.aws, ctx.cdk, offline=dry)
     elif res is not None:
-        report = cfn.validate_s3(res, diff, control, config, ctx.aws, offline=dry)
+        report = cfn.validate_s3(
+            res, diff, control, config, ctx.aws, offline=dry, changeset=ctx.changeset
+        )
     else:
         tf = ctx.terraform or SubprocessTerraform(
             config.terraform.binary, config.validation.timeout_s
@@ -1132,16 +1146,16 @@ def _run_iam(
         loc, iam_cdk = cdk.locate(
             finding, repo, config, ctx.state_path, ctx.aws, [cfn.POLICY_TYPE], ctx.cdk, dry=dry
         )
-        policy = cfn.parse_policy(iam_cdk.res)
-        statements, form = policy.statements, "cdk"
+        statements, form = cfn.parse_policy(iam_cdk.res).statements, "cdk"
         doc_file, doc_original = loc.file, iam_cdk.original
         where = f"PolicyStatements of {iam_cdk.construct_path} in {loc.file}"
     elif iac == "cloudformation":
-        loc, res = cfn.locate(finding, repo, config, ctx.state_path, ctx.aws, [cfn.POLICY_TYPE])
-        policy = cfn.parse_policy(res)
+        loc, res = cfn.locate(finding, repo, config, ctx.state_path, ctx.aws, cfn.IAM_TYPES)
+        policy = cfn.select_policy(res, control)
+        loc = loc.model_copy(update={"address": policy.address, "line": policy.res.line})
         statements, form = policy.statements, "cloudformation"
         doc_file, doc_original = loc.file, res.template.on_disk(res.template.text)
-        where = f"PolicyDocument of {res.logical_id} in {loc.file}"
+        where = f"PolicyDocument of {policy.where} in {loc.file}"
     else:
         s3_fetch = boto3_s3_fetch(ctx.aws) if ctx.aws is not None else None
         loc, match = locate_match(
@@ -1359,6 +1373,8 @@ def _run_iam(
             config,
             ctx.aws,
             offline=dry,
+            changeset=ctx.changeset,
+            name=policy.name,
         )
     else:
         assert doc is not None

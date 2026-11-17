@@ -462,6 +462,7 @@ def test_check_mode_validates_through_synth(ts: Path) -> None:
         "recheck": "pass",
         "drift": "pass",
         "cdk_diff": "skipped",
+        "changeset": "skipped",
     }
 
 

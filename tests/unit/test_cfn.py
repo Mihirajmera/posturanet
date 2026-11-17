@@ -445,3 +445,146 @@ def test_contract_check_source_s3_template(repo: Path) -> None:
 def _edited(res: cfn.CfnResource, new: str) -> cfn.CfnResource:
     t = parse(new, res.template.path)
     return cfn.CfnResource(res.stack, res.logical_id, res.type, t, t.resources[res.logical_id], 1)
+
+
+# --- contract build --all, verify, hook and MCP
+
+
+def test_contract_build_all_lists_template_resources(repo: Path) -> None:
+    from typer.testing import CliRunner
+
+    from posturanet.cli.app import app
+
+    args = ["contract", "build", "--all", "--dry-run", "--repo", str(repo), "--format", "json"]
+    result = CliRunner().invoke(app, args)
+    rows = json.loads(result.output[result.output.index("[") :])
+    # ThumbnailFunctionRole is an IAM::Role the SAM transform generates: not listed
+    assert [r["resource"] for r in rows] == [
+        "sg-0a91f3c2",
+        "sg-0b22c4d6",
+        "acme-assets",
+        "arn:aws:iam::123456789012:policy/app",
+    ]
+    assert all(r["result"] for r in rows), rows
+
+
+def test_contract_build_all_needs_the_export(repo: Path) -> None:
+    config, _ = load_config(repo)
+    config.cloudformation.stack_resources = None
+    from posturanet.errors import UsageError
+
+    with pytest.raises(UsageError):
+        cfn.template_rows(repo, config, None, [cfn.SG_TYPE])
+
+
+class _PR:
+    def __init__(self, body: str) -> None:
+        self.body = body
+
+    def get_pr(self, number: int) -> dict[str, Any]:
+        return {"body": self.body, "merged_at": "2026-10-31T00:00:00Z", "state": "closed"}
+
+
+def _merged_sg(repo: Path) -> tuple[_PR, str]:
+    from posturanet.deliver.idempotency import verify_marker
+    from posturanet.deliver.pr_body import verify_spec
+
+    config, _ = load_config(repo)
+    _, proposal = run_fix_full(str(SG), repo, config, _ctx(FIX / "flows/bastion_90d.json"))
+    assert proposal is not None
+    spec = verify_spec(proposal)  # type: ignore[arg-type]
+    assert spec.address == "cfn.network.BastionSG"
+    return _PR(verify_marker(spec)), proposal.diff.files[0].new_content
+
+
+def test_verify_cfn_fix_from_the_deployed_template(repo: Path, tmp_path: Path) -> None:
+    from posturanet.verify import VerifyContext, run_verify
+
+    pr, fixed = _merged_sg(repo)
+    config, _ = load_config(repo)
+    deployed = tmp_path / "get-template.json"
+    deployed.write_text(json.dumps({"TemplateBody": fixed}), "utf-8")  # get-template output
+    ctx = VerifyContext(github=pr, state_path=deployed, watch_hours=0)  # type: ignore[arg-type]
+    record = run_verify("acme/infra#7", repo, config, ctx)
+    assert record.result == "CONFIRMED", record.stages
+    assert "the template in get-template.json shows the fix" in record.stages[1].summary
+
+    deployed.write_text((repo / "templates/network.yaml").read_text("utf-8"), "utf-8")
+    record = run_verify("acme/infra#7", repo, config, ctx)
+    assert record.result == "NOT APPLIED" and record.exit_code == 3
+
+    calls: list[str] = []
+
+    class Cfn(Recorder):
+        def get_template(self, **kw: Any) -> dict[str, Any]:
+            super().__getattr__("get_template")(**kw)
+            return {"TemplateBody": fixed}
+
+    def aws(service: str) -> ReadOnlyClient:
+        return ReadOnlyClient(Cfn(service, calls), service)
+
+    ctx = VerifyContext(github=pr, aws=aws, watch_hours=0)  # type: ignore[arg-type]
+    from unittest.mock import patch
+
+    with patch("posturanet.verify._hub_note", return_value=None):
+        record = run_verify("acme/infra#7", repo, config, ctx)
+    assert record.result == "CONFIRMED", record.stages
+    assert calls == ["cloudformation:GetTemplate"]
+
+
+def test_verify_cfn_without_a_template_source_stops_unknown(repo: Path) -> None:
+    from posturanet.verify import VerifyContext, run_verify
+
+    pr, _ = _merged_sg(repo)
+    ctx = VerifyContext(github=pr, watch_hours=0)  # type: ignore[arg-type]
+    record = run_verify("acme/infra#7", repo, load_config(repo)[0], ctx)
+    assert record.result == "STOPPED" and record.exit_code == 3
+    assert "cloudformation:GetTemplate" in " ".join(record.next_steps)
+
+
+def _contracted(repo: Path) -> str:
+    """Write the BastionSG contract; return the fixed template text."""
+    _, proposal = run_fix_full(
+        str(SG), repo, load_config(repo)[0], _ctx(FIX / "flows/bastion_90d.json")
+    )
+    assert proposal is not None
+    cpath = repo / proposal.contract_file
+    cpath.parent.mkdir(parents=True, exist_ok=True)
+    cpath.write_text(dump_contract(proposal.contract), "utf-8")
+    return proposal.diff.files[0].new_content
+
+
+def _event(path: Path) -> str:
+    return json.dumps({"tool_name": "Edit", "tool_input": {"file_path": str(path)}})
+
+
+def test_hook_checks_template_edits(repo: Path) -> None:
+    from posturanet.hooks import claude_code
+
+    fixed = _contracted(repo)
+    target = repo / "templates/network.yaml"
+    target.write_text(fixed, "utf-8")
+    assert claude_code(_event(target), repo) == ""
+
+    target.write_text(fixed.replace("10.0.4.12/32", "10.0.9.0/32"), "utf-8")
+    assert json.loads(claude_code(_event(target), repo))["decision"] == "block"
+
+    target.write_text(fixed + "\n  : [unclosed\n", "utf-8")  # no longer parses: never a PASS
+    out = json.loads(claude_code(_event(target), repo))
+    assert "not valid YAML" in out["hookSpecificOutput"]["additionalContext"]
+
+    other = repo / "config.yaml"  # YAML that isn't a template passes through untouched
+    other.write_text("Resources: [not, cfn\n", "utf-8")
+    assert claude_code(_event(other), repo) == ""
+
+
+def test_mcp_check_change_on_template_files(repo: Path) -> None:
+    from posturanet.mcp.server import check_change
+
+    fixed = _contracted(repo)
+    assert check_change(repo=str(repo), files=["templates/network.yaml"])["status"] == "BLOCK"
+    (repo / "templates/network.yaml").write_text(fixed, "utf-8")
+    assert check_change(repo=str(repo), files=["templates/network.yaml"])["status"] == "PASS"
+    (repo / "notes.json").write_text('{"a": 1}', "utf-8")
+    result = check_change(repo=str(repo), files=["notes.json"])
+    assert result["status"] == "PASS" and result["results"] == []

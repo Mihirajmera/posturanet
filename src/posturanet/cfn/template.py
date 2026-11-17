@@ -69,16 +69,24 @@ def load(path: Path) -> Template:
     return parse(path.read_bytes().decode("utf-8"), path)
 
 
+def maybe_template(path: Path) -> str | None:
+    """The file's text if it may be a template (suffix and a cheap content sniff), else None."""
+    if path.suffix.lower() not in _SUFFIXES or not path.is_file():
+        return None
+    text = path.read_bytes().decode("utf-8", errors="replace")
+    return text if "AWS::" in text and "Resources" in text else None
+
+
 def find_templates(root: Path) -> list[Template]:
     """Every CloudFormation or SAM template under `root`, sorted by path."""
     out: list[Template] = []
     for p in sorted(root.rglob("*")):
-        if p.suffix.lower() not in _SUFFIXES or not p.is_file():
+        if p.suffix.lower() not in _SUFFIXES:
             continue
         if _SKIP_DIRS & set(p.relative_to(root).parts[:-1]):
             continue
-        text = p.read_bytes().decode("utf-8", errors="replace")
-        if "AWS::" not in text or "Resources" not in text:
+        text = maybe_template(p)
+        if text is None:
             continue
         try:
             t = parse(text, p)

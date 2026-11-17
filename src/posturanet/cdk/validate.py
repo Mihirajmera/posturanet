@@ -39,6 +39,9 @@ from posturanet.synth.hcl_render import rules_diff, unified_diff
 from posturanet.synth.sg_z3 import Synthesis
 from posturanet.validate.guardrails import check_paths
 
+CHANGESET_NOTE = (
+    "not run on CDK apps: cloudformation.changeset_preview covers CloudFormation templates only"
+)
 CDK_DIFF_NOTE = (
     "not run: it needs the CDK CLI's own credentials and bootstrap roles; the deployed "
     "template is read with the read-only role instead"
@@ -257,6 +260,9 @@ def _validate(
     checks.append(drift(t.res, aws, offline))
     checks.append(
         Check(id="cdk_diff", required=False, result=CheckResult.SKIPPED, detail=CDK_DIFF_NOTE)
+    )
+    checks.append(
+        Check(id="changeset", required=False, result=CheckResult.SKIPPED, detail=CHANGESET_NOTE)
     )
     return ValidationReport(checks=checks)
 

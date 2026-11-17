@@ -13,6 +13,7 @@ An IaC scanner finding names a template file and a logical id instead of a physi
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -30,12 +31,13 @@ from posturanet.cfn.template import (
     load,
     value,
 )
-from posturanet.errors import StageStop
+from posturanet.errors import StageStop, UsageError
 from posturanet.ingest.iac import split_template_ref
 from posturanet.locate.codeowners import find_codeowners, owners_for
 from posturanet.models import Confidence, Config, Finding, Location
 
 PREFIX = "cfn."
+_IAM_PRINCIPAL_ARN = re.compile(r"^arn:aws[\w-]*:iam::\d{12}:(?:role|user|group)/(?:.*/)?([^/]+)$")
 
 
 @dataclass
@@ -100,6 +102,44 @@ def _rel(path: Path, repo: Path) -> str:
         return path.as_posix()
 
 
+def _export_path(repo: Path, config: Config, state_path: Path | None) -> Path | None:
+    if state_path is not None:
+        return state_path
+    named = config.cloudformation.stack_resources
+    return repo / named if named else None
+
+
+def template_rows(
+    repo: Path, config: Config, state_path: Path | None, types: list[str]
+) -> list[dict[str, Any]]:
+    """Rows of the stack-resources export of one of `types` that a template here defines."""
+    export = _export_path(repo, config, state_path)
+    if export is None:
+        raise UsageError(
+            "listing CloudFormation resources needs a describe-stack-resources export: "
+            "set cloudformation.stack_resources or pass --state"
+        )
+    rows = _stack_rows(export)
+    if rows is None:
+        raise UsageError(f"{_rel(export, repo)} is not a describe-stack-resources export")
+    return [
+        r
+        for r in rows
+        if r.get("ResourceType") in types
+        and r.get("PhysicalResourceId")
+        and isinstance(
+            resolve(
+                repo,
+                config,
+                str(r.get("StackName")),
+                str(r.get("LogicalResourceId")),
+                str(r.get("ResourceType")),
+            ),
+            CfnResource,
+        )
+    ]
+
+
 def stack_row(
     ids: list[str],
     repo: Path,
@@ -157,11 +197,7 @@ def _export(
     repo: Path, config: Config, state_path: Path | None
 ) -> tuple[list[dict[str, Any]], str] | None:
     """(rows, label) of the stack-resources export, if one is given."""
-    export = state_path or (
-        repo / config.cloudformation.stack_resources
-        if config.cloudformation.stack_resources
-        else None
-    )
+    export = _export_path(repo, config, state_path)
     if export is None:
         return None
     rows = _stack_rows(export)
@@ -320,6 +356,8 @@ def locate(
     types: list[str],
 ) -> tuple[Location, CfnResource]:
     ids = [i for i in dict.fromkeys([finding.resource.id, finding.resource.arn]) if i]
+    # a role, user or group's physical id is its name, not its ARN
+    ids += [m.group(1) for i in ids if (m := _IAM_PRINCIPAL_ARN.match(i)) and m.group(1) not in ids]
     row, label = stack_row(ids, repo, config, state_path, aws)
     stack, logical = str(row["StackName"]), str(row["LogicalResourceId"])
     rtype = str(row.get("ResourceType"))
@@ -330,6 +368,10 @@ def locate(
             ["`posturanet fixes list` shows every control PosturaNet fixes"],
         )
     res = resolve(repo, config, stack, logical, rtype)
+    if isinstance(res, str) and rtype == "AWS::IAM::Role" and logical.endswith("Role"):
+        # SAM names a function's generated role `<Function>Role`; its policies live on the function
+        fn = resolve(repo, config, stack, logical[: -len("Role")], "AWS::Serverless::Function")
+        res = fn if isinstance(fn, CfnResource) and fn.template.sam else res
     if isinstance(res, str):
         raise StageStop(
             "locate",
@@ -346,6 +388,8 @@ def locate(
         f"physical id matched in {label}: stack {stack}, logical id {logical}",
         f"defined in {file_rel}" + (" (SAM template)" if res.template.sam else ""),
     ]
+    if res.logical_id != logical:
+        reasoning.insert(1, f"{logical} is the role SAM generates for {res.logical_id}")
     owners: list[str] = []
     codeowners = find_codeowners(repo)
     if codeowners is not None:
