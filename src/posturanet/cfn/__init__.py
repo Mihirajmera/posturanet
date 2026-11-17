@@ -23,9 +23,11 @@ from posturanet.cfn.locate import (
 )
 from posturanet.cfn.validate import (
     CHANGESET_NOTE,
+    attr_diff,
     iam_diff,
     s3_diff,
     sg_diff,
+    validate_attr,
     validate_iam,
     validate_s3,
     validate_sg,
@@ -39,6 +41,7 @@ __all__ = [
     "CfnPolicy",
     "CfnResource",
     "CfnSecurityGroup",
+    "attr_diff",
     "iam_diff",
     "is_cloudformation",
     "locate",
@@ -50,6 +53,7 @@ __all__ = [
     "s3_flags",
     "sg_diff",
     "split_address",
+    "validate_attr",
     "validate_iam",
     "validate_s3",
     "validate_sg",

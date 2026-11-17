@@ -24,6 +24,8 @@ from posturanet.cfn.edit import (
     SG_TYPE,
     CfnPolicy,
     CfnSecurityGroup,
+    attr_edit,
+    attr_unmet,
     iam_edit,
     owned_ingress,
     parse_policy,
@@ -34,6 +36,7 @@ from posturanet.cfn.edit import (
 )
 from posturanet.cfn.locate import CfnResource
 from posturanet.cfn.template import TemplateError, get, parse, value
+from posturanet.configfix.catalog import ConfigFix
 from posturanet.errors import StageStop
 from posturanet.iamfix.shrink import (
     ServiceUse,
@@ -102,6 +105,20 @@ def s3_diff(repo: Path, res: CfnResource) -> tuple[Diff, list[str]]:
         f"{n}=true" for n in changed
     )
     return _diff(repo, res, new, summary, "template:s3_public@1:cloudformation"), already
+
+
+def attr_diff(repo: Path, res: CfnResource, fix: ConfigFix) -> tuple[Diff, list[str]]:
+    """(diff, changes already met) for an attribute fix with CloudFormation paths."""
+    new, changed, already = attr_edit(res, fix)
+    if not changed:
+        raise StageStop(
+            "fix",
+            f"the template already meets {fix.control}, so the live resource has drifted",
+            ["deploy the stack through your pipeline; the fix is already in the code"],
+            why="PosturaNet fixes code, and this code is already fixed; the live resource isn't",
+        )
+    summary = f"{res.logical_id} " + "; ".join(changed)
+    return _diff(repo, res, new, summary, "template:config_attribute@1:cloudformation"), already
 
 
 def iam_diff(repo: Path, policy: CfnPolicy, changes: list[StatementChange]) -> Diff:
@@ -391,6 +408,31 @@ def validate_s3(
                 detail="edited template still fails: " + ", ".join(unmet) + " not true"
                 if unmet
                 else f"edited template meets {control} (4 setting(s))",
+            )
+        ]
+
+    return _validate(res, diff, config, aws, offline, specific)
+
+
+def validate_attr(
+    res: CfnResource,
+    diff: Diff,
+    fix: ConfigFix,
+    config: Config,
+    aws: ClientFactory | None,
+    *,
+    offline: bool,
+) -> ValidationReport:
+    def specific(edited: CfnResource) -> list[Check]:
+        unmet = attr_unmet(edited, fix)
+        return [
+            Check(
+                id="recheck",
+                required=True,
+                result=CheckResult.FAIL if unmet else CheckResult.PASS,
+                detail="edited template still fails: " + "; ".join(unmet)
+                if unmet
+                else f"edited template meets {fix.control} ({len(fix.changes)} setting(s))",
             )
         ]
 
