@@ -13,7 +13,14 @@ from posturanet.cfn.edit import (
     parse_sg,
     s3_flags,
 )
-from posturanet.cfn.locate import CfnResource, is_cloudformation, locate, resolve, split_address
+from posturanet.cfn.locate import (
+    CfnResource,
+    is_cloudformation,
+    locate,
+    resolve,
+    split_address,
+    template_rows,
+)
 from posturanet.cfn.validate import (
     CHANGESET_NOTE,
     iam_diff,
@@ -42,6 +49,7 @@ __all__ = [
     "s3_flags",
     "sg_diff",
     "split_address",
+    "template_rows",
     "validate_iam",
     "validate_s3",
     "validate_sg",

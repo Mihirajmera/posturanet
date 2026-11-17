@@ -105,13 +105,24 @@ class Context:
     env: dict[str, str] = field(default_factory=lambda: dict(os.environ))
 
 
-def run_fix(target: str, repo: Path, config: Config, ctx: Context | None = None) -> RunRecord:
-    return run_fix_full(target, repo, config, ctx)[0]
+def run_fix(
+    target: str,
+    repo: Path,
+    config: Config,
+    ctx: Context | None = None,
+    finding: Finding | None = None,
+) -> RunRecord:
+    return run_fix_full(target, repo, config, ctx, finding)[0]
 
 
 def run_fix_full(
-    target: str, repo: Path, config: Config, ctx: Context | None = None
+    target: str,
+    repo: Path,
+    config: Config,
+    ctx: Context | None = None,
+    finding: Finding | None = None,
 ) -> tuple[RunRecord, Proposal | None]:
+    """`finding`, when given, is used as is instead of ingesting `target`."""
     ctx = ctx or Context()
     record = RunRecord(
         agent_version=__version__,
@@ -123,7 +134,7 @@ def run_fix_full(
     )
     stage = "ingest"
     try:
-        return _run(target, repo, config, ctx, record)
+        return _run(target, repo, config, ctx, record, finding)
     except StageStop as stop:
         stage = stop.stage or stage
         if stage not in {s.name for s in record.stages}:
@@ -147,10 +158,15 @@ def run_fix_full(
 
 
 def _run(
-    target: str, repo: Path, config: Config, ctx: Context, record: RunRecord
+    target: str,
+    repo: Path,
+    config: Config,
+    ctx: Context,
+    record: RunRecord,
+    given: Finding | None = None,
 ) -> tuple[RunRecord, Proposal | None]:
     # --- ingest
-    finding = ingest(target)
+    finding = given or ingest(target)
     record.finding = finding
     if cfn.is_cloudformation(repo, config, ctx.state_path):
         return _run_cfn_dispatch(finding, repo, config, ctx, record)

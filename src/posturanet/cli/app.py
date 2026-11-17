@@ -304,7 +304,11 @@ def contract_build(
     ] = None,
     build_all: Annotated[
         bool,
-        typer.Option("--all", help="Every security group in the Terraform state, from flow logs."),
+        typer.Option(
+            "--all",
+            help="Every security group in the Terraform state, or every security group, bucket "
+            "and managed policy in the CloudFormation templates.",
+        ),
     ] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Don't write the contract.")] = False,
     repo: RepoOpt = Path("."),
@@ -339,7 +343,10 @@ def _contract_build_all(
     window: str | None,
     output_format: OutputFormat,
 ) -> None:
-    """One contract per security group in the state. A group that stops doesn't stop the rest."""
+    """One contract per security group in the state, or per security group, bucket and managed
+    policy a CloudFormation template defines. One that stops doesn't stop the rest."""
+    from posturanet import cfn
+    from posturanet.ingest.manual import finding_from_resource_id
     from posturanet.locate import load_repo_state
     from posturanet.locate.backend import boto3_s3_fetch
     from posturanet.locate.tfstate import ids_of
@@ -352,27 +359,48 @@ def _contract_build_all(
         mode: Mode = "dry-run" if dry_run else "check"
         probe = _context(mode, repo, state, None, window)
         config, _ = load_config(repo)
-        s3_fetch = boto3_s3_fetch(probe.aws) if probe.aws is not None else None
-        tf_state, _ = load_repo_state(repo, config, state, s3_fetch)
-        groups = ids_of(tf_state, "aws_security_group")
-        if not groups:
-            raise UsageError("no aws_security_group in the Terraform state")
+        if cfn.is_cloudformation(repo, config, state):
+            # a contract is per resource, not per control: any control of the fix type will do
+            controls = {cfn.SG_TYPE: None, cfn.BUCKET_TYPE: "S3.8", cfn.POLICY_TYPE: "IAM.21"}
+            rows = cfn.template_rows(repo, config, state, list(controls))
+            if not rows:
+                raise UsageError(
+                    "no security group, bucket or managed policy in the stack-resources export "
+                    "is defined in a template here"
+                )
+            findings = [
+                finding_from_resource_id(
+                    str(r["PhysicalResourceId"]), controls[str(r["ResourceType"])]
+                )
+                for r in rows
+            ]
+            noun = "resource"
+        else:
+            s3_fetch = boto3_s3_fetch(probe.aws) if probe.aws is not None else None
+            tf_state, _ = load_repo_state(repo, config, state, s3_fetch)
+            groups = ids_of(tf_state, "aws_security_group")
+            if not groups:
+                raise UsageError("no aws_security_group in the Terraform state")
+            findings = [finding_from_resource_id(sg) for sg in groups]
+            noun = "security group"
         records = []
-        for sg in groups:
+        for finding in findings:
             ctx = _context(mode, repo, state, None, window)
             ctx.stop_after, ctx.command = "contract", "contract build"
-            records.append((sg, run_fix(sg, repo, config, ctx)))
+            rid = finding.resource.id
+            records.append((rid, run_fix(rid, repo, config, ctx, finding)))
     except PosturaNetError as exc:
         raise _fail(exc) from exc
     if output_format is OutputFormat.JSON:
-        rows = [{"group": sg, "result": r.result, "detail": r.result_detail} for sg, r in records]
-        console.write(json.dumps(rows, indent=2) + "\n")
+        out = [{"group": i, "result": r.result, "detail": r.result_detail} for i, r in records]
+        console.write(json.dumps(out, indent=2) + "\n")
     else:
         f = _frame()
-        n = len(groups)
-        title = f"{n} security group{'s' if n != 1 else ''}"
+        n = len(records)
+        title = f"{n} {noun}{'s' if n != 1 else ''}"
         lines = f.open(console.header("contract build", title, f.style))
-        table = [f"{sg:<24} {r.result:<10} {r.result_detail}" for sg, r in records]
+        w = max(24, *(len(i) for i, _ in records))
+        table = [f"{i:<{w}} {r.result:<10} {r.result_detail}" for i, r in records]
         lines += f.box("Contracts", table)
         built = sum(r.exit_code == 0 for _, r in records)
         lines += f.close(

@@ -9,6 +9,9 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 - The edit replaces only the target's ingress entries, Block Public Access flags or `Action` lists, in the template's own style; comments and every other line stay as written.
 - Validation is static and the PR says so: a change set needs `cloudformation:CreateChangeSet`, a write PosturaNet doesn't hold. Outside a dry run, the target must match the deployed template (`cloudformation:GetTemplate`). `cfn-lint` runs when installed.
 - New config: `iac` (`auto`, `terraform`, `cloudformation`) and `cloudformation.stack_resources` / `cloudformation.templates`. Two read-only calls join the allowlist and the generated IAM policy: `cloudformation:DescribeStackResources`, `cloudformation:GetTemplate`.
+- `contract build --all` on CloudFormation: a draft contract for every security group, bucket and managed policy in the stack-resources export that a template in the repo defines (`cfn.<stack>.<LogicalId>`). The export is required; SAM-generated resources are left out.
+- `posturanet verify` on CloudFormation fixes: the applied and re-check stages read the template the stack runs (`cloudformation:GetTemplate`, already allowlisted), or offline `--state` with `aws cloudformation get-template` output. No new AWS calls.
+- The Claude Code hook and MCP `check_change` check edits to CloudFormation/SAM templates (`.yaml`, `.yml`, `.json`, `.template`). Other YAML and JSON files pass through untouched. A template edit that no longer parses is UNKNOWN, not PASS.
 - Not yet: S3.1 (no CloudFormation resource), attribute fixes and IaC scanner findings on templates.
 
 ### Added (contract check on every PR)

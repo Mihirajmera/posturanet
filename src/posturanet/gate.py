@@ -367,7 +367,10 @@ def check_source(repo: Path, config: Config, files: list[Path] | None = None) ->
     """Judge every contract from the HCL. With `files`, only contracts on resources in them."""
     wanted = None if files is None else {f.resolve() for f in files}
     results: list[ContractResult] = []
-    for loaded in _all_contracts(repo, config):
+    contracts = _all_contracts(repo, config)
+    if any(cfn.split_address(x.contract.resource) for x in contracts):
+        results += _unreadable_templates(repo, files or [])
+    for loaded in contracts:
         c = loaded.contract
         if cfn.split_address(c.resource):
             res = _source_cfn(loaded, repo, config, wanted)
@@ -380,6 +383,28 @@ def check_source(repo: Path, config: Config, files: list[Path] | None = None) ->
         if res is not None:
             results.append(res)
     return GateResult(_overall(results), results, "source")
+
+
+def _unreadable_templates(repo: Path, files: list[Path]) -> list[ContractResult]:
+    """An edited file that looks like a template but no longer parses can't be checked: UNKNOWN,
+    never a silent PASS (find_templates would just skip it)."""
+    out = []
+    for f in files:
+        text = cfn_template.maybe_template(f)
+        if text is None:
+            continue
+        try:
+            cfn_template.parse(text, f)
+        except cfn_template.TemplateError as exc:
+            try:
+                rel = f.resolve().relative_to(repo.resolve()).as_posix()
+            except ValueError:
+                rel = f.as_posix()
+            reason = f"{exc}; can't check the contracts in it"
+            out.append(
+                ContractResult(rel, "", "UNKNOWN", [reason], source_file=rel, subject="template")
+            )
+    return out
 
 
 def _in_scope(repo: Path, file_rel: str, wanted: set[Path] | None) -> bool:
