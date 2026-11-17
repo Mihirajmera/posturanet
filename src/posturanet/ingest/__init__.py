@@ -20,6 +20,7 @@ from typing import Any, Literal
 from posturanet.errors import StageStop, UsageError
 from posturanet.ingest import asff, iac, ocsf, plans
 from posturanet.ingest.asff import parse_asff_file
+from posturanet.ingest.controls import issue_family
 from posturanet.ingest.manual import finding_from_resource_id
 from posturanet.models import Finding, FixType
 
@@ -54,16 +55,18 @@ class FindingsFile:
 
 
 def issue_of(f: Finding) -> tuple[str, str, str]:
-    """The same problem across scanner files, before locate: control, account, short resource id.
+    """The same problem across scanner files, before locate: control family, account, short
+    resource id.
 
-    `arn:aws:ec2:us-east-1:123456789012:security-group/sg-1` and `sg-1` are one resource.
+    `arn:aws:ec2:us-east-1:123456789012:security-group/sg-1` and `sg-1` are one resource, and
+    EC2.13 and EC2.19 on it are one problem (`controls.issue_family`).
     shortcut: Checkov/Trivy name a Terraform address, not an id, so they only merge with the
     others at PR time (idempotency.issue on the located address).
     """
     rid = f.resource.id
     parts = rid.split(":")
     account = parts[4] if rid.startswith("arn:") and len(parts) > 5 else f.resource.account or ""
-    return f.control_id, account, parts[-1].rsplit("/", 1)[-1]
+    return issue_family(f.control_id), account, parts[-1].rsplit("/", 1)[-1]
 
 
 def read_findings(path: Path) -> FindingsFile:

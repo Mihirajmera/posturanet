@@ -12,12 +12,25 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 - `contract build --all` on CloudFormation: a draft contract for every security group, bucket and managed policy in the stack-resources export that a template in the repo defines (`cfn.<stack>.<LogicalId>`). The export is required; SAM-generated resources are left out.
 - `posturanet verify` on CloudFormation fixes: the applied and re-check stages read the template the stack runs (`cloudformation:GetTemplate`, already allowlisted), or offline `--state` with `aws cloudformation get-template` output. No new AWS calls.
 - The Claude Code hook and MCP `check_change` check edits to CloudFormation/SAM templates (`.yaml`, `.yml`, `.json`, `.template`). Other YAML and JSON files pass through untouched. A template edit that no longer parses is UNKNOWN, not PASS.
+- For a security group, the `drift` check also reads the live group (`ec2:DescribeSecurityGroups`, already allowlisted) and fails when its CIDR ingress differs from the template's, so a group someone changed outside CloudFormation stops the run instead of getting a PR. Still SKIPPED in a dry run.
 - Not yet: S3.1 (no CloudFormation resource), attribute fixes and IaC scanner findings on templates.
+- An S3.1 finding on a CloudFormation repo stops with UNKNOWN and says why (CloudFormation has no resource type for account-level Block Public Access) and what to do: fix it in the account's Terraform repo (`aws_s3_account_public_access_block`), or have a person turn it on in the S3 console or with `aws s3control put-public-access-block`.
 
 ### Added (contract check on every PR)
 - `contract check --github-comment <PR>` and the Action's `comment` input (on by default): one PR comment with the result, posted on BLOCK or UNKNOWN and edited on later pushes, so a fixed PR turns it green. A PR that's green from the start gets no comment. If GitHub refuses the comment (fork PR, no `pull-requests: write`), PosturaNet warns and keeps the check's result and exit code. The Action skips the comment when its pinned `version` predates the flag. The example workflow asks for `pull-requests: write`.
 - `contract build --all`: a draft contract for every security group in the Terraform state, each from its own flow logs. A group that stops (no flow logs, say) is listed with its reason and doesn't stop the rest; the exit code is the worst one. `--evidence-file` is refused with `--all`, since it holds one group's flows.
 - `action.yml` at the repo root, so the Action can be listed on GitHub Marketplace (`uses: Mihirajmera/posturanet@<tag>`). `action/action.yml` keeps working; a test keeps the two identical.
+
+### Added (contracts everywhere, related controls)
+- `contract build --all` now also drafts a contract for every S3 bucket and IAM policy in the state, each from its own evidence; JSON rows name the `resource`.
+- A manual target can name its control: `posturanet contract build S3.8:acme-assets`, `posturanet fix IAM.21:arn:aws:iam::123456789012:policy/app --dry-run`.
+- Related controls that need the same change on the same resource are one problem: every security group control on a group (the fix narrows every world-open rule, whichever control was reported, so EC2.13 and EC2.19 are one PR and one row), and the bucket-scope S3 controls S3.2, S3.3 and S3.8. IAM.1 and IAM.21 stay separate (they remove different actions), as do attribute fixes. The issue tag is now `sg_ingress@<address>` / `s3_public@<address>` for these.
+
+### Decided (scope)
+- PRD v2.0 (pivot): PosturaNet is the remediation layer for every detector, IaC tool and AI coding agent. New goals: every failed finding gets an outcome whatever the scanner or IaC tool, contracts check every change, and an outcome dataset (opt-in). Roadmap R4–R11 replaces the old R3–R5. Requirement IDs are unchanged.
+- CloudFormation, CDK and Pulumi are in scope (AGENTS.md §1.4), in that order; not built yet.
+- An opt-in outcome share is allowed (AGENTS.md rule 6, PRD FR-45a); not built yet.
+- Evidence-backed fix types stay at three.
 
 ### Changed (one PR per issue across scanners)
 - The PR idempotency key and the `posturanet:finding` marker now use the issue, `control@terraform_address`, instead of the scanner's finding id. Security Hub, Prowler, Checkov and Trivy reporting the same problem update one PR instead of opening one each. Open PRs from earlier versions still match on their finding id (FR-28).

@@ -296,18 +296,21 @@ _ACTION = re.compile(r"^[a-z0-9-]+:[A-Za-z0-9]+$")
 @contract_app.command("build", epilog=_examples(
     ("posturanet contract build sg-0a91f3c2 --repo infra/", "draft the contract from flow logs"),
     ("posturanet contract build sg-0a91f3c2 --repo infra/ --dry-run", "show it; write nothing"),
-    ("posturanet contract build --all --repo infra/", "every security group in the Terraform state"),  # noqa: E501 (copyable example)
+    ("posturanet contract build --all --repo infra/", "every security group, S3 bucket and IAM policy in the state"),  # noqa: E501 (copyable example)
 ))  # fmt: skip
 def contract_build(
     target: Annotated[
-        str | None, typer.Argument(help="ASFF finding file or security group id.")
+        str | None,
+        typer.Argument(
+            help="Finding file, security group id, or CONTROL:resource (S3.8:my-bucket)."
+        ),
     ] = None,
     build_all: Annotated[
         bool,
         typer.Option(
             "--all",
-            help="Every security group in the Terraform state, or every security group, bucket "
-            "and managed policy in the CloudFormation templates.",
+            help="Every security group, S3 bucket and IAM policy in the state (or in the "
+            "CloudFormation templates), each from its own evidence.",
         ),
     ] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Don't write the contract.")] = False,
@@ -322,7 +325,9 @@ def contract_build(
     if build_all:
         _contract_build_all(target, dry_run, repo, state, evidence_file, window, output_format)
     if target is None:
-        raise _fail(UsageError("give a finding file or security group id, or --all"))
+        raise _fail(
+            UsageError("give a finding file, a security group id, CONTROL:resource, or --all")
+        )
     try:
         ctx = _context("dry-run" if dry_run else "check", repo, state, evidence_file, window)
         ctx.stop_after = "contract"
@@ -343,10 +348,10 @@ def _contract_build_all(
     window: str | None,
     output_format: OutputFormat,
 ) -> None:
-    """One contract per security group in the state, or per security group, bucket and managed
-    policy a CloudFormation template defines. One that stops doesn't stop the rest."""
+    """One contract per security group, S3 bucket and IAM policy in the state. A resource that
+    stops (no evidence, say) doesn't stop the rest. On CloudFormation: the ones a template
+    defines, from the stack-resources export."""
     from posturanet import cfn
-    from posturanet.ingest.manual import finding_from_resource_id
     from posturanet.locate import load_repo_state
     from posturanet.locate.backend import boto3_s3_fetch
     from posturanet.locate.tfstate import ids_of
@@ -354,53 +359,52 @@ def _contract_build_all(
     try:
         if target is not None:
             raise UsageError("use a target or --all, not both")
-        if evidence_file is not None:  # FR-12: never reuse one group's flows for another
-            raise UsageError("--all reads each group's own flow logs; --evidence-file holds one")
+        if evidence_file is not None:  # FR-12: never reuse one resource's evidence for another
+            raise UsageError("--all reads each resource's own evidence; --evidence-file holds one")
         mode: Mode = "dry-run" if dry_run else "check"
         probe = _context(mode, repo, state, None, window)
         config, _ = load_config(repo)
         if cfn.is_cloudformation(repo, config, state):
-            # a contract is per resource, not per control: any control of the fix type will do
-            controls = {cfn.SG_TYPE: None, cfn.BUCKET_TYPE: "S3.8", cfn.POLICY_TYPE: "IAM.21"}
-            rows = cfn.template_rows(repo, config, state, list(controls))
-            if not rows:
+            # (resource, target) for what the templates define; SAM-generated ones have no source
+            prefix = {cfn.SG_TYPE: "", cfn.BUCKET_TYPE: "S3.8:", cfn.POLICY_TYPE: "IAM.21:"}
+            rows = cfn.template_rows(repo, config, state, list(prefix))
+            targets = [
+                (str(r["PhysicalResourceId"]), prefix[r["ResourceType"]] + r["PhysicalResourceId"])
+                for r in rows
+            ]
+            if not targets:
                 raise UsageError(
                     "no security group, bucket or managed policy in the stack-resources export "
                     "is defined in a template here"
                 )
-            findings = [
-                finding_from_resource_id(
-                    str(r["PhysicalResourceId"]), controls[str(r["ResourceType"])]
-                )
-                for r in rows
-            ]
-            noun = "resource"
         else:
             s3_fetch = boto3_s3_fetch(probe.aws) if probe.aws is not None else None
             tf_state, _ = load_repo_state(repo, config, state, s3_fetch)
-            groups = ids_of(tf_state, "aws_security_group")
-            if not groups:
-                raise UsageError("no aws_security_group in the Terraform state")
-            findings = [finding_from_resource_id(sg) for sg in groups]
-            noun = "security group"
+            # (resource, target): S3 and IAM need a control to pick their fix type
+            targets = [(sg, sg) for sg in ids_of(tf_state, "aws_security_group")]
+            targets += [(b, f"S3.8:{b}") for b in ids_of(tf_state, "aws_s3_bucket")]
+            targets += [(a, f"IAM.21:{a}") for a in ids_of(tf_state, "aws_iam_policy")]
+            if not targets:
+                raise UsageError(
+                    "no security group, S3 bucket or IAM policy in the Terraform state"
+                )
         records = []
-        for finding in findings:
+        for resource, t in targets:
             ctx = _context(mode, repo, state, None, window)
             ctx.stop_after, ctx.command = "contract", "contract build"
-            rid = finding.resource.id
-            records.append((rid, run_fix(rid, repo, config, ctx, finding)))
+            records.append((resource, run_fix(t, repo, config, ctx)))
     except PosturaNetError as exc:
         raise _fail(exc) from exc
     if output_format is OutputFormat.JSON:
-        out = [{"group": i, "result": r.result, "detail": r.result_detail} for i, r in records]
-        console.write(json.dumps(out, indent=2) + "\n")
+        rows = [{"resource": t, "result": r.result, "detail": r.result_detail} for t, r in records]
+        console.write(json.dumps(rows, indent=2) + "\n")
     else:
         f = _frame()
         n = len(records)
-        title = f"{n} {noun}{'s' if n != 1 else ''}"
+        title = f"{n} resource{'s' if n != 1 else ''}"
         lines = f.open(console.header("contract build", title, f.style))
-        w = max(24, *(len(i) for i, _ in records))
-        table = [f"{i:<{w}} {r.result:<10} {r.result_detail}" for i, r in records]
+        w = max(24, *(len(t) for t, _ in records))
+        table = [f"{t:<{w}} {r.result:<10} {r.result_detail}" for t, r in records]
         lines += f.box("Contracts", table)
         built = sum(r.exit_code == 0 for _, r in records)
         lines += f.close(

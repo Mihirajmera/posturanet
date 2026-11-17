@@ -105,24 +105,13 @@ class Context:
     env: dict[str, str] = field(default_factory=lambda: dict(os.environ))
 
 
-def run_fix(
-    target: str,
-    repo: Path,
-    config: Config,
-    ctx: Context | None = None,
-    finding: Finding | None = None,
-) -> RunRecord:
-    return run_fix_full(target, repo, config, ctx, finding)[0]
+def run_fix(target: str, repo: Path, config: Config, ctx: Context | None = None) -> RunRecord:
+    return run_fix_full(target, repo, config, ctx)[0]
 
 
 def run_fix_full(
-    target: str,
-    repo: Path,
-    config: Config,
-    ctx: Context | None = None,
-    finding: Finding | None = None,
+    target: str, repo: Path, config: Config, ctx: Context | None = None
 ) -> tuple[RunRecord, Proposal | None]:
-    """`finding`, when given, is used as is instead of ingesting `target`."""
     ctx = ctx or Context()
     record = RunRecord(
         agent_version=__version__,
@@ -134,7 +123,7 @@ def run_fix_full(
     )
     stage = "ingest"
     try:
-        return _run(target, repo, config, ctx, record, finding)
+        return _run(target, repo, config, ctx, record)
     except StageStop as stop:
         stage = stop.stage or stage
         if stage not in {s.name for s in record.stages}:
@@ -158,15 +147,10 @@ def run_fix_full(
 
 
 def _run(
-    target: str,
-    repo: Path,
-    config: Config,
-    ctx: Context,
-    record: RunRecord,
-    given: Finding | None = None,
+    target: str, repo: Path, config: Config, ctx: Context, record: RunRecord
 ) -> tuple[RunRecord, Proposal | None]:
     # --- ingest
-    finding = given or ingest(target)
+    finding = ingest(target)
     record.finding = finding
     if cfn.is_cloudformation(repo, config, ctx.state_path):
         return _run_cfn_dispatch(finding, repo, config, ctx, record)
@@ -733,8 +717,15 @@ def _run_s3(
         if scope == "account":
             raise StageStop(
                 "locate",
-                f"{control} is an account setting; CloudFormation has no resource for it",
-                ["turn on account-level Block Public Access in the S3 console or with Terraform"],
+                f"{control} is the account-level S3 Block Public Access setting; CloudFormation "
+                "has no resource type for it, so there is no template line to change",
+                [
+                    "if the account has a Terraform repo, run PosturaNet there: it adds an "
+                    "`aws_s3_account_public_access_block` resource",
+                    "otherwise a person turns it on in the S3 console (Block Public Access "
+                    "settings for this account) or runs "
+                    "`aws s3control put-public-access-block`; PosturaNet won't run it",
+                ],
                 unknown=True,
             )
         loc, res = cfn.locate(finding, repo, config, ctx.state_path, ctx.aws, [cfn.BUCKET_TYPE])
