@@ -1,0 +1,4 @@
+version: 1
+iac: cloudformation
+cloudformation:
+  stack_resources: stack-resources.json

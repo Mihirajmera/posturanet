@@ -540,7 +540,9 @@ def _source_cfn(
     result = ContractResult(c.resource, loaded.rel, "PASS", subject=subject)
     parts = cfn.split_address(c.resource)
     assert parts is not None
-    res = cfn.resolve(repo, config, *parts)
+    stack, logical = parts
+    logical, _, name = logical.partition(".")  # `.<PolicyName>` marks an inline IAM policy
+    res = cfn.resolve(repo, config, stack, logical)
     if isinstance(res, str):
         return _finish(result, loaded, [], [res], []) if wanted is None else None
     file_rel = res.template.path.resolve().relative_to(repo.resolve()).as_posix()
@@ -551,8 +553,8 @@ def _source_cfn(
         if isinstance(c, BehaviorContract):
             return _judge(result, c, cfn.parse_sg(res).rules(), loaded.text)
         if isinstance(c, IamContract):
-            cfn.parse_policy(res)  # stops on anything that isn't a literal statement list
-            doc = cfn_template.value(cfn_template.get(res.properties, "PolicyDocument"))
+            # stops on anything that isn't a literal statement list
+            doc = cfn_template.value(cfn.parse_policy(res, name or None).doc)
             if _intrinsic_anywhere(doc):
                 return _finish(result, loaded, [], ["the policy uses intrinsic functions"], [])
             violations, unknowns, needles = iam_gate.judge(c, doc)

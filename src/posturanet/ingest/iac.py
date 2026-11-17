@@ -1,8 +1,10 @@
-"""Terraform scanner reports (Checkov `-o json`, Trivy `config -f json`) -> Finding.
+"""IaC scanner reports (Checkov `-o json`, Trivy `config -f json`) -> Finding.
 
 These scanners read code, not the cloud: a finding names a Terraform address such as
 `aws_security_group.bastion`, not an AWS id. The address is resolved against the Terraform
-state at locate time (`locate.resolve_address`). Check ids map to Security Hub controls through
+state at locate time (`locate.resolve_address`). A finding on a CloudFormation or SAM template
+names a file and a logical id instead (`cfn-template:<path>#<LogicalId>`); locate maps it to
+its stack (`cfn.resolve_template_ref`). Check ids map to Security Hub controls through
 `iac_checks.json`, which is curated by hand; unlisted checks are unsupported, never guessed.
 
 Finding text is kept as data only. Nothing here interprets it (NFR-4).
@@ -28,7 +30,22 @@ _SEVERITIES = {s.value for s in Severity}
 _ADDRESS = re.compile(
     r"^(?:module\.[A-Za-z0-9_-]+(?:\[[^\]]*\])?\.)*aws_[a-z0-9_]+\.[A-Za-z0-9_-]+"
 )
-_TERRAFORM_CHECK_TYPES = {"terraform", "terraform_plan"}
+_CHECK_TYPES = {"terraform", "terraform_plan", "cloudformation"}
+_LOGICAL_ID = re.compile(r"^[A-Za-z0-9]+$")
+TEMPLATE_REF = "cfn-template:"
+
+
+def template_ref(path: str, logical_id: str) -> str:
+    """`cfn-template:<path>#<LogicalId>`, the path as the scanner gave it, relative and `/`."""
+    rel = path.strip().replace("\\", "/").lstrip("/").removeprefix("./")
+    return f"{TEMPLATE_REF}{rel}#{logical_id}" if rel and _LOGICAL_ID.match(logical_id) else ""
+
+
+def split_template_ref(address: str | None) -> tuple[str, str] | None:
+    if not address or not address.startswith(TEMPLATE_REF):
+        return None
+    path, _, logical = address[len(TEMPLATE_REF) :].rpartition("#")
+    return (path, logical) if path and logical else None
 
 
 @cache
@@ -50,7 +67,7 @@ def checkov_items(doc: Any) -> list[dict[str, Any]]:
     reports = doc if isinstance(doc, list) else [doc]
     items: list[dict[str, Any]] = []
     for report in reports:
-        if not isinstance(report, dict) or report.get("check_type") not in _TERRAFORM_CHECK_TYPES:
+        if not isinstance(report, dict) or report.get("check_type") not in _CHECK_TYPES:
             continue
         failed = (report.get("results") or {}).get("failed_checks") or []
         items.extend(
@@ -76,11 +93,19 @@ def parse_checkov_item(item: dict[str, Any], *, raw_sha256: str) -> Finding:
         raise StageStop(
             "ingest", f"check result is {status}: there is nothing to fix", ["pass a failed check"]
         )
-    address = _address(str(item.get("resource_address") or item.get("resource") or ""))
+    rtype: str | None = None
+    if item.get("_check_type") == "cloudformation":
+        # `resource` is `AWS::EC2::SecurityGroup.BastionSG`; repo_file_path is repo-relative.
+        rtype, _, logical = str(item.get("resource") or "").rpartition(".")
+        path = str(item.get("repo_file_path") or item.get("file_path") or "")
+        address = template_ref(path, logical) if rtype.startswith("AWS::") else ""
+    else:
+        address = _address(str(item.get("resource_address") or item.get("resource") or ""))
     return _finding(
         "checkov",
         check_id=check_id,
         address=address,
+        rtype=rtype,
         title=str(item.get("check_name") or ""),
         severity=str(item.get("severity") or ""),
         uid=f"checkov:{check_id}:{address}:{item.get('file_path', '')}",
@@ -106,6 +131,7 @@ def trivy_items(doc: dict[str, Any]) -> list[dict[str, Any]]:
                 items.append(
                     {
                         "Target": result.get("Target"),
+                        "Type": result.get("Type"),
                         "SchemaVersion": doc.get("SchemaVersion"),
                         "Misconfiguration": m,
                     }
@@ -121,6 +147,7 @@ def trivy_document(item: dict[str, Any]) -> dict[str, Any]:
             {
                 "Target": item.get("Target"),
                 "Class": "config",
+                "Type": item.get("Type"),
                 "Misconfigurations": [item["Misconfiguration"]],
             }
         ],
@@ -139,11 +166,19 @@ def parse_trivy_item(item: dict[str, Any], *, raw_sha256: str) -> Finding:
     check_id = str(m.get("ID") or m.get("AVDID") or "").removeprefix("AVD-")
     raw_cause = m.get("CauseMetadata")
     cause: dict[str, Any] = raw_cause if isinstance(raw_cause, dict) else {}
-    address = _address(str(cause.get("Resource") or ""))
+    resource = str(cause.get("Resource") or "")
+    rtype: str | None = None
+    if item.get("Type") == "cloudformation":
+        # Trivy names the logical id only; locate reads the type from the template.
+        rtype = "cloudformation"
+        address = template_ref(str(item.get("Target") or ""), resource.strip())
+    else:
+        address = _address(resource)
     return _finding(
         "trivy",
         check_id=check_id,
         address=address,
+        rtype=rtype,
         title=str(m.get("Title") or ""),
         severity=str(m.get("Severity") or ""),
         uid=f"trivy:{check_id}:{address}:{item.get('Target', '')}:{cause.get('StartLine', '')}",
@@ -181,6 +216,7 @@ def _finding(
     *,
     check_id: str,
     address: str,
+    rtype: str | None = None,
     title: str,
     severity: str,
     uid: str,
@@ -192,9 +228,9 @@ def _finding(
         raise StageStop(
             "ingest",
             f"{tool} finding is missing: {', '.join(missing)}",
-            [f"run {tool} on Terraform with JSON output and pass that file"],
+            [f"run {tool} on Terraform or CloudFormation with JSON output and pass that file"],
         )
-    rtype = _resource_type(address)
+    rtype = rtype or _resource_type(address)
     control = control_for(tool, check_id, rtype)
     label = severity.upper()
     try:

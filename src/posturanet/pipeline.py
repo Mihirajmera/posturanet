@@ -49,6 +49,7 @@ from posturanet.iamfix.evidence import usage as iam_usage
 from posturanet.iamfix.shrink import shrink
 from posturanet.iamfix.validate import validate_iam_fix
 from posturanet.ingest import ingest
+from posturanet.ingest.iac import split_template_ref
 from posturanet.locate import load_repo_state, locate_match, module_dir, resolve_address
 from posturanet.locate.backend import boto3_s3_fetch
 from posturanet.locate.codeowners import find_codeowners, owners_for
@@ -152,7 +153,9 @@ def _run(
     # --- ingest
     finding = ingest(target)
     record.finding = finding
-    if cfn.is_cloudformation(repo, config, ctx.state_path):
+    if cfn.is_cloudformation(repo, config, ctx.state_path) or split_template_ref(
+        finding.resource.address
+    ):
         return _run_cfn_dispatch(finding, repo, config, ctx, record)
     if finding.resource.address and finding.fix_type is not FixType.UNSUPPORTED:
         # IaC scanner finding: a Terraform address, resolved to the deployed resource.
@@ -173,10 +176,16 @@ def _run_cfn_dispatch(
     finding: Finding, repo: Path, config: Config, ctx: Context, record: RunRecord
 ) -> tuple[RunRecord, Proposal | None]:
     """CloudFormation and SAM templates: the same three evidence-backed fix types."""
-    if finding.resource.address:
+    evidence_backed = (FixType.SG_INGRESS, FixType.S3_PUBLIC, FixType.IAM_LEAST_PRIVILEGE)
+    if split_template_ref(finding.resource.address) and finding.fix_type in evidence_backed:
+        # IaC scanner finding on a template: map it to its stack and the deployed resource.
+        finding = cfn.resolve_template_ref(finding, repo, config, ctx.state_path, ctx.aws)
+        record.finding = finding
+    address = finding.resource.address
+    if address and not (cfn.split_address(address) or split_template_ref(address)):
         raise StageStop(
             "ingest",
-            "IaC scanner findings on CloudFormation templates are not supported yet",
+            f"{address} is a Terraform address, but this repo is CloudFormation",
             ["pass the Security Hub finding, or `CONTROL:resource-id`, instead"],
             unknown=True,
         )
@@ -185,12 +194,8 @@ def _run_cfn_dispatch(
     if finding.fix_type is FixType.IAM_LEAST_PRIVILEGE:
         return _run_iam(finding, repo, config, ctx, record, iac="cloudformation")
     if finding.fix_type is FixType.CONFIG_ATTRIBUTE:
-        raise StageStop(
-            "ingest",
-            f"{finding.control_id} is an attribute fix; those edit Terraform only so far",
-            ["set the property in the template by hand"],
-            unknown=True,
-        )
+        record.stages.append(_ingest_stage(finding))
+        return _run_config(finding, repo, config, ctx, record, iac="cloudformation")
     return _run_sg(finding, repo, config, ctx, record, iac="cloudformation")
 
 
@@ -528,7 +533,13 @@ def _record_validation(record: RunRecord, report: ValidationReport, *, dry: bool
 
 
 def _run_config(
-    finding: Finding, repo: Path, config: Config, ctx: Context, record: RunRecord
+    finding: Finding,
+    repo: Path,
+    config: Config,
+    ctx: Context,
+    record: RunRecord,
+    *,
+    iac: Literal["terraform", "cloudformation"] = "terraform",
 ) -> tuple[RunRecord, Proposal | None]:
     """Attribute fixes (FR-48): no evidence or contract; the change removes no access."""
     dry = ctx.mode == "dry-run"
@@ -541,16 +552,31 @@ def _run_config(
         )
 
     # --- locate
-    s3_fetch = boto3_s3_fetch(ctx.aws) if ctx.aws is not None else None
-    loc, match = locate_match(
-        finding,
-        repo,
-        config,
-        ctx.state_path,
-        s3_fetch,
-        resource_types=list(dict.fromkeys(r.resource_type for r in rows)),
-        account_scope=rows[0].scope == "account",
-    )
+    res: cfn.CfnResource | None = None
+    if iac == "cloudformation":
+        rows = [r for r in (row.for_cfn() for row in rows) if r is not None]
+        if not rows:
+            raise StageStop(
+                "fix",
+                f"{finding.control_id} has no CloudFormation property mapping yet",
+                ["set the property in the template by hand"],
+                unknown=True,
+            )
+        types = list(dict.fromkeys(r.resource_type for r in rows))
+        loc, res = cfn.locate(finding, repo, config, ctx.state_path, ctx.aws, types)
+        rtype = res.type
+    else:
+        s3_fetch = boto3_s3_fetch(ctx.aws) if ctx.aws is not None else None
+        loc, match = locate_match(
+            finding,
+            repo,
+            config,
+            ctx.state_path,
+            s3_fetch,
+            resource_types=list(dict.fromkeys(r.resource_type for r in rows)),
+            account_scope=rows[0].scope == "account",
+        )
+        rtype = match.type
     record.location = loc
     owners = ", ".join(loc.owners) if loc.owners else "no owner found"
     record.stages.append(
@@ -561,7 +587,7 @@ def _run_config(
             details=loc.reasoning,
         )
     )
-    fix = next(r for r in rows if r.resource_type == match.type)
+    fix = next(r for r in rows if r.resource_type == rtype)
     record.stages.append(
         StageResult(
             name="evidence",
@@ -588,31 +614,41 @@ def _run_config(
             f"{loc.address} uses count or for_each; the edit would change every instance",
             ["fix this resource by hand for now"],
         )
-    diff, edit, original = edit_resource(repo, loc.file, loc.line, loc.address, fix)
+    if res is not None:
+        diff, already = cfn.attr_diff(repo, res, fix)
+        original = res.template.on_disk(res.template.text)
+    else:
+        diff, edit, original = edit_resource(repo, loc.file, loc.line, loc.address, fix)
+        already = edit.already
     record.diff = diff
     record.stages.append(
         StageResult(
             name="fix",
             status=StageStatus.OK,
             summary=f"{fix.control} · {diff.summary}",
-            details=[f"already set: {a}" for a in edit.already],
+            details=[f"already set: {a}" for a in already],
         )
     )
 
     # --- validate
-    tf = ctx.terraform or SubprocessTerraform(config.terraform.binary, config.validation.timeout_s)
-    report = validate_config_fix(
-        repo=repo,
-        fix=fix,
-        address=loc.address,
-        file=loc.file,
-        line=loc.line,
-        diff=diff,
-        config=config,
-        tf=tf,
-        state_path=ctx.state_path,
-        offline=dry,
-    )
+    if res is not None:
+        report = cfn.validate_attr(res, diff, fix, config, ctx.aws, offline=dry)
+    else:
+        tf = ctx.terraform or SubprocessTerraform(
+            config.terraform.binary, config.validation.timeout_s
+        )
+        report = validate_config_fix(
+            repo=repo,
+            fix=fix,
+            address=loc.address,
+            file=loc.file,
+            line=loc.line,
+            diff=diff,
+            config=config,
+            tf=tf,
+            state_path=ctx.state_path,
+            offline=dry,
+        )
     record.validation = report
     _record_validation(record, report, dry=dry)
 
@@ -627,7 +663,7 @@ def _run_config(
         fix=fix,
         diff=diff,
         report=report,
-        already=edit.already,
+        already=already,
         unknowns=unknowns,
     )
     record.unknowns = [*([fix.note] if fix.note else []), *unknowns]
@@ -1034,11 +1070,12 @@ def _run_iam(
     doc: PolicyDoc | None = None
     policy: cfn.CfnPolicy | None = None
     if iac == "cloudformation":
-        loc, res = cfn.locate(finding, repo, config, ctx.state_path, ctx.aws, [cfn.POLICY_TYPE])
-        policy = cfn.parse_policy(res)
+        loc, res = cfn.locate(finding, repo, config, ctx.state_path, ctx.aws, cfn.IAM_TYPES)
+        policy = cfn.select_policy(res, control)
+        loc = loc.model_copy(update={"address": policy.address, "line": policy.res.line})
         statements, form = policy.statements, "cloudformation"
         doc_file, doc_original = loc.file, res.template.on_disk(res.template.text)
-        where = f"PolicyDocument of {res.logical_id} in {loc.file}"
+        where = f"PolicyDocument of {policy.where} in {loc.file}"
     else:
         s3_fetch = boto3_s3_fetch(ctx.aws) if ctx.aws is not None else None
         loc, match = locate_match(
@@ -1241,6 +1278,7 @@ def _run_iam(
             config,
             ctx.aws,
             offline=dry,
+            name=policy.name,
         )
     else:
         assert doc is not None

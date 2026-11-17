@@ -198,6 +198,8 @@ _PLAIN = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9_:./*\- ]*[A-Za-z0-9_./*\-])?")
 
 
 def scalar_text(v: Any, *, as_json: bool) -> str:
+    if isinstance(v, list):  # a list of scalars, as a flow sequence
+        return "[" + ", ".join(scalar_text(x, as_json=as_json) for x in v) + "]"
     if isinstance(v, bool):
         return "true" if v else "false"
     if isinstance(v, int):
