@@ -25,6 +25,7 @@ from posturanet.cfn.template import (
     json_mapping,
     key_node,
     line_end,
+    line_of,
     line_start,
     scalar_text,
     start,
@@ -32,6 +33,7 @@ from posturanet.cfn.template import (
 )
 from posturanet.errors import StageStop
 from posturanet.iamfix.doc import Statement
+from posturanet.iamfix.shrink import targeted
 from posturanet.synth.hcl_render import DEFAULT_DESCRIPTION
 from posturanet.synth.sg_rules import WORLD, Rule, norm_proto
 from posturanet.synth.sg_z3 import Synthesis
@@ -40,6 +42,10 @@ SG_TYPE = "AWS::EC2::SecurityGroup"
 SG_INGRESS_TYPE = "AWS::EC2::SecurityGroupIngress"
 BUCKET_TYPE = "AWS::S3::Bucket"
 POLICY_TYPE = "AWS::IAM::ManagedPolicy"
+STANDALONE_POLICY_TYPE = "AWS::IAM::Policy"
+SAM_FUNCTION_TYPE = "AWS::Serverless::Function"
+# Resources an IAM finding can name: the managed policy, or the principal holding inline policies.
+IAM_TYPES = [POLICY_TYPE, "AWS::IAM::Role", "AWS::IAM::User", "AWS::IAM::Group"]
 PAB = "PublicAccessBlockConfiguration"
 # Terraform flag name -> CloudFormation property name.
 PAB_FLAGS = {
@@ -320,14 +326,29 @@ def s3_flags(res: CfnResource) -> dict[str, Any]:
     return out
 
 
-# --- IAM managed policies
+# --- IAM policy documents
 
 
 @dataclass
 class CfnPolicy:
-    res: CfnResource
+    res: CfnResource  # the resource whose text holds the document
     statements: list[Statement]
     action_nodes: dict[int, Node]
+    doc: MappingNode | None = None
+    name: str | None = None  # inline PolicyName (SAM: the generated one); None = whole resource
+
+    @property
+    def address(self) -> str:
+        """`cfn.<stack>.<LogicalId>`, plus `.<PolicyName>` for an inline document."""
+        return self.res.address + (f".{self.name}" if self.name else "")
+
+    @property
+    def where(self) -> str:
+        return f"{self.name} in {self.res.logical_id}" if self.name else self.res.logical_id
+
+
+def _iam_unknown(why: str, *steps: str) -> StageStop:
+    return StageStop("fix", why, list(steps) or ["shrink this policy by hand"], unknown=True)
 
 
 def _strs(v: Any, what: str) -> list[str]:
@@ -335,40 +356,179 @@ def _strs(v: Any, what: str) -> list[str]:
         return [v]
     if isinstance(v, list) and all(isinstance(x, str) for x in v):
         return list(v)
-    raise _unsupported(what)
+    raise _iam_unknown(f"{what} is not a literal value; PosturaNet won't guess it", _BY_HAND)
 
 
-def parse_policy(res: CfnResource) -> CfnPolicy:
-    doc = get(res.properties, "PolicyDocument")
+def _sam_policies(res: CfnResource) -> list[Node]:
+    pols = get(res.properties, "Policies")
+    return [] if pols is None else pols.value if isinstance(pols, SequenceNode) else [pols]
+
+
+def _inline_doc(res: CfnResource, name: str) -> MappingNode:
+    """The document named `name` inside `res` (Role/User/Group `Policies`, SAM `Policies`)."""
+    if res.type == SAM_FUNCTION_TYPE:
+        prefix = f"{res.logical_id}RolePolicy"
+        idx = name[len(prefix) :]
+        entries = _sam_policies(res)
+        if not name.startswith(prefix) or not idx.isdigit() or int(idx) >= len(entries):
+            raise _iam_unknown(f"{res.logical_id} has no SAM policy {name}")
+        entry = entries[int(idx)]
+        if not isinstance(entry, MappingNode) or get(entry, "Statement") is None:
+            raise _iam_unknown(
+                f"{name} ({_sam_label(entry)}) is not an inline statement document",
+                "SAM policy templates and managed policies are fixed by hand",
+            )
+        return entry
+    for entry in _entries(res):
+        if value(get(entry, "PolicyName")) == name:
+            doc = get(entry, "PolicyDocument")
+            if not isinstance(doc, MappingNode):
+                raise _iam_unknown(f"PolicyDocument of {name} in {res.logical_id} is not literal")
+            return doc
+    raise _iam_unknown(f"{res.logical_id} has no inline policy named {name}")
+
+
+def _entries(res: CfnResource) -> list[MappingNode]:
+    pols = get(res.properties, "Policies")
+    if pols is None:
+        return []
+    if not isinstance(pols, SequenceNode) or not all(
+        isinstance(e, MappingNode) and isinstance(value(get(e, "PolicyName")), str)
+        for e in pols.value
+    ):
+        raise _iam_unknown(f"{res.logical_id} Policies is not a literal list of named policies")
+    return list(pols.value)
+
+
+def _sam_label(entry: Node) -> str:
+    v = value(entry)
+    if is_intrinsic(v):
+        return "an intrinsic function"
+    if isinstance(v, str):
+        return f"managed policy {v}"
+    if isinstance(v, dict) and len(v) == 1:
+        return f"SAM policy template {next(iter(v))}"
+    return "an intrinsic function"
+
+
+def _attached(lid: str, node: MappingNode, logical_id: str) -> list[Any] | None:
+    """Every principal an `AWS::IAM::Policy` attaches to, if `logical_id` is one of them."""
+    props = value(get(node, "Properties"))
+    lists = [props.get(k) for k in ("Roles", "Users", "Groups")] if isinstance(props, dict) else []
+    if not any(_refs(v, logical_id) for v in lists):
+        return None
+    if not all(v is None or isinstance(v, list) for v in lists):
+        raise _iam_unknown(f"{lid} lists its principals with an intrinsic function")
+    return [p for v in lists for p in v or []]
+
+
+def documents(res: CfnResource) -> tuple[list[CfnPolicy], list[str]]:
+    """(the readable policy documents that apply to `res`, labels of the ones that can't be read).
+
+    Role/User/Group: inline `Policies` entries plus `AWS::IAM::Policy` resources in the same
+    template that attach to it. SAM function: its `Policies` statement documents."""
+    if res.type == POLICY_TYPE:
+        return [parse_policy(res)], []
+    if res.type == SAM_FUNCTION_TYPE:
+        if get(res.properties, "Role") is not None:
+            raise _iam_unknown(f"{res.logical_id} uses its own Role; SAM generates no policy")
+        found, opaque = [], []
+        for i, entry in enumerate(_sam_policies(res)):
+            if isinstance(entry, MappingNode) and get(entry, "Statement") is not None:
+                found.append(parse_policy(res, f"{res.logical_id}RolePolicy{i}"))
+            else:
+                opaque.append(_sam_label(entry))
+        return found, opaque
+    found = [parse_policy(res, str(value(get(e, "PolicyName")))) for e in _entries(res)]
+    for lid, node in res.template.resources.items():
+        if value(get(node, "Type")) != STANDALONE_POLICY_TYPE:
+            continue
+        principals = _attached(lid, node, res.logical_id)
+        if principals is None:
+            continue
+        if len(principals) != 1:
+            # the evidence is this principal's use only; the others would lose access
+            raise _iam_unknown(
+                f"{lid} also attaches to other principals; the evidence covers {res.logical_id} "
+                "only",
+                f"shrink {lid} by hand, or give {res.logical_id} its own policy",
+            )
+        key = key_node(get(res.template.root, "Resources"), lid)  # type: ignore[arg-type]
+        line = line_of(key) if key is not None else res.line
+        other = CfnResource(res.stack, lid, STANDALONE_POLICY_TYPE, res.template, node, line)
+        found.append(parse_policy(other))
+    return found, []
+
+
+def select_policy(res: CfnResource, control: str) -> CfnPolicy:
+    """The one document behind the finding: the managed policy itself, or the single
+    inline document on the role/user/group/function that has the wildcard `control` flags."""
+    found, opaque = documents(res)
+    if res.type == POLICY_TYPE:
+        return found[0]
+    hits = [
+        p
+        for p in found
+        if any(
+            s.effect == "Allow" and any(targeted(control, a) for a in s.actions or [])
+            for s in p.statements
+        )
+    ]
+    if len(hits) == 1:
+        return hits[0]
+    if hits:
+        raise _iam_unknown(
+            f"{len(hits)} policies on {res.logical_id} have the {control} wildcard: "
+            + ", ".join(p.where for p in hits),
+            "shrink these policies by hand, or split the role",
+        )
+    why = f"no inline policy document on {res.logical_id} has the {control} wildcard"
+    if opaque:
+        why += "; " + ", ".join(opaque) + " can't be read as statements"
+    raise _iam_unknown(
+        why,
+        "SAM policy templates and managed policies are fixed by hand",
+        "a managed policy with the wildcard has its own finding",
+    )
+
+
+def parse_policy(res: CfnResource, name: str | None = None) -> CfnPolicy:
+    doc = (
+        _inline_doc(res, name)
+        if name is not None
+        else get(res.properties, "PolicyDocument")
+        if res.type in (POLICY_TYPE, STANDALONE_POLICY_TYPE)
+        else None
+    )
     if not isinstance(doc, MappingNode):
-        raise _unsupported(f"{res.logical_id} PolicyDocument")
+        raise _iam_unknown(f"{res.logical_id} PolicyDocument is not a literal document")
     st = get(doc, "Statement")
     nodes = (
         st.value if isinstance(st, SequenceNode) else [st] if isinstance(st, MappingNode) else None
     )
+    where = f"{name} in {res.logical_id}" if name else res.logical_id
     if nodes is None:
-        raise _unsupported(f"{res.logical_id} Statement")
+        raise _iam_unknown(f"{where} Statement is not a literal list")
     statements: list[Statement] = []
     action_nodes: dict[int, Node] = {}
     text = res.template.text
     for idx, s in enumerate(nodes):
         v = value(s)
+        what = f"{where} statement {idx + 1}"
         if not isinstance(s, MappingNode) or not isinstance(v, dict):
-            raise _unsupported(f"statement {idx + 1}")
+            raise _iam_unknown(f"{what} is not a literal mapping")
         if not isinstance(v.get("Effect"), str):
-            raise _unsupported(f"statement {idx + 1} Effect")
+            raise _iam_unknown(f"{what} Effect is not a literal value")
         action = get(s, "Action")
         actions = None
         if action is not None:
-            actions = _strs(value(action), f"statement {idx + 1} Action")
+            actions = _strs(value(action), f"{what} Action")
             action_nodes[idx] = action
         res_v = v.get("Resource")
         resources = (
             ["<NotResource>"]
             if "NotResource" in v
-            else [r if isinstance(r, str) else "<expression>" for r in res_v]
-            if isinstance(res_v, list)
-            else [res_v if isinstance(res_v, str) else "<expression>"]
+            else _strs(res_v, f"{what} Resource")
             if res_v is not None
             else []
         )
@@ -386,7 +546,7 @@ def parse_policy(res: CfnResource) -> CfnPolicy:
                 container=(start(s), end(s)),
             )
         )
-    return CfnPolicy(res, statements, action_nodes)
+    return CfnPolicy(res, statements, action_nodes, doc, name)
 
 
 def render_actions(t: Template, node: Node, actions: list[str], step: str) -> str:

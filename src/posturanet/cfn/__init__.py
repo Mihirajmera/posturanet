@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from posturanet.cfn.edit import (
     BUCKET_TYPE,
+    IAM_TYPES,
     POLICY_TYPE,
     SG_TYPE,
     CfnPolicy,
@@ -12,6 +13,7 @@ from posturanet.cfn.edit import (
     parse_policy,
     parse_sg,
     s3_flags,
+    select_policy,
 )
 from posturanet.cfn.locate import CfnResource, is_cloudformation, locate, resolve, split_address
 from posturanet.cfn.validate import (
@@ -27,6 +29,7 @@ from posturanet.cfn.validate import (
 __all__ = [
     "BUCKET_TYPE",
     "CHANGESET_NOTE",
+    "IAM_TYPES",
     "POLICY_TYPE",
     "SG_TYPE",
     "CfnPolicy",
@@ -40,6 +43,7 @@ __all__ = [
     "resolve",
     "s3_diff",
     "s3_flags",
+    "select_policy",
     "sg_diff",
     "split_address",
     "validate_iam",

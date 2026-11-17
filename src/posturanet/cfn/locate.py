@@ -10,6 +10,7 @@ guessed at.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,7 @@ from posturanet.locate.codeowners import find_codeowners, owners_for
 from posturanet.models import Confidence, Config, Finding, Location
 
 PREFIX = "cfn."
+_IAM_PRINCIPAL_ARN = re.compile(r"^arn:aws[\w-]*:iam::\d{12}:(?:role|user|group)/(?:.*/)?([^/]+)$")
 
 
 @dataclass
@@ -217,6 +219,8 @@ def locate(
     types: list[str],
 ) -> tuple[Location, CfnResource]:
     ids = [i for i in dict.fromkeys([finding.resource.id, finding.resource.arn]) if i]
+    # a role, user or group's physical id is its name, not its ARN
+    ids += [m.group(1) for i in ids if (m := _IAM_PRINCIPAL_ARN.match(i)) and m.group(1) not in ids]
     row, label = stack_row(ids, repo, config, state_path, aws)
     stack, logical = str(row["StackName"]), str(row["LogicalResourceId"])
     rtype = str(row.get("ResourceType"))
@@ -227,6 +231,10 @@ def locate(
             ["`posturanet fixes list` shows every control PosturaNet fixes"],
         )
     res = resolve(repo, config, stack, logical, rtype)
+    if isinstance(res, str) and rtype == "AWS::IAM::Role" and logical.endswith("Role"):
+        # SAM names a function's generated role `<Function>Role`; its policies live on the function
+        fn = resolve(repo, config, stack, logical[: -len("Role")], "AWS::Serverless::Function")
+        res = fn if isinstance(fn, CfnResource) and fn.template.sam else res
     if isinstance(res, str):
         raise StageStop(
             "locate",
@@ -243,6 +251,8 @@ def locate(
         f"physical id matched in {label}: stack {stack}, logical id {logical}",
         f"defined in {file_rel}" + (" (SAM template)" if res.template.sam else ""),
     ]
+    if res.logical_id != logical:
+        reasoning.insert(1, f"{logical} is the role SAM generates for {res.logical_id}")
     owners: list[str] = []
     codeowners = find_codeowners(repo)
     if codeowners is not None:
