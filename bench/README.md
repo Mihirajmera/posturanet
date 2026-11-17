@@ -139,8 +139,21 @@ the live group differs from the repo). Fixes are scored on the edited template. 
 reports **wrongly reported safe** (a validated fix that breaks a need, leaves the exposure, or
 exists where no safe fix does); `python -m bench` exits 1 if it isn't 0.
 
+## AWS CDK family
+
+[`cdk.py`](cdk.py) runs the same three fixes on CDK apps copied from `tests/fixtures/cdk/ts-app`
+(TypeScript) and `py-app` (Python, nested Stage), with the same read-only doubles. Per fix type:
+a fixable app in each language, then traps that must stop: a computed peer, id or action; rules
+from `connections` or a security-group peer; statements from `addStatements`; a duplicate id;
+an L1 construct; no `aws:cdk:path` metadata; `publicReadAccess: true`; a failed synth; and
+drift. `cdk synth` is a bench stand-in (`MiniSynth`) that copies the app's cloud assembly and
+rewrites the target from the edited program with its own regexes, not PosturaNet's parser.
+Fixes are scored on that synthesized resource, and wrongly reported safe must be 0 here too.
+
 ## Limits
 
+- CDK: no real `cdk synth` yet (aws-cdk isn't installed in CI); `MiniSynth` reads only the
+  literal shapes the fixtures use.
 - Security groups: ingress only, single-port rules, IPv4, SSH/RDP/Postgres.
 - S3: one bucket, S3.8 only; requesters are modeled by kind, not by real log lines.
 - IAM: one Allow statement per policy, `jsonencode` form; principals are not modeled
