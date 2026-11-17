@@ -24,6 +24,7 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 - Related controls that need the same change on the same resource are one problem: every security group control on a group (the fix narrows every world-open rule, whichever control was reported, so EC2.13 and EC2.19 are one PR and one row), and the bucket-scope S3 controls S3.2, S3.3 and S3.8. IAM.1 and IAM.21 stay separate (they remove different actions), as do attribute fixes. The issue tag is now `sg_ingress@<address>` / `s3_public@<address>` for these.
 
 ### Decided (scope)
+- PRD v2.0 (pivot): PosturaNet is the remediation layer for every detector, IaC tool and AI coding agent. New goals: every failed finding gets an outcome whatever the scanner or IaC tool, contracts check every change, and an outcome dataset (opt-in). Roadmap R4–R11 replaces the old R3–R5. Requirement IDs are unchanged.
 - CloudFormation, CDK and Pulumi are in scope (AGENTS.md §1.4), in that order; not built yet.
 - An opt-in outcome share is allowed (AGENTS.md rule 6, PRD FR-45a); not built yet.
 - Evidence-backed fix types stay at three.

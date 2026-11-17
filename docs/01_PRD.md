@@ -2,10 +2,10 @@
 
 | | |
 |---|---|
-| Version | 1.0 |
-| Date | 2026-11-02 |
+| Version | 2.0 (pivot) |
+| Date | 2026-11-17 |
 | Owners | The three co-founders |
-| Status | Active. This is the source of truth for *what* v1 does. |
+| Status | Active. This is the source of truth for *what* PosturaNet does. v1.0 (2026-11-02) described an AWS + Terraform remediation agent; v2.0 widens it to the remediation layer for every detector, IaC tool and AI coding agent. |
 | Related | [02_ARCHITECTURE_AND_DATA.md](02_ARCHITECTURE_AND_DATA.md) · [04_DESIGN_SYSTEM.md](04_DESIGN_SYSTEM.md) · [../AGENTS.md](../AGENTS.md) · [Company brief v2](../../docs/posturanet-brief-v2/PosturaNet_Company_Brief_v2.pdf) · [Strategy brief v1.1](../../docs/POSTURANET_STRATEGY_BRIEF_v1.1.md) |
 
 Requirement IDs (`FR-`, `NFR-`) are stable. Reference them in code comments, tests and PRs. When scope changes, update this file in the same PR.
@@ -14,65 +14,105 @@ Requirement IDs (`FR-`, `NFR-`) are stable. Reference them in code comments, tes
 
 ## 1. Product summary
 
-**PosturaNet is a remediation agent for AWS + Terraform teams.** It takes a security finding the team already has, finds the Terraform and team that own the resource, learns what actually uses the resource from flow logs and CloudTrail, records that as a **behavior contract**, and opens a pull request with the smallest fix that keeps every observed behavior working. After the fix is confirmed, it writes signed audit evidence.
+**PosturaNet is the remediation layer for cloud security.** It sits after every detector (Security Hub, Prowler, Checkov, Trivy, and the platforms that feed them) and after every AI coding agent. For each finding it:
+1. finds the code and team that own the resource;
+2. learns what really uses the resource, from flow logs and CloudTrail;
+3. records that as a **behavior contract**;
+4. opens a pull request with the smallest fix that keeps every observed behavior working;
+5. after merge, verifies the fix held, reverts on regression, and writes audit evidence.
 
-It runs **in the customer's CI or on an engineer's machine**, with a **read-only** AWS role and **the customer's own LLM**. It never writes to production. Humans review and merge every change.
+The same contracts then check every later change, from a person or an agent, so a fix stays fixed.
 
-**One line:** *Fixes cloud security issues without breaking prod, and proves it to your auditor.*
+It runs **in the customer's CI or on an engineer's machine**, with a **read-only** AWS role and **the customer's own LLM**. It never applies changes. Humans review and merge every PR.
+
+**One line:** *Fixes cloud security issues without breaking prod, keeps them fixed, and proves it to your auditor.*
+
+**The promise to every customer:** whatever scanner and whatever IaC they use, every failed finding ends in an outcome:
+- a fix PR;
+- a runbook;
+- an accepted exception, with an owner and an expiry;
+- or a stated reason why not yet.
+
+Nobody leaves empty-handed.
 
 ## 2. Problem
 
-When a finding lands (e.g. "SG allows 0.0.0.0/0 on port 22"), the engineer has to:
+Detection is solved; teams have more findings than they can close. When a finding lands (e.g. "SG allows 0.0.0.0/0 on port 22"), the engineer has to:
 1. **find the owner**: which repo, file, module and team;
 2. **find what uses it**: logs are hard to query, so this step is usually skipped;
 3. write the fix, which takes minutes;
-4. deal with `terraform plan` noise from unrelated drift;
+4. deal with plan noise from unrelated drift;
 5. get it through review ("are you sure nothing uses this?");
 6. deploy it, sometimes breaking an unknown dependency;
 7. revert it, after which the finding is marked "risk accepted" and never fixed.
 
-Writing the fix is cheap. Everything around it is expensive and risky, so backlogs grow. Vendors now generate fix PRs (Wiz, Gomboc, Cloudgeni and others), but their public material doesn't show them proving what the change *preserves*. That proof is PosturaNet's focus.
+Writing the fix is cheap. Everything around it is expensive and risky, so backlogs grow. Two things make it worse now:
+- **Several detectors report the same problem**, each opening its own ticket or PR.
+- **AI coding agents change infrastructure** faster than anyone reviews it, and quietly undo last quarter's fixes.
+
+Vendors now generate fix PRs (Wiz, Gomboc, Cloudgeni and others). Their public material doesn't show them doing three things, which are PosturaNet's focus:
+- proving what a change *preserves*;
+- keeping it fixed against later edits;
+- running read-only in the customer's CI.
 
 ## 3. Users and personas
 
 | Persona | Role | Needs | Success for them |
 |---|---|---|---|
 | **Dev**: DevOps / SRE engineer | Daily user | Small diffs, clear reasons, no PR flood | Merges a PosturaNet PR in minutes without asking anyone |
-| **Pat**: Platform / cloud-security lead | Champion | Backlog closed safely; a gate on risky changes | Findings close and nothing breaks |
+| **Pat**: Platform / cloud-security lead | Champion | Backlog closed safely; a gate on risky changes | Findings close, nothing breaks, nothing reopens |
 | **Cass**: CISO / Head of Security | Buyer | Confirmed closure, low effort | Closure numbers they can report |
 | **Gia**: GRC / compliance lead | Buyer | Evidence without screenshots | Signed evidence mapped to controls |
-| **Ava**: AI coding agent (Claude Code, Cursor) | Machine user | A way to check Terraform changes are safe | Calls `check_change` before proposing infrastructure edits |
+| **Ava**: AI coding agent (Claude Code, Cursor, others) | Machine user | A way to check infrastructure changes are safe | Calls `check_change` before proposing infrastructure edits, and fixes its own change on BLOCK |
 
 ## 4. Goals and non-goals
 
-### Goals (v1)
-- G1: Turn a supported AWS finding into a reviewable, validated Terraform PR with usage evidence.
+### Goals
+- G1: Turn any supported finding, from any supported detector, into a reviewable, validated PR with usage evidence, in the customer's own IaC tool.
 - G2: Never report a change as safe when it isn't (target: **zero wrongly reported "safe" fixes**).
 - G3: Install to first PR in under 15 minutes on a prepared repo, without founder help.
-- G4: Generate behavior contracts that teams approve and keep.
-- G5: Produce signed, control-mapped evidence for confirmed fixes (paid).
-- G6: Support license-based monetization (Community / Team / Business).
+- G4: **Every failed finding gets an outcome** (fix, runbook, accepted exception, or a reason), whatever the scanner or IaC tool. Coverage is shown on every run.
+- G5: **Be the safety check for every infrastructure change**: contracts checked on every PR and every AI-agent edit, so fixes stay fixed.
+- G6: **Contracts become the system of record** for what each resource must keep allowing.
+- G7: **Learn which fixes break production** from verify outcomes, through the opt-in outcome share (FR-45a).
+- G8: Produce signed, control-mapped evidence for confirmed fixes (paid).
+- G9: Revenue from software and partners: free CLI and Action, paid governance (Pro).
 
-### Non-goals (v1). Don't build these.
-- Writing to production or applying Terraform.
-- A dashboard or hosted multi-tenant SaaS.
-- Detection rules beyond re-checking a known finding.
-- Multi-cloud, Terragrunt, remote modules. (CloudFormation, CDK and Pulumi moved into scope on 2026-11-14; see AGENTS.md §1.4. Build order: CloudFormation, CDK, Pulumi.)
-- More than three evidence-backed fix types (SG ingress, S3 public access, IAM least privilege). The attribute-fix catalog (FR-48) is not a fix type of this kind: it only sets literal settings that remove no access, and grows by catalog rows.
+### Coverage targets (what "no customer leaves empty-handed" means)
+| Area | Today | Target |
+|---|---|---|
+| Detectors | Security Hub (ASFF, OCSF), Prowler, Checkov, Trivy, Security Hub remediation plans | + Wiz, Orca, Prisma Cloud rule mapping (needs one real export each from a design partner; rules are never guessed) |
+| IaC tools | Terraform; CloudFormation and SAM (R6, merging) | + AWS CDK (R7), Pulumi (R8) |
+| Same problem, many reports | One PR per issue across scanners and related controls | Kept as new detectors and IaC tools arrive |
+| Contracts | Security groups, S3 buckets, IAM policies, for the whole state (`contract build --all`) | Every supported resource in every supported IaC tool |
+| Outcomes | fix / runbook / exception / none on every failed finding | Every control a supported detector reports has a non-`none` outcome |
+
+### Non-goals. Don't build these.
+- Applying changes to production or merging PRs. (CloudFormation change-set *previews* are an opt-in exception that never executes; see NFR-2 and AGENTS.md rule 1.)
+- Detection: PosturaNet re-checks a known finding but never competes with the detectors it sits behind.
+- A hosted service that holds customer code, state, logs, contracts or findings. Hosted parts are limited to license keys and the opt-in outcome share's anonymous counts.
+- Multi-cloud (GCP, Azure) and Terragrunt, for now.
+- More than three evidence-backed fix types (SG ingress, S3 public access, IAM least privilege), decided again on 2026-11-14: deepen these first. The attribute-fix catalog (FR-48) is not a fix type of this kind: it only sets literal settings that remove no access, and grows by catalog rows.
 - Founder-delivered or managed services.
 
 ## 5. Scope by release
 
-| Release | Contents | Target |
+| Release | Contents | Status |
 |---|---|---|
-| **R0: Dry-run skeleton** | Package layout, OCSF finding model, ASFF ingest, locator v0, `posturanet fix --dry-run` on fixtures | Week 1 |
-| **R1: SG contracts** | Flow-log collector, SG contract builder, Z3 synthesis, validation pipeline, PR delivery, CLI + GitHub Action, Claude skill, MCP (read-only tools). **Built** (see CHANGELOG for what's deferred) | Weeks 2–3 |
-| **R1.5: PosturaNet check** | Contract check where teams already work: `PosturaNet contract` check run on PRs (FR-29, US-4 for one repo), Action `check` mode, offline source check, Claude Code hook, Cursor rule, MCP `check_change` source mode (US-7). **Built** | Week 3 |
-| **R1.6: Attribute fixes** | `config_attribute` fix type: 54 catalog rows covering 52 Security Hub controls across RDS, Aurora, DocumentDB, Neptune, DynamoDB, KMS, ELB, CloudTrail, ECR, EKS, ElastiCache, DMS, Redshift, SQS, API Gateway, Kinesis, Network Firewall, Athena, EBS, S3, MSK, GuardDuty, Config, Macie, IAM password policy and CodeBuild (FR-48). `posturanet fixes list|show` (FR-49). **Built** | Week 3 |
-| **R2: Verify + evidence** | Post-merge verification and revert PR (**built**: `posturanet verify`, FR-31..FR-33), S3 public-access fix (**built**: S3.1, S3.2, S3.3, S3.8, FR-17, FR-50), IAM least privilege (**built**: IAM.1, IAM.21, FR-16, FR-51) and the safety benchmark (**built**: 35 cases across SG, S3 and IAM, `bench/`), signed OSCAL evidence (pro) | Weeks 4–5 |
-| **R3: IAM + benchmark** | CloudTrail / last-accessed collector, IAM contract and least-privilege synthesis, benchmark v0 (20 cases), public launch | Week 6 |
-| **R4: Team plan** | Org-wide contract gate (one config for every repo), event triggers, license keys, Stripe, Slack notifications | Weeks 7–9 |
-| **R5: Living contracts** | New-behavior and drift PRs, periodicity, ASR input, policy packs (Prowler input shipped early, FR-4a) | Weeks 10–12 |
+| **R0: Dry-run skeleton** | Package layout, OCSF finding model, ASFF ingest, locator v0, `posturanet fix --dry-run` on fixtures | Built |
+| **R1: SG contracts** | Flow-log collector, SG contract builder, Z3 synthesis, validation pipeline, PR delivery, CLI + GitHub Action, Claude skill, MCP (read-only tools) | Built |
+| **R1.5: PosturaNet check** | Contract check where teams already work: `PosturaNet contract` check run on PRs (FR-29, US-4 for one repo), Action `check` mode, offline source check, Claude Code hook, Cursor rule, MCP `check_change` source mode (US-7) | Built |
+| **R1.6: Attribute fixes** | `config_attribute` fix type: catalog rows covering Security Hub controls across RDS, Aurora, DocumentDB, Neptune, DynamoDB, KMS, ELB, CloudTrail, ECR, EKS, ElastiCache, DMS, Redshift, SQS, API Gateway, Kinesis, Network Firewall, Athena, EBS, S3, MSK, GuardDuty, Config, Macie, IAM password policy and CodeBuild (FR-48). `posturanet fixes list|show` (FR-49) | Built |
+| **R2: Verify + evidence** | Post-merge verification and revert PR (FR-31..FR-33), S3 public-access fix (FR-17, FR-50), IAM least privilege (FR-16, FR-51), the safety benchmark (`bench/`); signed OSCAL evidence (pro) | Built, except evidence (pro) |
+| **R3: Outcomes** | Every failed finding gets fix / runbook / exception / none, with coverage (0.3.0) | Built |
+| **R4: One issue, many detectors** | One PR per issue across scanners and related controls (FR-28); `findings list|split` over several files; PR comment and Marketplace-ready Action; `contract build --all` for SG, S3 and IAM | On `test` |
+| **R5: Detector adapters** | Wiz, Orca, Prisma Cloud rule mapping to controls (needs a real export each) | Next; blocked on design partners |
+| **R6: CloudFormation + SAM** | Locate, fix, contract check and drift on templates; opt-in change-set preview | Merging into `test` |
+| **R7: AWS CDK** | Fix PRs to CDK program code, mapped from `aws:cdk:path` metadata; `cdk diff` validation | Next |
+| **R8: Pulumi** | Fix PRs to Pulumi programs; `pulumi preview` validation | After R7 |
+| **R9: Outcome share** | Opt-in anonymous outcomes (FR-45a) and the "which fixes break prod" dataset | Next |
+| **R10: Team plan (Pro)** | Org-wide contract gate, event triggers (US-3), license keys, contract history, audit evidence, team view. Lives in the private `pro` branch of the postura repo | First feature not chosen yet |
+| **R11: Living contracts** | New-behavior and drift PRs, periodicity, policy packs | Later |
 
 ## 6. User stories with acceptance criteria
 
