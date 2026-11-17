@@ -17,6 +17,7 @@ from posturanet.errors import StageStop
 from posturanet.evidence import FileSource
 from posturanet.models import OutcomeState, VerifySpec
 from posturanet.models.config import load_config
+from posturanet.outcome_share import record_for
 from posturanet.pipeline import Context, run_fix
 from posturanet.synth.sg_rules import Rule
 from posturanet.verify import VerifyContext, parse_pr_ref, run_verify
@@ -95,6 +96,26 @@ def test_sg_watching_then_confirmed(sg_merged: Any, tmp_repo: Path, tmp_path: Pa
     assert done.result == "CONFIRMED", done.stages
     assert done.outcome is not None and done.outcome.state is OutcomeState.CONFIRMED
 
+    # FR-45a: the shared record carries no identifier from the finding, spec, PR or state
+    shared, _ = record_for(done)
+    assert shared is not None
+    assert shared.model_dump() == {
+        "control": sg_merged[3].control,
+        "fix_type": "sg_ingress",
+        "outcome": "held",
+        "evidence_days": 3,
+        "agent_version": done.agent_version,
+    }
+    spec = sg_merged[3]
+    sent = shared.model_dump_json()
+    secrets = [spec.finding_id, spec.resource_id, spec.address, spec.key, "acme", "412"]
+    secrets += [spec.resource_arn or "", "123456789012", "sg-", "arn:"]
+    secrets += [c for c, *_ in spec.must_allow] + [r[0] for r in spec.rules]
+    secrets += [str(done.outcome.merge_sha)]
+    for s in filter(None, secrets):
+        assert s not in sent, s
+    assert record_for(mid)[0] is None  # still watching: nothing to share yet
+
 
 def _blocked_row(spec: VerifySpec, hour: str = "2026-10-31T03:00:00Z") -> dict[str, Any]:
     cidr, port, proto = spec.must_allow[0]
@@ -113,6 +134,8 @@ def test_sg_regression_without_open_pr(sg_merged: Any, tmp_repo: Path, tmp_path:
     assert "40 blocked" in record.outcome.regressions[0]
     assert record.next_steps == ["re-run with --open-pr to open the revert PR"]
     assert len(fake.prs) == 1  # nothing opened without --open-pr
+    shared, _ = record_for(record)
+    assert shared is not None and shared.outcome == "reverted"
 
 
 def test_sg_rejects_outside_the_contract_are_not_regressions(

@@ -4,6 +4,13 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Added (opt-in outcome share, FR-45a)
+- `outcome_share.enabled` (off by default) and `outcome_share.endpoint` (an `https://` URL, required when enabled; there is no default). With it on, `posturanet verify` sends one record per fix that ends CONFIRMED (`held`) or REGRESSED (`reverted`): `{control, fix_type, outcome, evidence_days, agent_version}` and nothing else. Never resource ids, ARNs, IPs, account ids, names, code, state, contracts or finding text.
+- `posturanet outcomes preview <run.json>...` prints exactly the records saved `verify --format json` runs would send, and sends nothing.
+- Sending is best-effort over HTTPS with a 5 s timeout: any failure is a warning and verify's exit code is unchanged. Not an AWS call; the read-only allowlist and IAM policy are unchanged.
+- Verify run records now carry the fix type in `outcome.fix_type`.
+- The receiving service isn't built yet.
+
 ### Added (AWS CDK)
 - `posturanet fix` and `contract check --source` work on AWS CDK apps in TypeScript and Python, for the same three evidence-backed fixes. The finding's resource maps to its stack and logical id as for CloudFormation, then through the synthesized template's `aws:cdk:path` to the one L2 construct (`SecurityGroup`, `Bucket`, `ManagedPolicy`) in the app source whose id is that literal. No path metadata, an L1 `Cfn*` construct, or a computed or repeated id stops with UNKNOWN.
 - The fix edits the program, not the template, and only literals: `addIngressRule` peers, `blockPublicAccess: BlockPublicAccess.BLOCK_ALL`, `PolicyStatement` `actions`. Before editing, PosturaNet checks the literals explain the synthesized template exactly (every ingress rule, every statement), so rules from `connections.allowFrom` or statements from `addStatements` stop instead of being missed.
