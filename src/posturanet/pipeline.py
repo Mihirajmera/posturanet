@@ -185,12 +185,8 @@ def _run_cfn_dispatch(
     if finding.fix_type is FixType.IAM_LEAST_PRIVILEGE:
         return _run_iam(finding, repo, config, ctx, record, iac="cloudformation")
     if finding.fix_type is FixType.CONFIG_ATTRIBUTE:
-        raise StageStop(
-            "ingest",
-            f"{finding.control_id} is an attribute fix; those edit Terraform only so far",
-            ["set the property in the template by hand"],
-            unknown=True,
-        )
+        record.stages.append(_ingest_stage(finding))
+        return _run_config(finding, repo, config, ctx, record, iac="cloudformation")
     return _run_sg(finding, repo, config, ctx, record, iac="cloudformation")
 
 
@@ -528,7 +524,13 @@ def _record_validation(record: RunRecord, report: ValidationReport, *, dry: bool
 
 
 def _run_config(
-    finding: Finding, repo: Path, config: Config, ctx: Context, record: RunRecord
+    finding: Finding,
+    repo: Path,
+    config: Config,
+    ctx: Context,
+    record: RunRecord,
+    *,
+    iac: Literal["terraform", "cloudformation"] = "terraform",
 ) -> tuple[RunRecord, Proposal | None]:
     """Attribute fixes (FR-48): no evidence or contract; the change removes no access."""
     dry = ctx.mode == "dry-run"
@@ -541,16 +543,31 @@ def _run_config(
         )
 
     # --- locate
-    s3_fetch = boto3_s3_fetch(ctx.aws) if ctx.aws is not None else None
-    loc, match = locate_match(
-        finding,
-        repo,
-        config,
-        ctx.state_path,
-        s3_fetch,
-        resource_types=list(dict.fromkeys(r.resource_type for r in rows)),
-        account_scope=rows[0].scope == "account",
-    )
+    res: cfn.CfnResource | None = None
+    if iac == "cloudformation":
+        rows = [r for r in (row.for_cfn() for row in rows) if r is not None]
+        if not rows:
+            raise StageStop(
+                "fix",
+                f"{finding.control_id} has no CloudFormation property mapping yet",
+                ["set the property in the template by hand"],
+                unknown=True,
+            )
+        types = list(dict.fromkeys(r.resource_type for r in rows))
+        loc, res = cfn.locate(finding, repo, config, ctx.state_path, ctx.aws, types)
+        rtype = res.type
+    else:
+        s3_fetch = boto3_s3_fetch(ctx.aws) if ctx.aws is not None else None
+        loc, match = locate_match(
+            finding,
+            repo,
+            config,
+            ctx.state_path,
+            s3_fetch,
+            resource_types=list(dict.fromkeys(r.resource_type for r in rows)),
+            account_scope=rows[0].scope == "account",
+        )
+        rtype = match.type
     record.location = loc
     owners = ", ".join(loc.owners) if loc.owners else "no owner found"
     record.stages.append(
@@ -561,7 +578,7 @@ def _run_config(
             details=loc.reasoning,
         )
     )
-    fix = next(r for r in rows if r.resource_type == match.type)
+    fix = next(r for r in rows if r.resource_type == rtype)
     record.stages.append(
         StageResult(
             name="evidence",
@@ -588,31 +605,41 @@ def _run_config(
             f"{loc.address} uses count or for_each; the edit would change every instance",
             ["fix this resource by hand for now"],
         )
-    diff, edit, original = edit_resource(repo, loc.file, loc.line, loc.address, fix)
+    if res is not None:
+        diff, already = cfn.attr_diff(repo, res, fix)
+        original = res.template.on_disk(res.template.text)
+    else:
+        diff, edit, original = edit_resource(repo, loc.file, loc.line, loc.address, fix)
+        already = edit.already
     record.diff = diff
     record.stages.append(
         StageResult(
             name="fix",
             status=StageStatus.OK,
             summary=f"{fix.control} · {diff.summary}",
-            details=[f"already set: {a}" for a in edit.already],
+            details=[f"already set: {a}" for a in already],
         )
     )
 
     # --- validate
-    tf = ctx.terraform or SubprocessTerraform(config.terraform.binary, config.validation.timeout_s)
-    report = validate_config_fix(
-        repo=repo,
-        fix=fix,
-        address=loc.address,
-        file=loc.file,
-        line=loc.line,
-        diff=diff,
-        config=config,
-        tf=tf,
-        state_path=ctx.state_path,
-        offline=dry,
-    )
+    if res is not None:
+        report = cfn.validate_attr(res, diff, fix, config, ctx.aws, offline=dry)
+    else:
+        tf = ctx.terraform or SubprocessTerraform(
+            config.terraform.binary, config.validation.timeout_s
+        )
+        report = validate_config_fix(
+            repo=repo,
+            fix=fix,
+            address=loc.address,
+            file=loc.file,
+            line=loc.line,
+            diff=diff,
+            config=config,
+            tf=tf,
+            state_path=ctx.state_path,
+            offline=dry,
+        )
     record.validation = report
     _record_validation(record, report, dry=dry)
 
@@ -627,7 +654,7 @@ def _run_config(
         fix=fix,
         diff=diff,
         report=report,
-        already=edit.already,
+        already=already,
         unknowns=unknowns,
     )
     record.unknowns = [*([fix.note] if fix.note else []), *unknowns]

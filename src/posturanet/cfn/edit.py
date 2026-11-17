@@ -17,6 +17,7 @@ from ruamel.yaml.nodes import MappingNode, Node, ScalarNode, SequenceNode
 from posturanet.cfn.locate import CfnResource
 from posturanet.cfn.template import (
     Template,
+    TemplateError,
     block_mapping,
     end,
     get,
@@ -26,10 +27,12 @@ from posturanet.cfn.template import (
     key_node,
     line_end,
     line_start,
+    parse,
     scalar_text,
     start,
     value,
 )
+from posturanet.configfix.catalog import PRESENT, Change, ConfigFix
 from posturanet.errors import StageStop
 from posturanet.iamfix.doc import Statement
 from posturanet.synth.hcl_render import DEFAULT_DESCRIPTION
@@ -92,7 +95,7 @@ def insert_pairs(text: str, mapping: MappingNode, pairs: list[tuple[str, Any]], 
         f'"{k}": '
         + (
             json_mapping(v, key_ind, step, multiline=multiline)
-            if isinstance(v, list)
+            if isinstance(v, list) and v and isinstance(v[0], tuple)
             else scalar_text(v, as_json=True)
         )
         for k, v in pairs
@@ -421,3 +424,132 @@ def iam_edit(policy: CfnPolicy, after: dict[int, list[str]]) -> str:
             s = len(t.text[:s].rstrip(" "))
         edits.append((s, end(node), new))
     return apply(t.text, edits)
+
+
+# --- attribute fixes (configfix catalog rows mapped with ConfigFix.for_cfn)
+
+
+def _prop(res: CfnResource, path: str) -> tuple[bool, Any]:
+    """(present, value) of a property path under Properties; stops on an intrinsic on the way."""
+    cur: Any = value(res.properties) if res.properties is not None else {}
+    for part in path.split("."):
+        if is_intrinsic(cur) or not isinstance(cur, dict):
+            raise _unsupported(f"{res.logical_id} {path}")
+        if part not in cur:
+            return False, None
+        cur = cur[part]
+    return True, cur
+
+
+def _literal(res: CfnResource, c: Change, v: Any) -> Any:
+    """The property as a plain value the change can compare; CloudFormation often writes
+    booleans and numbers as strings."""
+    what = f"{res.logical_id} {c.path}"
+    if v is None or isinstance(v, dict):
+        raise _unsupported(what)
+    if isinstance(v, list):
+        if not all(isinstance(x, str) for x in v):
+            raise _unsupported(what)
+        return v
+    if isinstance(v, str) and isinstance(c.value, bool) and v.lower() in ("true", "false"):
+        return v.lower() == "true"
+    if isinstance(v, str) and c.op == "at_least" and v.isdigit():
+        return int(v)
+    return v
+
+
+def attr_applies(res: CfnResource, fix: ConfigFix) -> tuple[bool, str]:
+    for w in fix.when:
+        present, v = _prop(res, w.path)
+        if is_intrinsic(v):
+            raise _unsupported(f"{res.logical_id} {w.path}")
+        if not present and None in w.in_:
+            continue
+        if present and (PRESENT in w.in_ or v in w.in_):
+            continue
+        shown = "not set" if not present else repr(v)
+        return False, f"{w.path} is {shown}"
+    return True, ""
+
+
+def attr_unmet(res: CfnResource, fix: ConfigFix) -> list[str]:
+    """The changes the resource doesn't meet yet."""
+    unmet = []
+    for c in fix.changes:
+        present, v = _prop(res, c.path)
+        if not present or not c.satisfied_by(_literal(res, c, v)):
+            unmet.append(c.describe())
+    return unmet
+
+
+def _nest(parts: list[str], v: Any) -> list[tuple[str, Any]]:
+    return [(parts[0], _nest(parts[1:], v) if len(parts) > 1 else v)]
+
+
+def _append_items(t: Template, seq: SequenceNode, items: list[str]) -> Edit:
+    text = t.text
+    if not seq.flow_style:
+        ind = indent_of(text, start(seq.value[-1]))
+        pos = line_end(text, end(seq))
+        lead = "" if text[:pos].endswith("\n") else "\n"
+        return pos, pos, lead + "".join(f"{ind}- {scalar_text(i, as_json=False)}\n" for i in items)
+    rendered = [scalar_text(i, as_json=t.is_json) for i in items]
+    if not seq.value:
+        return end(seq) - 1, end(seq) - 1, ", ".join(rendered)
+    last = seq.value[-1]
+    sep = ",\n" + indent_of(text, start(last)) if "\n" in text[start(seq) : end(seq)] else ", "
+    return end(last), end(last), "".join(sep + r for r in rendered)
+
+
+def _attr_edit(res: CfnResource, c: Change) -> Edit | None:
+    """One edit that makes the resource meet `c`, or None if it already does."""
+    present, cur = _prop(res, c.path)
+    if present and c.satisfied_by(_literal(res, c, cur)):
+        return None
+    t, step, parts = res.template, _step(res), c.path.split(".")
+    want: Any = list(c.value) if isinstance(c.value, list) else c.value
+    node = res.properties
+    if node is None:
+        return insert_pairs(t.text, res.node, [("Properties", _nest(parts, want))], step)
+    for i, part in enumerate(parts):
+        if not isinstance(node, MappingNode) or str(node.tag).startswith("!"):
+            raise _unsupported(f"{res.logical_id} {'.'.join(parts[:i]) or 'Properties'}")
+        child = get(node, part)
+        if child is None:
+            return insert_pairs(t.text, node, _nest(parts[i:], want), step)
+        node = child
+    if str(node.tag).startswith("!"):
+        raise _unsupported(f"{res.logical_id} {c.path}")
+    if c.op == "includes":
+        if not isinstance(node, SequenceNode):
+            raise _unsupported(f"{res.logical_id} {c.path}")
+        return _append_items(t, node, [v for v in want if v not in cur])
+    if not isinstance(node, ScalarNode):
+        raise _unsupported(f"{res.logical_id} {c.path}")
+    return start(node), end(node), scalar_text(want, as_json=t.is_json)
+
+
+def attr_edit(res: CfnResource, fix: ConfigFix) -> tuple[str, list[str], list[str]]:
+    """(new text, changes made, changes already met). `fix` carries CloudFormation paths."""
+    ok, why = attr_applies(res, fix)
+    if not ok:
+        raise StageStop(
+            "fix", f"the {fix.control} fix doesn't apply here: {why}", ["fix this resource by hand"]
+        )
+    text, changed, already = res.template.text, [], []
+    for c in fix.changes:
+        # Re-read after each edit: two changes can share a parent that the first one adds.
+        try:
+            t = parse(text, res.template.path)
+        except TemplateError as exc:
+            raise StageStop("fix", f"the edited template doesn't parse: {exc}") from exc
+        cur = CfnResource(
+            res.stack, res.logical_id, res.type, t, t.resources[res.logical_id], res.line
+        )
+        e = _attr_edit(cur, c)
+        if e is None:
+            already.append(c.describe())
+        else:
+            text = apply(text, [e])
+            changed.append(c.describe())
+    return text, changed, already
