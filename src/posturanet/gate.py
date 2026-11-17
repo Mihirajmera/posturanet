@@ -27,6 +27,8 @@ from pydantic import BaseModel, ValidationError
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
+from posturanet import cfn
+from posturanet.cfn import template as cfn_template
 from posturanet.configfix.hcl_attrs import ABSENT, BLOCK, Unsupported, lookup, resource_block
 from posturanet.errors import StageStop
 from posturanet.iamfix import gate as iam_gate
@@ -367,7 +369,9 @@ def check_source(repo: Path, config: Config, files: list[Path] | None = None) ->
     results: list[ContractResult] = []
     for loaded in _all_contracts(repo, config):
         c = loaded.contract
-        if isinstance(c, BehaviorContract):
+        if cfn.split_address(c.resource):
+            res = _source_cfn(loaded, repo, config, wanted)
+        elif isinstance(c, BehaviorContract):
             res = _source_sg(loaded, repo, config, wanted)
         elif isinstance(c, IamContract):
             res = _source_iam(loaded, repo, config, wanted)
@@ -485,6 +489,79 @@ def _source_s3(
         needles += n
     if not touched:
         return None
+    return _finish(result, loaded, violations, unknowns, needles)
+
+
+def _intrinsic_anywhere(v: Any) -> bool:
+    if cfn_template.is_intrinsic(v):
+        return True
+    if isinstance(v, dict):
+        return any(_intrinsic_anywhere(x) for x in v.values())
+    return isinstance(v, list) and any(_intrinsic_anywhere(x) for x in v)
+
+
+def _source_cfn(
+    loaded: _Loaded, repo: Path, config: Config, wanted: set[Path] | None
+) -> ContractResult | None:
+    """A contract on a CloudFormation resource, judged from the template (literals only)."""
+    c = loaded.contract
+    subject = (
+        "ingress"
+        if isinstance(c, BehaviorContract)
+        else "policy"
+        if isinstance(c, IamContract)
+        else "public access block"
+    )
+    result = ContractResult(c.resource, loaded.rel, "PASS", subject=subject)
+    parts = cfn.split_address(c.resource)
+    assert parts is not None
+    res = cfn.resolve(repo, config, *parts)
+    if isinstance(res, str):
+        return _finish(result, loaded, [], [res], []) if wanted is None else None
+    file_rel = res.template.path.resolve().relative_to(repo.resolve()).as_posix()
+    result.source_file, result.source_line = file_rel, res.line
+    if not _in_scope(repo, file_rel, wanted):
+        return None
+    try:
+        if isinstance(c, BehaviorContract):
+            return _judge(result, c, cfn.parse_sg(res).rules(), loaded.text)
+        if isinstance(c, IamContract):
+            cfn.parse_policy(res)  # stops on anything that isn't a literal statement list
+            doc = cfn_template.value(cfn_template.get(res.properties, "PolicyDocument"))
+            if _intrinsic_anywhere(doc):
+                return _finish(result, loaded, [], ["the policy uses intrinsic functions"], [])
+            violations, unknowns, needles = iam_gate.judge(c, doc)
+            return _finish(result, loaded, violations, unknowns, needles)
+    except StageStop as exc:
+        return _finish(result, loaded, [], [exc.reason], [])
+    assert isinstance(c, S3Contract)
+    violations, unknowns = s3_gate.judge_flags(c, cfn.s3_flags(res))
+    needles = ["must_block"] * len(violations)
+    for lid, node in res.template.resources.items():
+        if cfn_template.value(cfn_template.get(node, "Type")) != "AWS::S3::BucketPolicy":
+            continue
+        props = cfn_template.value(cfn_template.get(node, "Properties")) or {}
+        target = props.get("Bucket")
+        bucket = (
+            target
+            if isinstance(target, str)
+            else next(iter(c.exposure), None)
+            if target == {"Ref": res.logical_id}
+            else None
+        )
+        if bucket is None:
+            unknowns.append(f"can't tell which bucket {lid} is for")
+            continue
+        if bucket not in c.exposure:
+            continue
+        doc = props.get("PolicyDocument")
+        if _intrinsic_anywhere(doc) or not isinstance(doc, dict):
+            unknowns.append(f"{lid} uses intrinsic functions")
+            continue
+        v, u, n = s3_gate.judge_policy(c, bucket, doc, None)
+        violations += v
+        unknowns += u
+        needles += n
     return _finish(result, loaded, violations, unknowns, needles)
 
 

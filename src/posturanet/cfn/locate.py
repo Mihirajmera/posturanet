@@ -1,0 +1,265 @@
+"""Locate for CloudFormation: physical id → stack and logical id → template file:line → owners.
+
+The stack mapping comes from `cloudformation:DescribeStackResources` (read-only) or, offline,
+from an export of it (`cloudformation.stack_resources` or `--state`). The template is the one
+file in the repo that defines that logical id with that type. Anything else stops with
+UNKNOWN: a resource with no source line (a SAM-generated role, a console resource) is never
+guessed at.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from ruamel.yaml.nodes import MappingNode, Node
+
+from posturanet.aws.session import ClientFactory
+from posturanet.cfn.template import (
+    Template,
+    TemplateError,
+    find_templates,
+    get,
+    key_node,
+    line_of,
+    load,
+    value,
+)
+from posturanet.errors import StageStop
+from posturanet.locate.codeowners import find_codeowners, owners_for
+from posturanet.models import Confidence, Config, Finding, Location
+
+PREFIX = "cfn."
+
+
+@dataclass
+class CfnResource:
+    stack: str
+    logical_id: str
+    type: str
+    template: Template
+    node: MappingNode
+    line: int  # line of the logical id key
+
+    @property
+    def address(self) -> str:
+        return address(self.stack, self.logical_id)
+
+    @property
+    def properties(self) -> Node | None:
+        return get(self.node, "Properties")
+
+
+def address(stack: str, logical_id: str) -> str:
+    """`cfn.<stack>.<LogicalId>`: stack names and logical ids can't contain dots."""
+    return f"{PREFIX}{stack}.{logical_id}"
+
+
+def split_address(addr: str) -> tuple[str, str] | None:
+    if not addr.startswith(PREFIX):
+        return None
+    stack, _, logical = addr[len(PREFIX) :].partition(".")
+    return (stack, logical) if stack and logical else None
+
+
+def _stack_rows(path: Path) -> list[dict[str, Any]] | None:
+    """Rows of a `describe-stack-resources` export, or None if `path` isn't one."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    rows = data.get("StackResources") if isinstance(data, dict) else None
+    return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else None
+
+
+def _has_tf(root: Path) -> bool:
+    return any(".terraform" not in p.parts and ".git" not in p.parts for p in root.rglob("*.tf"))
+
+
+def is_cloudformation(repo: Path, config: Config, state_path: Path | None = None) -> bool:
+    """`iac: cloudformation`, or (auto) a stack-resources export, or templates and no .tf."""
+    if config.iac != "auto":
+        return config.iac == "cloudformation"
+    if state_path is not None:
+        return _stack_rows(state_path) is not None
+    if config.cloudformation.stack_resources:
+        return True
+    return not _has_tf(repo / config.terraform.root) and bool(find_templates(repo))
+
+
+def _rel(path: Path, repo: Path) -> str:
+    try:
+        return path.resolve().relative_to(repo.resolve()).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def stack_row(
+    ids: list[str],
+    repo: Path,
+    config: Config,
+    state_path: Path | None,
+    aws: ClientFactory | None,
+) -> tuple[dict[str, Any], str]:
+    """(the stack resource whose physical id is one of `ids`, where it came from)."""
+    export = state_path or (
+        repo / config.cloudformation.stack_resources
+        if config.cloudformation.stack_resources
+        else None
+    )
+    if export is not None:
+        rows = _stack_rows(export)
+        if rows is None:
+            raise StageStop(
+                "locate",
+                f"{_rel(export, repo)} is not a describe-stack-resources export",
+                ["export it with `aws cloudformation describe-stack-resources --stack-name …`"],
+            )
+        label = _rel(export, repo)
+    elif aws is not None:
+        cf = aws("cloudformation")
+        rows = []
+        for rid in ids:
+            if any(r.get("PhysicalResourceId") in ids for r in rows):
+                break
+            try:
+                rows += cf.describe_stack_resources(PhysicalResourceId=rid)["StackResources"]
+            except Exception as exc:  # botocore ClientError; boto3 is only imported in aws/
+                if "does not exist" in str(exc):
+                    continue
+                raise StageStop(
+                    "locate", f"cloudformation:DescribeStackResources failed: {exc}"
+                ) from exc
+        label = "cloudformation:DescribeStackResources"
+    else:
+        raise StageStop(
+            "locate",
+            "mapping a resource to its CloudFormation stack needs AWS access, which a dry run "
+            "does not use",
+            [
+                "set cloudformation.stack_resources to an export of "
+                "`aws cloudformation describe-stack-resources` (never commit real exports)",
+                "or drop --dry-run",
+            ],
+        )
+    found = {
+        (str(r.get("StackName")), str(r.get("LogicalResourceId"))): r
+        for r in rows
+        if r.get("PhysicalResourceId") in ids
+    }
+    if not found:
+        raise StageStop(
+            "locate",
+            f"{ids[0]} is not in any CloudFormation stack ({label})",
+            [
+                "check that this resource is managed by CloudFormation",
+                "if it was created in the console, codifying it comes in a later release",
+            ],
+            unknown=True,
+        )
+    if len(found) > 1:
+        raise StageStop(
+            "locate",
+            f"{ids[0]} matches {len(found)} stack resources: "
+            + ", ".join(f"{s}/{lid}" for s, lid in sorted(found)),
+            ["fix the duplicate export rows, then re-run"],
+        )
+    return next(iter(found.values())), label
+
+
+def resolve(
+    repo: Path, config: Config, stack: str, logical_id: str, rtype: str | None = None
+) -> CfnResource | str:
+    """The template resource for `stack/logical_id`, or why it can't be found."""
+    mapped = config.cloudformation.templates.get(stack)
+    if mapped:
+        try:
+            candidates = [load(repo / mapped)]
+        except (OSError, TemplateError) as exc:
+            return f"cloudformation.templates.{stack} ({mapped}): {exc}"
+    else:
+        candidates = find_templates(repo)
+    hits = []
+    for t in candidates:
+        node = t.resources.get(logical_id)
+        if node is None:
+            continue
+        found_type = str(value(get(node, "Type")))
+        if rtype is None or found_type == rtype:
+            hits.append((t, node, found_type))
+    if not hits:
+        sam = any(t.sam for t in candidates)
+        why = f"{logical_id} ({rtype or 'any type'}) is not defined in any template in this repo"
+        if sam:
+            why += "; it may be generated by the SAM transform, which has no source line to edit"
+        return why
+    if len(hits) > 1:
+        files = ", ".join(_rel(t.path, repo) for t, _, _ in hits)
+        return (
+            f"{logical_id} is defined in {len(hits)} templates ({files}); "
+            f"set cloudformation.templates.{stack} to the one stack {stack} deploys"
+        )
+    t, node, found_type = hits[0]
+    resources = get(t.root, "Resources")
+    assert isinstance(resources, MappingNode)
+    key = key_node(resources, logical_id)
+    return CfnResource(stack, logical_id, found_type, t, node, line_of(key) if key else 1)
+
+
+def locate(
+    finding: Finding,
+    repo: Path,
+    config: Config,
+    state_path: Path | None,
+    aws: ClientFactory | None,
+    types: list[str],
+) -> tuple[Location, CfnResource]:
+    ids = [i for i in dict.fromkeys([finding.resource.id, finding.resource.arn]) if i]
+    row, label = stack_row(ids, repo, config, state_path, aws)
+    stack, logical = str(row["StackName"]), str(row["LogicalResourceId"])
+    rtype = str(row.get("ResourceType"))
+    if rtype not in types:
+        raise StageStop(
+            "locate",
+            f"{stack}/{logical} is a {rtype}, not {' or '.join(types)}",
+            ["`posturanet fixes list` shows every control PosturaNet fixes"],
+        )
+    res = resolve(repo, config, stack, logical, rtype)
+    if isinstance(res, str):
+        raise StageStop(
+            "locate",
+            res,
+            [
+                "pass the template path in .posturanet.yml: cloudformation.templates."
+                f"{stack}: path/to/template.yaml",
+                "fix this resource by hand if it has no template in this repo",
+            ],
+            unknown=True,
+        )
+    file_rel = _rel(res.template.path, repo)
+    reasoning = [
+        f"physical id matched in {label}: stack {stack}, logical id {logical}",
+        f"defined in {file_rel}" + (" (SAM template)" if res.template.sam else ""),
+    ]
+    owners: list[str] = []
+    codeowners = find_codeowners(repo)
+    if codeowners is not None:
+        owners = owners_for(codeowners, file_rel)
+    reasoning.append(
+        f"owners from {_rel(codeowners, repo)}"
+        if owners and codeowners
+        else "no CODEOWNERS rule matches this file"
+    )
+    loc = Location(
+        address=res.address,
+        file=file_rel,
+        line=res.line,
+        state_source=label,
+        owners=owners,
+        drift=None,
+        confidence=Confidence.HIGH if owners else Confidence.MEDIUM,
+        reasoning=reasoning,
+    )
+    return loc, res

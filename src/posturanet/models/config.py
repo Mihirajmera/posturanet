@@ -34,6 +34,13 @@ class TerraformConfig(_Strict):
     binary: str = "terraform"
 
 
+class CloudFormationConfig(_Strict):
+    # Offline stack mapping: an `aws cloudformation describe-stack-resources` export.
+    stack_resources: str | None = None
+    # stack name -> template path, when a logical id appears in more than one template.
+    templates: dict[str, str] = Field(default_factory=dict)
+
+
 class FlowLogsConfig(_Strict):
     mode: Literal["logs_insights"] = "logs_insights"
     log_group: str | None = None
@@ -78,7 +85,11 @@ class DeliveryConfig(_Strict):
 class Config(_Strict):
     version: Literal[1] = 1
     aws: AwsConfig = Field(default_factory=AwsConfig)
+    # auto: CloudFormation when a stack-resources export is given, or the repo has templates
+    # and no .tf files.
+    iac: Literal["auto", "terraform", "cloudformation"] = "auto"
     terraform: TerraformConfig = Field(default_factory=TerraformConfig)
+    cloudformation: CloudFormationConfig = Field(default_factory=CloudFormationConfig)
     evidence: EvidenceConfig = Field(default_factory=EvidenceConfig)
     contracts: ContractsConfig = Field(default_factory=ContractsConfig)
     synthesis: SynthesisConfig = Field(default_factory=SynthesisConfig)

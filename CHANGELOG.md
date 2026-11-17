@@ -4,6 +4,13 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Added (CloudFormation and SAM)
+- `posturanet fix` and `contract check --source` work on CloudFormation and SAM templates (YAML or JSON, `!Ref`/`!GetAtt` short forms included) for the same three evidence-backed fixes: security group ingress, S3 Block Public Access and IAM least privilege. The finding's resource maps to its stack and logical id through `cloudformation:DescribeStackResources`, or offline through `cloudformation.stack_resources` (an export of it), then to the one template that defines it. Anything without a source line, such as a SAM-generated role, stops with UNKNOWN.
+- The edit replaces only the target's ingress entries, Block Public Access flags or `Action` lists, in the template's own style; comments and every other line stay as written.
+- Validation is static and the PR says so: a change set needs `cloudformation:CreateChangeSet`, a write PosturaNet doesn't hold. Outside a dry run, the target must match the deployed template (`cloudformation:GetTemplate`). `cfn-lint` runs when installed.
+- New config: `iac` (`auto`, `terraform`, `cloudformation`) and `cloudformation.stack_resources` / `cloudformation.templates`. Two read-only calls join the allowlist and the generated IAM policy: `cloudformation:DescribeStackResources`, `cloudformation:GetTemplate`.
+- Not yet: S3.1 (no CloudFormation resource), attribute fixes and IaC scanner findings on templates.
+
 ### Added (contract check on every PR)
 - `contract check --github-comment <PR>` and the Action's `comment` input (on by default): one PR comment with the result, posted on BLOCK or UNKNOWN and edited on later pushes, so a fixed PR turns it green. A PR that's green from the start gets no comment. If GitHub refuses the comment (fork PR, no `pull-requests: write`), PosturaNet warns and keeps the check's result and exit code. The Action skips the comment when its pinned `version` predates the flag. The example workflow asks for `pull-requests: write`.
 - `contract build --all`: a draft contract for every security group in the Terraform state, each from its own flow logs. A group that stops (no flow logs, say) is listed with its reason and doesn't stop the rest; the exit code is the worst one. `--evidence-file` is refused with `--all`, since it holds one group's flows.

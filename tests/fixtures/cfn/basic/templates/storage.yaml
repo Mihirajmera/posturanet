@@ -1,0 +1,22 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Synthetic SAM stack for PosturaNet tests.
+
+Resources:
+  AssetsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: acme-assets
+      VersioningConfiguration:
+        Status: Enabled
+
+  ThumbnailFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: python3.12
+      Handler: app.handler
+      CodeUri: src/
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref AssetsBucket
