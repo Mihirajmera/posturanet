@@ -31,7 +31,7 @@ from posturanet.cfn.template import (
     load,
     value,
 )
-from posturanet.errors import StageStop
+from posturanet.errors import StageStop, UsageError
 from posturanet.ingest.iac import split_template_ref
 from posturanet.locate.codeowners import find_codeowners, owners_for
 from posturanet.models import Confidence, Config, Finding, Location
@@ -102,6 +102,44 @@ def _rel(path: Path, repo: Path) -> str:
         return path.as_posix()
 
 
+def _export_path(repo: Path, config: Config, state_path: Path | None) -> Path | None:
+    if state_path is not None:
+        return state_path
+    named = config.cloudformation.stack_resources
+    return repo / named if named else None
+
+
+def template_rows(
+    repo: Path, config: Config, state_path: Path | None, types: list[str]
+) -> list[dict[str, Any]]:
+    """Rows of the stack-resources export of one of `types` that a template here defines."""
+    export = _export_path(repo, config, state_path)
+    if export is None:
+        raise UsageError(
+            "listing CloudFormation resources needs a describe-stack-resources export: "
+            "set cloudformation.stack_resources or pass --state"
+        )
+    rows = _stack_rows(export)
+    if rows is None:
+        raise UsageError(f"{_rel(export, repo)} is not a describe-stack-resources export")
+    return [
+        r
+        for r in rows
+        if r.get("ResourceType") in types
+        and r.get("PhysicalResourceId")
+        and isinstance(
+            resolve(
+                repo,
+                config,
+                str(r.get("StackName")),
+                str(r.get("LogicalResourceId")),
+                str(r.get("ResourceType")),
+            ),
+            CfnResource,
+        )
+    ]
+
+
 def stack_row(
     ids: list[str],
     repo: Path,
@@ -159,11 +197,7 @@ def _export(
     repo: Path, config: Config, state_path: Path | None
 ) -> tuple[list[dict[str, Any]], str] | None:
     """(rows, label) of the stack-resources export, if one is given."""
-    export = state_path or (
-        repo / config.cloudformation.stack_resources
-        if config.cloudformation.stack_resources
-        else None
-    )
+    export = _export_path(repo, config, state_path)
     if export is None:
         return None
     rows = _stack_rows(export)

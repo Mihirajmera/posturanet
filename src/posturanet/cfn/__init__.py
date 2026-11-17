@@ -22,6 +22,7 @@ from posturanet.cfn.locate import (
     resolve,
     resolve_template_ref,
     split_address,
+    template_rows,
 )
 from posturanet.cfn.validate import (
     CHANGESET_NOTE,
@@ -57,6 +58,7 @@ __all__ = [
     "select_policy",
     "sg_diff",
     "split_address",
+    "template_rows",
     "validate_attr",
     "validate_iam",
     "validate_s3",

@@ -13,15 +13,18 @@ Every outcome is a RunRecord with an `Outcome`. CONFIRMED needs every check to p
 
 from __future__ import annotations
 
+import contextlib
 import ipaddress
+import json
 import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from posturanet import __version__
+from posturanet import __version__, cfn
 from posturanet.aws.session import ClientFactory
+from posturanet.cfn import template as cfn_template
 from posturanet.configfix.catalog import Change
 from posturanet.configfix.validate import get_path
 from posturanet.deliver.github import GitHub
@@ -187,13 +190,20 @@ def _run(pr_ref: str, repo: Path, config: Config, ctx: VerifyContext, record: Ru
     )
 
     # --- applied
-    s3_fetch = boto3_s3_fetch(ctx.aws) if ctx.aws is not None else None
-    state, label = load_repo_state(repo, config, ctx.state_path, s3_fetch)
-    attrs = attributes_of(state, spec.address)
+    stack_logical = cfn.split_address(spec.address)
+    if stack_logical is not None:
+        attrs, label = _cfn_attrs(spec, *stack_logical, ctx)
+        where = label
+    else:
+        s3_fetch = boto3_s3_fetch(ctx.aws) if ctx.aws is not None else None
+        state, label = load_repo_state(repo, config, ctx.state_path, s3_fetch)
+        attrs = attributes_of(state, spec.address)
+        where = f"state {label}"
     if attrs is None:
         raise StageStop(
             "applied",
-            f"{spec.address} is not in the Terraform state {label}",
+            f"{spec.address} is not in "
+            + (label if stack_logical else f"the Terraform state {label}"),
             ["check you pointed at the state this PR applies to"],
             unknown=True,
         )
@@ -213,7 +223,7 @@ def _run(pr_ref: str, repo: Path, config: Config, ctx: VerifyContext, record: Ru
     outcome.state = OutcomeState.APPLIED
     outcome.watch_from = ctx.applied_at or outcome.merged_at
     record.stages.append(
-        StageResult(name="applied", status=StageStatus.OK, summary=f"state {label} shows the fix")
+        StageResult(name="applied", status=StageStatus.OK, summary=f"{where} shows the fix")
     )
 
     # --- recheck
@@ -395,7 +405,80 @@ def _confirm(record: RunRecord, outcome: Outcome, spec: VerifySpec) -> None:
     record.result = "CONFIRMED"
     record.result_detail = f"{spec.control} passes on {spec.address}"
     if spec.fix_type not in ("sg_ingress", "iam_least_privilege"):
-        record.unknowns = ["confirmed from the Terraform state; live drift after apply isn't seen"]
+        source = (
+            "the deployed stack template"
+            if cfn.split_address(spec.address)
+            else "the Terraform state"
+        )
+        record.unknowns = [f"confirmed from {source}; live drift after apply isn't seen"]
+
+
+def _cfn_attrs(
+    spec: VerifySpec, stack: str, logical: str, ctx: VerifyContext
+) -> tuple[dict[str, object] | None, str]:
+    """The fixed resource in the template the stack runs, with Terraform attribute names so the
+    same applied/re-check logic judges it. Read-only: cloudformation:GetTemplate, or `--state`
+    holding `aws cloudformation get-template` output (or the template itself) offline."""
+    body: object
+    if ctx.aws is not None:
+        label = f"the deployed template of stack {stack}"
+        try:
+            body = ctx.aws("cloudformation").get_template(
+                StackName=stack, TemplateStage="Original"
+            )["TemplateBody"]
+        except Exception as exc:  # botocore ClientError; boto3 is only imported in aws/
+            raise StageStop(
+                "applied", f"cloudformation:GetTemplate failed: {exc}", unknown=True
+            ) from exc
+    elif ctx.state_path is not None:
+        label = f"the template in {ctx.state_path.name}"
+        try:
+            body = ctx.state_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise StageStop("applied", f"can't read {ctx.state_path}: {exc}") from exc
+        with contextlib.suppress(json.JSONDecodeError):
+            doc = json.loads(body)
+            if isinstance(doc, dict) and "TemplateBody" in doc:
+                body = doc["TemplateBody"]
+    else:
+        raise StageStop(
+            "applied",
+            f"reading the template stack {stack} runs needs AWS access",
+            [
+                "run with AWS access (cloudformation:GetTemplate)",
+                "or pass --state with `aws cloudformation get-template` output",
+            ],
+            unknown=True,
+        )
+    text = body if isinstance(body, str) else json.dumps(body)  # boto3 decodes JSON bodies
+    try:
+        template = cfn_template.parse(text, Path(f"{stack}.template"))
+    except cfn_template.TemplateError as exc:
+        raise StageStop("applied", f"{label}: {exc}", unknown=True) from exc
+    node = template.resources.get(logical)
+    if node is None:
+        return None, label
+    rtype = str(cfn_template.value(cfn_template.get(node, "Type")))
+    res = cfn.CfnResource(stack, logical, rtype, template, node, 1)
+    try:
+        if spec.fix_type == "sg_ingress":
+            ingress = [
+                {
+                    "from_port": r.from_port,
+                    "to_port": r.to_port,
+                    "protocol": r.proto,
+                    "cidr_blocks": [r.cidr],
+                }
+                for r in cfn.parse_sg(res).rules()
+            ]
+            return {"ingress": ingress}, label
+        if spec.fix_type == "iam_least_privilege":
+            cfn.parse_policy(res)  # stops on anything that isn't a literal statement list
+            doc = cfn_template.value(cfn_template.get(res.properties, "PolicyDocument"))
+            return {"policy": json.dumps(doc)}, label
+        return dict(cfn.s3_flags(res)), label
+    except StageStop as stop:
+        raise StageStop("applied", stop.reason, stop.next_steps, unknown=True) from stop
 
 
 def _revert(
