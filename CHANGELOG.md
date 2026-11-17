@@ -4,6 +4,10 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Added (opt-in CloudFormation change-set preview)
+- `cloudformation.changeset_preview` (off by default, needs its own `role_arn`): outside a dry run, PosturaNet creates an UPDATE change set of the edited template, makes the `changeset` check required, and passes it only when CloudFormation would modify just the target, in place. The change set is always deleted and never executed.
+- `posturanet init --changeset-preview` prints the separate policy for that role, with an explicit Deny on `ExecuteChangeSet` and stack writes. The read-only allowlist and `posturanet init` output are unchanged. This is the one opt-in exception to NFR-2.
+
 ### Added (CloudFormation and SAM)
 - `posturanet fix` and `contract check --source` work on CloudFormation and SAM templates (YAML or JSON, `!Ref`/`!GetAtt` short forms included) for the same three evidence-backed fixes: security group ingress, S3 Block Public Access and IAM least privilege. The finding's resource maps to its stack and logical id through `cloudformation:DescribeStackResources`, or offline through `cloudformation.stack_resources` (an export of it), then to the one template that defines it. Anything without a source line, such as a SAM-generated role, stops with UNKNOWN.
 - The edit replaces only the target's ingress entries, Block Public Access flags or `Action` lists, in the template's own style; comments and every other line stay as written.

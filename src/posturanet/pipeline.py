@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Literal
 
 from posturanet import __version__, cfn, iamfix, s3fix
+from posturanet.aws.changeset import ChangeSetClient
 from posturanet.aws.session import ClientFactory
 from posturanet.configfix import edit_resource, fixes_for
 from posturanet.configfix import pr as config_pr
@@ -95,6 +96,7 @@ class Context:
     state_path: Path | None = None
     evidence: FlowSource | None = None
     aws: ClientFactory | None = None
+    changeset: ChangeSetClient | None = None  # opt-in only (cloudformation.changeset_preview)
     terraform: TerraformRunner | None = None
     github: GitHub | None = None
     window_days: int | None = None
@@ -376,7 +378,15 @@ def _run_sg(
     # --- validate
     if res is not None:
         report = cfn.validate_sg(
-            res, diff, synth, contract, finding.control_id, config, ctx.aws, offline=dry
+            res,
+            diff,
+            synth,
+            contract,
+            finding.control_id,
+            config,
+            ctx.aws,
+            offline=dry,
+            changeset=ctx.changeset,
         )
     else:
         tf = ctx.terraform or SubprocessTerraform(
@@ -903,7 +913,9 @@ def _run_s3(
 
     # --- validate
     if res is not None:
-        report = cfn.validate_s3(res, diff, control, config, ctx.aws, offline=dry)
+        report = cfn.validate_s3(
+            res, diff, control, config, ctx.aws, offline=dry, changeset=ctx.changeset
+        )
     else:
         tf = ctx.terraform or SubprocessTerraform(
             config.terraform.binary, config.validation.timeout_s
@@ -1234,6 +1246,7 @@ def _run_iam(
             config,
             ctx.aws,
             offline=dry,
+            changeset=ctx.changeset,
         )
     else:
         assert doc is not None

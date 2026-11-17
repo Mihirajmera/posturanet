@@ -128,7 +128,7 @@ Writing the fix is cheap. Everything around it is expensive and risky, so backlo
 - **FR-8** Find the owner from CODEOWNERS, falling back to recent committers.
 - **FR-9** Detect drift on the target resource. If it has drifted → stop, report, no PR.
 - **FR-10** Return candidates with confidence and reasoning. Never a single unexplained guess.
-- **FR-10a** CloudFormation and SAM templates (YAML or JSON, short-form intrinsics included) get the same three evidence-backed fixes as Terraform. The resource's physical id maps to its stack and logical id with read-only `cloudformation:DescribeStackResources` (offline: an export of it), then to the one template file and line that defines that logical id. A resource with no source line (SAM-generated, console-created) or a logical id in several templates without `cloudformation.templates` mapping → UNKNOWN. The edit changes only the target's ingress entries, Block Public Access settings or `Action` lists, in the file's own style. A change set would need `cloudformation:CreateChangeSet` (a write), so validation is static: the template parses, only the target changed, re-check and contract invariants pass on the edited template, and (outside a dry run) the target matches the deployed template (`cloudformation:GetTemplate`); the PR's checks table says the change set was not run. S3.1 (account Block Public Access) has no CloudFormation resource and stops. `contract check --source` judges contracts on templates too.
+- **FR-10a** CloudFormation and SAM templates (YAML or JSON, short-form intrinsics included) get the same three evidence-backed fixes as Terraform. The resource's physical id maps to its stack and logical id with read-only `cloudformation:DescribeStackResources` (offline: an export of it), then to the one template file and line that defines that logical id. A resource with no source line (SAM-generated, console-created) or a logical id in several templates without `cloudformation.templates` mapping → UNKNOWN. The edit changes only the target's ingress entries, Block Public Access settings or `Action` lists, in the file's own style. Validation is static: the template parses, only the target changed, re-check and contract invariants pass on the edited template, and (outside a dry run) the target matches the deployed template (`cloudformation:GetTemplate`). A change set needs `cloudformation:CreateChangeSet` (a write), so by default the PR's checks table says it was not run. A customer may opt in (`cloudformation.changeset_preview`, separate role, see NFR-2): PosturaNet then creates an UPDATE change set of the edited template, requires it to show one in-place `Modify` of the target and nothing else, and deletes it. It never executes it. S3.1 (account Block Public Access) has no CloudFormation resource and stops. `contract check --source` judges contracts on templates too.
 
 ### Evidence and contracts
 - **FR-11** Collect SG usage from VPC Flow Logs (CloudWatch Logs Insights or Athena) for the SG's ENIs.
@@ -196,7 +196,7 @@ Writing the fix is cheap. Everything around it is expensive and risky, so backlo
 | ID | Requirement |
 |---|---|
 | **NFR-1 Safety** | Fail closed on any missing context, failed check, unexpected diff scope, timeout or auth error. "Unknown" is a valid result. |
-| **NFR-2 No production writes** | The agent must not call any AWS mutating API. This is enforced by an allowlist of read-only API calls in code, plus a test. |
+| **NFR-2 No production writes** | The agent must not call any AWS mutating API. This is enforced by an allowlist of read-only API calls in code, plus a test. **One opt-in exception:** with `cloudformation.changeset_preview.enabled` and a separate role, the CloudFormation change-set preview may call `CreateChangeSet`, `DescribeChangeSet` and `DeleteChangeSet` (no resource changes; a control-plane write). It is off by default, always deletes its change set, and `ExecuteChangeSet` is never called: absent from code, checked by a test, and denied in the generated preview policy. |
 | **NFR-3 Data residency** | No customer code, state, logs or findings are sent to PosturaNet. Secrets are redacted before any LLM call. |
 | **NFR-4 Untrusted input** | Finding text, code comments, tickets and tool outputs are data, never instructions to the LLM. |
 | **NFR-5 Determinism** | Same inputs give the same diff and the same idempotency key. LLM output is schema-validated and never executed. |
@@ -243,7 +243,7 @@ Prices are on the website and never in code. Feature flags in the license key: `
 ## 11. Release criteria (every release)
 - All acceptance criteria for the included stories pass.
 - Zero wrongly-reported-safe cases on the benchmark and fixtures.
-- The no-mutating-AWS-calls test passes (NFR-2).
+- The no-mutating-AWS-calls test passes (NFR-2), the default path makes no change-set call, and `ExecuteChangeSet` appears nowhere in code but the preview policy's Deny.
 - Docs updated: this PRD, the architecture doc, and the CHANGELOG.
 
 ## 12. Risks

@@ -1,6 +1,6 @@
 # Design: opt-in CloudFormation change-set preview
 
-Status: **proposal, not implemented.** Needs a human yes before any code (AGENTS.md golden rule 1).
+Status: **approved ("Yes, opt-in as designed") and implemented** in `aws/changeset.py`, `cfn/validate.py`, `posturanet init --changeset-preview`. The IAM `ChangeSetName` condition is applied to `CreateChangeSet` only, since it isn't verified for the other actions; the code only ever deletes `posturanet-*` change sets.
 Depends on PR #15 (`cfn/`, FR-10a).
 
 ## Why
