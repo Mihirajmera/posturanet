@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 
 from posturanet.errors import UsageError
 from posturanet.ingest.controls import fix_type_for
@@ -13,8 +14,13 @@ _PREFIXES: dict[str, tuple[str, FixType]] = {
 }
 
 
+_CONTROL_PREFIX = re.compile(r"^([A-Za-z0-9]+\.\d+):(.+)$")  # S3.8:acme-assets, IAM.21:arn:...
+
+
 def finding_from_resource_id(resource_id: str, control_id: str | None = None) -> Finding:
     resource_id = resource_id.strip()
+    if control_id is None and (m := _CONTROL_PREFIX.match(resource_id)):
+        control_id, resource_id = m.group(1), m.group(2)
     rtype, fix_type = next(
         (v for p, v in _PREFIXES.items() if resource_id.startswith(p)), ("unknown", None)
     )
@@ -23,7 +29,8 @@ def finding_from_resource_id(resource_id: str, control_id: str | None = None) ->
     if fix_type is None:
         raise UsageError(
             f"can't tell what kind of resource '{resource_id}' is; "
-            "pass an ASFF finding file instead, or a security group id (sg-...)"
+            "pass a finding file, a security group id (sg-...), or CONTROL:resource "
+            "such as S3.8:my-bucket"
         )
     return Finding(
         finding_id=f"manual:{resource_id}",
