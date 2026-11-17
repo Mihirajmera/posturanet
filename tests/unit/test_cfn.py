@@ -276,6 +276,10 @@ def test_iam_yaml_scalar_action_becomes_block_list(tmp_path: Path) -> None:
 def test_s3_account_control_stops_unknown(repo: Path) -> None:
     record = run_fix(str(FIX / "findings/s3_account_bpa.json"), repo, load_config(repo)[0])
     assert record.result == "STOPPED" and record.exit_code == 3
+    locate = next(s for s in record.stages if s.name == "locate")
+    assert "no resource type" in locate.summary
+    assert any("aws_s3_account_public_access_block" in n for n in record.next_steps)
+    assert any("put-public-access-block" in n and "won't run" in n for n in record.next_steps)
 
 
 def test_check_mode_validates_with_deployed_template(repo: Path) -> None:
