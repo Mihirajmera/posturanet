@@ -9,7 +9,8 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 - The edit replaces only the target's ingress entries, Block Public Access flags or `Action` lists, in the template's own style; comments and every other line stay as written.
 - Validation is static and the PR says so: a change set needs `cloudformation:CreateChangeSet`, a write PosturaNet doesn't hold. Outside a dry run, the target must match the deployed template (`cloudformation:GetTemplate`). `cfn-lint` runs when installed.
 - New config: `iac` (`auto`, `terraform`, `cloudformation`) and `cloudformation.stack_resources` / `cloudformation.templates`. Two read-only calls join the allowlist and the generated IAM policy: `cloudformation:DescribeStackResources`, `cloudformation:GetTemplate`.
-- Not yet: S3.1 (no CloudFormation resource), attribute fixes and IaC scanner findings on templates.
+- Checkov (`check_type: cloudformation`) and Trivy (`Type: cloudformation`) findings on templates take the same path. The scanner names a template and a logical id; the stack is the one `cloudformation.templates` maps that template to (none, or several, stops with UNKNOWN), and the deployed id comes from the export or `DescribeStackResources(StackName, LogicalResourceId)`. Only the three evidence-backed fixes apply; other checks on templates are listed as unsupported.
+- Not yet: S3.1 (no CloudFormation resource) and attribute fixes.
 
 ### Added (contract check on every PR)
 - `contract check --github-comment <PR>` and the Action's `comment` input (on by default): one PR comment with the result, posted on BLOCK or UNKNOWN and edited on later pushes, so a fixed PR turns it green. A PR that's green from the start gets no comment. If GitHub refuses the comment (fork PR, no `pull-requests: write`), PosturaNet warns and keeps the check's result and exit code. The Action skips the comment when its pinned `version` predates the flag. The example workflow asks for `pull-requests: write`.
