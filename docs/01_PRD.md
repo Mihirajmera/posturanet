@@ -57,7 +57,7 @@ Writing the fix is cheap. Everything around it is expensive and risky, so backlo
 - Writing to production or applying Terraform.
 - A dashboard or hosted multi-tenant SaaS.
 - Detection rules beyond re-checking a known finding.
-- Multi-cloud, CloudFormation, CDK, Pulumi, Terragrunt, remote modules.
+- Multi-cloud, Terragrunt, remote modules. (CloudFormation, CDK and Pulumi moved into scope on 2026-11-14; see AGENTS.md §1.4. Build order: CloudFormation, CDK, Pulumi.)
 - More than three evidence-backed fix types (SG ingress, S3 public access, IAM least privilege). The attribute-fix catalog (FR-48) is not a fix type of this kind: it only sets literal settings that remove no access, and grows by catalog rows.
 - Founder-delivered or managed services.
 
@@ -185,6 +185,7 @@ Writing the fix is cheap. Everything around it is expensive and risky, so backlo
 - **FR-43** An expired or invalid key disables Pro features only. Community keeps working and contracts and evidence files stay.
 - **FR-44** Show upgrade prompts at most once per run, never blocking a working free feature.
 - **FR-45** The optional heartbeat sends only `{lic_id, agent_version}` and can be disabled.
+- **FR-45a** Opt-in outcome share (not built yet). Off by default. When the customer turns it on, each verify result sends only `{control, fix_type, outcome: held | reverted, evidence_days, agent_version}`: no resource ids, ARNs, IPs, account ids, names, code, state, contracts or finding text. A command prints exactly what would be sent. Purpose: learn which fixes break production, across customers.
 
 ### Configuration
 - **FR-46** `.posturanet.yml` in the repo root (schema in the architecture doc §5).
@@ -196,7 +197,7 @@ Writing the fix is cheap. Everything around it is expensive and risky, so backlo
 |---|---|
 | **NFR-1 Safety** | Fail closed on any missing context, failed check, unexpected diff scope, timeout or auth error. "Unknown" is a valid result. |
 | **NFR-2 No production writes** | The agent must not call any AWS mutating API. This is enforced by an allowlist of read-only API calls in code, plus a test. |
-| **NFR-3 Data residency** | No customer code, state, logs or findings are sent to PosturaNet. Secrets are redacted before any LLM call. |
+| **NFR-3 Data residency** | No customer code, state, logs or findings are sent to PosturaNet. Secrets are redacted before any LLM call. The one exception is the opt-in outcome share (FR-45a). |
 | **NFR-4 Untrusted input** | Finding text, code comments, tickets and tool outputs are data, never instructions to the LLM. |
 | **NFR-5 Determinism** | Same inputs give the same diff and the same idempotency key. LLM output is schema-validated and never executed. |
 | **NFR-6 Performance** | `fix` on one SG with a 30-day window finishes in < 5 min on a standard GitHub runner. |

@@ -9,6 +9,16 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 - `contract build --all`: a draft contract for every security group in the Terraform state, each from its own flow logs. A group that stops (no flow logs, say) is listed with its reason and doesn't stop the rest; the exit code is the worst one. `--evidence-file` is refused with `--all`, since it holds one group's flows.
 - `action.yml` at the repo root, so the Action can be listed on GitHub Marketplace (`uses: Mihirajmera/posturanet@<tag>`). `action/action.yml` keeps working; a test keeps the two identical.
 
+### Added (contracts everywhere, related controls)
+- `contract build --all` now also drafts a contract for every S3 bucket and IAM policy in the state, each from its own evidence; JSON rows name the `resource`.
+- A manual target can name its control: `posturanet contract build S3.8:acme-assets`, `posturanet fix IAM.21:arn:aws:iam::123456789012:policy/app --dry-run`.
+- Related controls that need the same change on the same resource are one problem: every security group control on a group (the fix narrows every world-open rule, whichever control was reported, so EC2.13 and EC2.19 are one PR and one row), and the bucket-scope S3 controls S3.2, S3.3 and S3.8. IAM.1 and IAM.21 stay separate (they remove different actions), as do attribute fixes. The issue tag is now `sg_ingress@<address>` / `s3_public@<address>` for these.
+
+### Decided (scope)
+- CloudFormation, CDK and Pulumi are in scope (AGENTS.md §1.4), in that order; not built yet.
+- An opt-in outcome share is allowed (AGENTS.md rule 6, PRD FR-45a); not built yet.
+- Evidence-backed fix types stay at three.
+
 ### Changed (one PR per issue across scanners)
 - The PR idempotency key and the `posturanet:finding` marker now use the issue, `control@terraform_address`, instead of the scanner's finding id. Security Hub, Prowler, Checkov and Trivy reporting the same problem update one PR instead of opening one each. Open PRs from earlier versions still match on their finding id (FR-28).
 - `findings list` and `findings split` take several files. The same control on the same resource (an ARN and its short id count as one) is listed once, with `also <scanner>` on the row and a count in the summary; `split` writes one file for it. JSON rows add `file` (with several files) and `also`. Twin controls such as EC2.13 and EC2.19 are still separate.
