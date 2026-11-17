@@ -19,7 +19,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
-from posturanet import __version__, iamfix, s3fix
+from posturanet import __version__, cfn, iamfix, s3fix
 from posturanet.aws.session import ClientFactory
 from posturanet.configfix import edit_resource, fixes_for
 from posturanet.configfix import pr as config_pr
@@ -43,6 +43,7 @@ from posturanet.evidence.confidence import at_least
 from posturanet.evidence.periodicity import describe
 from posturanet.iamfix import contract as iamcontract
 from posturanet.iamfix import pr as iampr
+from posturanet.iamfix.doc import PolicyDoc
 from posturanet.iamfix.evidence import FileIamSource, IamSource, LiveIamSource
 from posturanet.iamfix.evidence import usage as iam_usage
 from posturanet.iamfix.shrink import shrink
@@ -51,6 +52,7 @@ from posturanet.ingest import ingest
 from posturanet.locate import load_repo_state, locate_match, module_dir, resolve_address
 from posturanet.locate.backend import boto3_s3_fetch
 from posturanet.locate.codeowners import find_codeowners, owners_for
+from posturanet.locate.tfstate import StateMatch
 from posturanet.models import (
     Confidence,
     Config,
@@ -71,7 +73,7 @@ from posturanet.proposal import Proposal
 from posturanet.s3fix import contract as s3contract
 from posturanet.s3fix import pr as s3pr
 from posturanet.s3fix.evidence import FileS3Source, LiveS3Source, S3Source, analyze
-from posturanet.synth import make_diff, parse_security_group, synthesize
+from posturanet.synth import SecurityGroupSource, make_diff, parse_security_group, synthesize
 from posturanet.synth.sg_rules import has_non_cidr_sources, is_internal, rules_from_state
 from posturanet.validate import SubprocessTerraform, TerraformRunner, ValidationInputs, validate
 
@@ -147,11 +149,11 @@ def run_fix_full(
 def _run(
     target: str, repo: Path, config: Config, ctx: Context, record: RunRecord
 ) -> tuple[RunRecord, Proposal | None]:
-    dry = ctx.mode == "dry-run"
-
     # --- ingest
     finding = ingest(target)
     record.finding = finding
+    if cfn.is_cloudformation(repo, config, ctx.state_path):
+        return _run_cfn_dispatch(finding, repo, config, ctx, record)
     if finding.resource.address and finding.fix_type is not FixType.UNSUPPORTED:
         # IaC scanner finding: a Terraform address, resolved to the deployed resource.
         fetch = boto3_s3_fetch(ctx.aws) if ctx.aws is not None else None
@@ -164,6 +166,44 @@ def _run(
         return _run_s3(finding, repo, config, ctx, record)
     if finding.fix_type is FixType.IAM_LEAST_PRIVILEGE:
         return _run_iam(finding, repo, config, ctx, record)
+    return _run_sg(finding, repo, config, ctx, record, iac="terraform")
+
+
+def _run_cfn_dispatch(
+    finding: Finding, repo: Path, config: Config, ctx: Context, record: RunRecord
+) -> tuple[RunRecord, Proposal | None]:
+    """CloudFormation and SAM templates: the same three evidence-backed fix types."""
+    if finding.resource.address:
+        raise StageStop(
+            "ingest",
+            "IaC scanner findings on CloudFormation templates are not supported yet",
+            ["pass the Security Hub finding, or `CONTROL:resource-id`, instead"],
+            unknown=True,
+        )
+    if finding.fix_type is FixType.S3_PUBLIC:
+        return _run_s3(finding, repo, config, ctx, record, iac="cloudformation")
+    if finding.fix_type is FixType.IAM_LEAST_PRIVILEGE:
+        return _run_iam(finding, repo, config, ctx, record, iac="cloudformation")
+    if finding.fix_type is FixType.CONFIG_ATTRIBUTE:
+        raise StageStop(
+            "ingest",
+            f"{finding.control_id} is an attribute fix; those edit Terraform only so far",
+            ["set the property in the template by hand"],
+            unknown=True,
+        )
+    return _run_sg(finding, repo, config, ctx, record, iac="cloudformation")
+
+
+def _run_sg(
+    finding: Finding,
+    repo: Path,
+    config: Config,
+    ctx: Context,
+    record: RunRecord,
+    *,
+    iac: Literal["terraform", "cloudformation"],
+) -> tuple[RunRecord, Proposal | None]:
+    dry = ctx.mode == "dry-run"
     if finding.fix_type is not FixType.SG_INGRESS:
         raise StageStop(
             "ingest",
@@ -181,8 +221,13 @@ def _run(
     record.stages.append(_ingest_stage(finding))
 
     # --- locate
-    s3_fetch = boto3_s3_fetch(ctx.aws) if ctx.aws is not None else None
-    loc, match = locate_match(finding, repo, config, ctx.state_path, s3_fetch)
+    match: StateMatch | None = None
+    res: cfn.CfnResource | None = None
+    if iac == "cloudformation":
+        loc, res = cfn.locate(finding, repo, config, ctx.state_path, ctx.aws, [cfn.SG_TYPE])
+    else:
+        s3_fetch = boto3_s3_fetch(ctx.aws) if ctx.aws is not None else None
+        loc, match = locate_match(finding, repo, config, ctx.state_path, s3_fetch)
     record.location = loc
     owners = ", ".join(loc.owners) if loc.owners else "no owner found"
     record.stages.append(
@@ -202,7 +247,7 @@ def _run(
         _skip_rest(record, after="locate", summary="dry run: pass --evidence-file to go further")
         record.result = "DRY RUN"
         record.result_detail = "ingest and locate complete · no AWS calls, no changes"
-        record.unknowns = ["drift: not checked (needs terraform plan)"]
+        record.unknowns = [_drift_unknown(loc.address)]
         if not loc.owners:
             record.unknowns.append("owner: no CODEOWNERS rule matches the file")
         record.next_steps = [
@@ -254,7 +299,12 @@ def _run(
     existing = load_contract(path)
     original_contract = path.read_text(encoding="utf-8") if path.is_file() else None
 
-    sg = parse_security_group(repo / loc.file, loc.line, match.type, match.name)
+    sg: SecurityGroupSource | cfn.CfnSecurityGroup
+    if res is not None:
+        sg = cfn.parse_sg(res)
+    else:
+        assert match is not None
+        sg = parse_security_group(repo / loc.file, loc.line, match.type, match.name)
     current = sg.rules()
     open_rules = [r for r in current if r.is_world]
 
@@ -306,7 +356,7 @@ def _run(
             "no ingress block open to 0.0.0.0/0 or ::/0 found in the code",
             ["the open rule may live outside this file or only in AWS (drift); check by hand"],
         )
-    if match.ingress is not None and not has_non_cidr_sources(match.ingress):
+    if match is not None and match.ingress is not None and not has_non_cidr_sources(match.ingress):
         if sorted(set(rules_from_state(match.ingress))) != current:
             loc.drift = True
             raise StageStop(
@@ -316,26 +366,36 @@ def _run(
             )
         loc.drift = False
     synth = synthesize(contract, current, config.synthesis)
-    diff = make_diff(repo, sg, synth, loc.address)
+    if isinstance(sg, cfn.CfnSecurityGroup):
+        diff = cfn.sg_diff(repo, sg, synth)
+    else:
+        diff = make_diff(repo, sg, synth, loc.address)
     record.diff = diff
     record.stages.append(StageResult(name="fix", status=StageStatus.OK, summary=diff.summary))
 
     # --- validate
-    tf = ctx.terraform or SubprocessTerraform(config.terraform.binary, config.validation.timeout_s)
-    report = validate(
-        ValidationInputs(
-            repo=repo,
-            finding=finding,
-            location=loc,
-            diff=diff,
-            contract=contract,
-            synthesis=synth,
-            config=config,
-            state_path=ctx.state_path,
-        ),
-        tf,
-        offline=dry,
-    )
+    if res is not None:
+        report = cfn.validate_sg(
+            res, diff, synth, contract, finding.control_id, config, ctx.aws, offline=dry
+        )
+    else:
+        tf = ctx.terraform or SubprocessTerraform(
+            config.terraform.binary, config.validation.timeout_s
+        )
+        report = validate(
+            ValidationInputs(
+                repo=repo,
+                finding=finding,
+                location=loc,
+                diff=diff,
+                contract=contract,
+                synthesis=synth,
+                config=config,
+                state_path=ctx.state_path,
+            ),
+            tf,
+            offline=dry,
+        )
     record.validation = report
     _record_validation(record, report, dry=dry)
 
@@ -364,7 +424,7 @@ def _run(
             " · no AWS calls, no changes" if dry else ""
         )
         record.next_steps = (
-            ["drop --dry-run to run terraform plan with the read-only role"]
+            [f"drop --dry-run to run {_preview(loc.address)} with the read-only role"]
             if dry
             else ["re-run with --open-pr to open the pull request"]
         )
@@ -560,7 +620,7 @@ def _run_config(
     if not loc.owners:
         unknowns.append("owner: no CODEOWNERS rule matches the file")
     if dry:
-        unknowns.append("drift: not checked (needs terraform plan)")
+        unknowns.append(_drift_unknown(loc.address))
     proposal = ConfigProposal(
         finding=finding,
         location=loc,
@@ -580,7 +640,7 @@ def _run_config(
         record.result = "DRY RUN" if dry else "VALIDATED"
         record.result_detail = detail + (" · no AWS calls, no changes" if dry else "")
         record.next_steps = (
-            ["drop --dry-run to run terraform plan with the read-only role"]
+            [f"drop --dry-run to run {_preview(loc.address)} with the read-only role"]
             if dry
             else ["re-run with --open-pr to open the pull request"]
         )
@@ -627,7 +687,13 @@ def _run_config(
 
 
 def _run_s3(
-    finding: Finding, repo: Path, config: Config, ctx: Context, record: RunRecord
+    finding: Finding,
+    repo: Path,
+    config: Config,
+    ctx: Context,
+    record: RunRecord,
+    *,
+    iac: Literal["terraform", "cloudformation"] = "terraform",
 ) -> tuple[RunRecord, Proposal | None]:
     """S3 Block Public Access (FR-50): evidence that nothing uses public access, then the fix."""
     dry = ctx.mode == "dry-run"
@@ -645,16 +711,30 @@ def _run_s3(
     fix = s3fix.fix_for(control)
 
     # --- locate
-    s3_fetch = boto3_s3_fetch(ctx.aws) if ctx.aws is not None else None
-    state, state_label = load_repo_state(repo, config, ctx.state_path, s3_fetch)
+    res: cfn.CfnResource | None = None
     bucket: str | None = None
-    if scope == "bucket":
+    if iac == "cloudformation":
+        if scope == "account":
+            raise StageStop(
+                "locate",
+                f"{control} is an account setting; CloudFormation has no resource for it",
+                ["turn on account-level Block Public Access in the S3 console or with Terraform"],
+                unknown=True,
+            )
+        loc, res = cfn.locate(finding, repo, config, ctx.state_path, ctx.aws, [cfn.BUCKET_TYPE])
+        bucket = finding.resource.id
+        target = s3fix.S3Target("update", loc.address, loc.file, loc.line, bucket)
+    elif scope == "bucket":
+        s3_fetch = boto3_s3_fetch(ctx.aws) if ctx.aws is not None else None
+        state, state_label = load_repo_state(repo, config, ctx.state_path, s3_fetch)
         loc, match = locate_match(
             finding, repo, config, ctx.state_path, s3_fetch, resource_types=["aws_s3_bucket"]
         )
         bucket = finding.resource.id
         target = s3fix.find_target(control, repo, config, state, loc, match, bucket)
     else:
+        s3_fetch = boto3_s3_fetch(ctx.aws) if ctx.aws is not None else None
+        state, state_label = load_repo_state(repo, config, ctx.state_path, s3_fetch)
         target = s3fix.find_target(control, repo, config, state, None, None, None)
         codeowners = find_codeowners(repo)
         owners = owners_for(codeowners, target.file) if codeowners is not None else []
@@ -670,7 +750,9 @@ def _run_s3(
     record.location = loc
     owners_text = ", ".join(loc.owners) if loc.owners else "no owner found"
     block = (
-        f"public access block {target.address} (exists)"
+        f"PublicAccessBlockConfiguration on {res.logical_id}"
+        if res is not None
+        else f"public access block {target.address} (exists)"
         if target.action == "update"
         else f"public access block {target.address} (new, in {target.file})"
     )
@@ -803,7 +885,12 @@ def _run_s3(
         return record, None
 
     # --- fix
-    diff, target, original, already = s3fix.apply_fix(repo, target)
+    original: str | None
+    if res is not None:
+        diff, already = cfn.s3_diff(repo, res)
+        original = res.template.on_disk(res.template.text)
+    else:
+        diff, target, original, already = s3fix.apply_fix(repo, target)
     record.diff = diff
     record.stages.append(
         StageResult(
@@ -815,20 +902,25 @@ def _run_s3(
     )
 
     # --- validate
-    tf = ctx.terraform or SubprocessTerraform(config.terraform.binary, config.validation.timeout_s)
-    report = validate_config_fix(
-        repo=repo,
-        fix=fix,
-        address=target.address,
-        file=target.file,
-        line=target.line,
-        diff=diff,
-        config=config,
-        tf=tf,
-        state_path=ctx.state_path,
-        offline=dry,
-        create=target.action == "create",
-    )
+    if res is not None:
+        report = cfn.validate_s3(res, diff, control, config, ctx.aws, offline=dry)
+    else:
+        tf = ctx.terraform or SubprocessTerraform(
+            config.terraform.binary, config.validation.timeout_s
+        )
+        report = validate_config_fix(
+            repo=repo,
+            fix=fix,
+            address=target.address,
+            file=target.file,
+            line=target.line,
+            diff=diff,
+            config=config,
+            tf=tf,
+            state_path=ctx.state_path,
+            offline=dry,
+            create=target.action == "create",
+        )
     record.validation = report
     _record_validation(record, report, dry=dry)
 
@@ -836,7 +928,7 @@ def _run_s3(
     if not loc.owners:
         unknowns.append("owner: no CODEOWNERS rule matches the file")
     if dry:
-        unknowns.append("drift: not checked (needs terraform plan)")
+        unknowns.append(_drift_unknown(loc.address))
     if any(b.exposure.public for b in ev.buckets):
         unknowns.append(
             "the public bucket policy or ACL stays in the code; Block Public Access overrides "
@@ -866,7 +958,7 @@ def _run_s3(
         record.result = "DRY RUN" if dry else "VALIDATED"
         record.result_detail = detail + (" · no AWS calls, no changes" if dry else "")
         record.next_steps = (
-            ["drop --dry-run to read the bucket and run terraform plan with the read-only role"]
+            [f"drop --dry-run to read the bucket and run {_preview(loc.address)} read-only"]
             if dry
             else ["re-run with --open-pr to open the pull request"]
         )
@@ -912,7 +1004,13 @@ def _run_s3(
 
 
 def _run_iam(
-    finding: Finding, repo: Path, config: Config, ctx: Context, record: RunRecord
+    finding: Finding,
+    repo: Path,
+    config: Config,
+    ctx: Context,
+    record: RunRecord,
+    *,
+    iac: Literal["terraform", "cloudformation"] = "terraform",
 ) -> tuple[RunRecord, Proposal | None]:
     """IAM least privilege (FR-51): replace wildcard actions with the actions in use."""
     dry = ctx.mode == "dry-run"
@@ -926,27 +1024,39 @@ def _run_iam(
     record.stages.append(_ingest_stage(finding))
 
     # --- locate
-    s3_fetch = boto3_s3_fetch(ctx.aws) if ctx.aws is not None else None
-    loc, match = locate_match(
-        finding, repo, config, ctx.state_path, s3_fetch, resource_types=[iamfix.POLICY_TYPE]
-    )
-    record.location = loc
-    if "[" in loc.address:
-        raise StageStop(
-            "fix",
-            f"{loc.address} uses count or for_each; PosturaNet won't edit every instance",
-            ["shrink this policy by hand for now"],
+    doc: PolicyDoc | None = None
+    policy: cfn.CfnPolicy | None = None
+    if iac == "cloudformation":
+        loc, res = cfn.locate(finding, repo, config, ctx.state_path, ctx.aws, [cfn.POLICY_TYPE])
+        policy = cfn.parse_policy(res)
+        statements, form = policy.statements, "cloudformation"
+        doc_file, doc_original = loc.file, res.template.on_disk(res.template.text)
+        where = f"PolicyDocument of {res.logical_id} in {loc.file}"
+    else:
+        s3_fetch = boto3_s3_fetch(ctx.aws) if ctx.aws is not None else None
+        loc, match = locate_match(
+            finding, repo, config, ctx.state_path, s3_fetch, resource_types=[iamfix.POLICY_TYPE]
         )
-    directory, _ = module_dir(match, repo, config)
-    doc = iamfix.load_document(directory, repo / loc.file, loc.line)
-    doc_file = doc.file.resolve().relative_to(repo.resolve()).as_posix()
+        if "[" in loc.address:
+            raise StageStop(
+                "fix",
+                f"{loc.address} uses count or for_each; PosturaNet won't edit every instance",
+                ["shrink this policy by hand for now"],
+            )
+        directory, _ = module_dir(match, repo, config)
+        doc = iamfix.load_document(directory, repo / loc.file, loc.line)
+        statements, form = doc.statements, doc.form
+        doc_file = doc.file.resolve().relative_to(repo.resolve()).as_posix()
+        doc_original = doc.original
+        where = f"{doc.form} in {doc_file}:{doc.line}"
+    record.location = loc
     owners_text = ", ".join(loc.owners) if loc.owners else "no owner found"
     record.stages.append(
         StageResult(
             name="locate",
             status=StageStatus.OK,
             summary=f"{loc.file}:{loc.line} → {loc.address} · {owners_text}",
-            details=[*loc.reasoning, f"policy document: {doc.form} in {doc_file}:{doc.line}"],
+            details=[*loc.reasoning, f"policy document: {where}"],
         )
     )
     arn = finding.resource.arn or finding.resource.id
@@ -982,7 +1092,7 @@ def _run_iam(
     if ctx.approval is not None:
         reviewed |= {s.lower() for s in ctx.approval.reviewed_services}
         extra = [*extra, *ctx.approval.keep]
-    result = shrink(control, doc.statements, use, reviewed=reviewed, extra=extra)
+    result = shrink(control, statements, use, reviewed=reviewed, extra=extra)
     removed = sorted({p for c in result.changes for p in c.removed})
 
     # --- contract (written before any evidence stop, so a human can review it)
@@ -1056,7 +1166,10 @@ def _run_iam(
         raise StageStop(
             "fix",
             f"no Allow statement in the code has the wildcard {control} flags",
-            ["the wildcard may come from another policy version or drift; run terraform plan"],
+            [
+                "the wildcard may come from another policy version or drift; "
+                f"run {_preview(loc.address)}"
+            ],
         )
     minimum = Confidence(config.evidence.min_confidence_for_pr)
     weak = not at_least(ev.confidence, minimum)
@@ -1089,8 +1202,12 @@ def _run_iam(
         return record, None
 
     # --- fix
-    diff = iamfix.apply_changes(doc, result.changes, repo)
-    diff = diff.model_copy(update={"target_address": loc.address})
+    if policy is not None:
+        diff = cfn.iam_diff(repo, policy, result.changes)
+    else:
+        assert doc is not None
+        diff = iamfix.apply_changes(doc, result.changes, repo)
+        diff = diff.model_copy(update={"target_address": loc.address})
     record.diff = diff
     record.stages.append(
         StageResult(
@@ -1106,21 +1223,37 @@ def _run_iam(
     )
 
     # --- validate
-    tf = ctx.terraform or SubprocessTerraform(config.terraform.binary, config.validation.timeout_s)
-    report = validate_iam_fix(
-        repo=repo,
-        control=control,
-        doc=doc,
-        address=loc.address,
-        diff=diff,
-        changes=result.changes,
-        usage=use,
-        extra=extra,
-        config=config,
-        tf=tf,
-        state_path=ctx.state_path,
-        offline=dry,
-    )
+    if policy is not None:
+        report = cfn.validate_iam(
+            policy.res,
+            diff,
+            control,
+            result.changes,
+            use,
+            extra,
+            config,
+            ctx.aws,
+            offline=dry,
+        )
+    else:
+        assert doc is not None
+        tf = ctx.terraform or SubprocessTerraform(
+            config.terraform.binary, config.validation.timeout_s
+        )
+        report = validate_iam_fix(
+            repo=repo,
+            control=control,
+            doc=doc,
+            address=loc.address,
+            diff=diff,
+            changes=result.changes,
+            usage=use,
+            extra=extra,
+            config=config,
+            tf=tf,
+            state_path=ctx.state_path,
+            offline=dry,
+        )
     record.validation = report
     _record_validation(record, report, dry=dry)
 
@@ -1135,7 +1268,7 @@ def _run_iam(
     if not loc.owners:
         unknowns.append("owner: no CODEOWNERS rule matches the file")
     if dry:
-        unknowns.append("drift: not checked (needs terraform plan)")
+        unknowns.append(_drift_unknown(loc.address))
     proposal = iampr.IamProposal(
         finding=finding,
         location=loc,
@@ -1144,7 +1277,7 @@ def _run_iam(
         diff=diff,
         report=report,
         contract_file=rel_contract,
-        form=doc.form,
+        form=form,
         unknowns=unknowns,
         approval=ctx.approval,
     )
@@ -1162,7 +1295,7 @@ def _run_iam(
         record.result = "DRY RUN" if dry else "VALIDATED"
         record.result_detail = detail + (" · no AWS calls, no changes" if dry else "")
         record.next_steps = (
-            ["drop --dry-run to read IAM last-accessed data and run terraform plan"]
+            [f"drop --dry-run to read IAM last-accessed data and run {_preview(loc.address)}"]
             if dry
             else ["re-run with --open-pr to open the pull request"]
         )
@@ -1171,7 +1304,7 @@ def _run_iam(
     gh = ctx.github or _github(config, ctx)
     message = f"fix(security): {control} {loc.address} [posturanet]"
     writes = [(fc.path, fc.new_content, message) for fc in diff.files]
-    originals: dict[str, str | None] = {doc_file: doc.original}
+    originals: dict[str, str | None] = {doc_file: doc_original}
     if contract_text is not None:
         writes.append((rel_contract, contract_text, f"chore(posturanet): contract {rel_contract}"))
         originals[rel_contract] = original_contract
@@ -1300,10 +1433,21 @@ def _unknowns(record: RunRecord, outside: list[NetRule]) -> list[str]:
     if loc is not None and not loc.owners:
         out.append("owner: no CODEOWNERS rule matches the file")
     if loc is not None and loc.drift is None and record.mode == "dry-run":
-        out.append("drift: not checked (needs terraform plan)")
+        out.append(_drift_unknown(loc.address))
     if outside:
         out.append(f"{len(outside)} contract source(s) were never allowed by the open rule")
     return out
+
+
+def _preview(address: str) -> str:
+    """The read-only preview behind the drift check, for the IaC that defines `address`."""
+    return "the deployed-template check" if cfn.split_address(address) else "terraform plan"
+
+
+def _drift_unknown(address: str) -> str:
+    if cfn.split_address(address):
+        return "drift: not checked (needs cloudformation:GetTemplate, skipped in a dry run)"
+    return "drift: not checked (needs terraform plan)"
 
 
 def _skip_rest(record: RunRecord, *, after: str, summary: str) -> None:

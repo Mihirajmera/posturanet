@@ -42,6 +42,9 @@ ALLOWLIST: tuple[str, ...] = (
     "securityhub:GetFindingsV2",
     "securityhub:GetRemediationsV2",
     "securityhub:ListExposuresByRemediationV2",
+    # CloudFormation (FR-5): physical id -> stack and logical id; deployed template for drift.
+    "cloudformation:DescribeStackResources",
+    "cloudformation:GetTemplate",
     "access-analyzer:Get*",
     "access-analyzer:List*",
     "sts:GetCallerIdentity",
