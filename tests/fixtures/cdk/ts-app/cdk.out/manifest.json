@@ -1,0 +1,27 @@
+{
+  "version": "36.0.0",
+  "artifacts": {
+    "network": {
+      "type": "aws:cloudformation:stack",
+      "environment": "aws://unknown-account/unknown-region",
+      "properties": { "templateFile": "network.template.json" },
+      "displayName": "network"
+    },
+    "storage": {
+      "type": "aws:cloudformation:stack",
+      "environment": "aws://unknown-account/unknown-region",
+      "properties": { "templateFile": "storage.template.json" },
+      "displayName": "storage"
+    },
+    "iam": {
+      "type": "aws:cloudformation:stack",
+      "environment": "aws://unknown-account/unknown-region",
+      "properties": { "templateFile": "iam.template.json" },
+      "displayName": "iam"
+    },
+    "Tree": {
+      "type": "cdk:tree",
+      "properties": { "file": "tree.json" }
+    }
+  }
+}

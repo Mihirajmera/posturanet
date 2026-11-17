@@ -271,7 +271,7 @@ def test_unresolvable_group_or_intrinsic_rule_stops_unknown(
 def test_drift_covers_the_standalone_resources(repo: Path) -> None:
     from test_cfn import _fake_aws
 
-    from posturanet.cfn.validate import _drift
+    from posturanet.cfn.validate import drift
 
     config, _ = load_config(repo)
     res = cfn.resolve(repo, config, "network", "BastionSG")
@@ -279,8 +279,8 @@ def test_drift_covers_the_standalone_resources(repo: Path) -> None:
     body = (repo / "templates/network.yaml").read_text("utf-8")
 
     # live group = inline 9100 + standalone SSH rule, so this passes only if both are read
-    assert _drift(res, _fake_aws(body), offline=False).result.value == "pass"
+    assert drift(res, _fake_aws(body), offline=False).result.value == "pass"
     drifted = body.replace(
         "      FromPort: 22\n      ToPort: 22", "      FromPort: 23\n      ToPort: 23"
     )
-    assert _drift(res, _fake_aws(drifted), offline=False).result.value == "fail"
+    assert drift(res, _fake_aws(drifted), offline=False).result.value == "fail"

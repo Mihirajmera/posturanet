@@ -1,0 +1,76 @@
+{
+ "Resources": {
+  "BastionSg1A2B3C4D": {
+   "Type": "AWS::EC2::SecurityGroup",
+   "Properties": {
+    "GroupDescription": "bastion",
+    "SecurityGroupEgress": [
+     {
+      "CidrIp": "0.0.0.0/0",
+      "Description": "Allow all outbound traffic by default",
+      "IpProtocol": "-1"
+     }
+    ],
+    "SecurityGroupIngress": [
+     {
+      "CidrIp": "0.0.0.0/0",
+      "Description": "SSH from anywhere",
+      "FromPort": 22,
+      "IpProtocol": "tcp",
+      "ToPort": 22
+     },
+     {
+      "CidrIp": "10.0.0.0/16",
+      "Description": "node exporter",
+      "FromPort": 9100,
+      "IpProtocol": "tcp",
+      "ToPort": 9100
+     }
+    ],
+    "VpcId": "vpc-0example"
+   },
+   "Metadata": {
+    "aws:cdk:path": "Prod/platform/BastionSg/Resource"
+   }
+  },
+  "Assets1C2D3E4F": {
+   "Type": "AWS::S3::Bucket",
+   "Properties": {
+    "BucketName": "acme-assets",
+    "VersioningConfiguration": {
+     "Status": "Enabled"
+    }
+   },
+   "UpdateReplacePolicy": "Retain",
+   "DeletionPolicy": "Retain",
+   "Metadata": {
+    "aws:cdk:path": "Prod/platform/Assets/Resource"
+   }
+  },
+  "AppPolicy5A6B7C8D": {
+   "Type": "AWS::IAM::ManagedPolicy",
+   "Properties": {
+    "Description": "",
+    "ManagedPolicyName": "app",
+    "Path": "/",
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "ec2:*",
+        "logs:*"
+       ],
+       "Effect": "Allow",
+       "Resource": "*",
+       "Sid": "App"
+      }
+     ],
+     "Version": "2012-10-17"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "Prod/platform/AppPolicy/Resource"
+   }
+  }
+ }
+}

@@ -86,6 +86,7 @@ posturanet/                         # FSL-1.1-ALv2 (this folder; becomes its own
     licensing/    verify.py  features.py
     aws/          session.py  readonly.py  remediation_plans.py   # read-only API allowlist (NFR-2)
     cfn/          template.py  locate.py  edit.py  validate.py    # CloudFormation and SAM (§14.4)
+    cdk/          app.py  source.py  validate.py                  # AWS CDK, TypeScript and Python (§14.5)
     output/       console.py  symbols.py            # design-system rendering
     cli/          app.py
     mcp/          server.py
@@ -131,8 +132,13 @@ aws:
   role_arn: arn:aws:iam::123456789012:role/PosturaNetReadOnly   # optional; else ambient creds
   regions: [us-east-1]
   accounts: [123456789012]
-iac: auto                          # auto | terraform | cloudformation (auto: CloudFormation with a
-                                   # stack-resources export, or templates and no .tf files)
+iac: auto                          # auto | terraform | cloudformation | cdk (auto: CDK with a cdk.json
+                                   # and no .tf files; else CloudFormation with a stack-resources
+                                   # export, or templates and no .tf files)
+cdk:
+  app: infra/                      # dir holding cdk.json; found when there is exactly one
+  assembly: cdk.out                # a cloud assembly CI synthesized from this commit; unset: cdk synth
+  binary: cdk
 cloudformation:
   stack_resources: stack-resources.json   # offline: `aws cloudformation describe-stack-resources` export
   templates: { network: templates/network.yaml }   # stack -> template, only when a logical id is ambiguous
@@ -510,6 +516,15 @@ Copy code in. **Don't import from `postura-backend`.** Keep a header comment `# 
 - *Contract build, verify, hook, MCP.* `contract build --all` lists the security groups, buckets and managed policies in the stack-resources export (`--state` or `cloudformation.stack_resources`; required) that a template here defines, and builds each like `posturanet fix <id>` with `stop_after=contract` (targets `sg-…`, `S3.8:<bucket>`, `IAM.21:<arn>`, as for Terraform: a contract is per resource). `verify` on a `cfn.` address reads the stack's template (`GetTemplate(TemplateStage=Original)`, or offline `--state` holding `get-template` output or the template) instead of Terraform state, maps the resource to Terraform attribute names (`ingress`, `policy`, the four Block Public Access flags) and runs the same applied / re-check / watch stages; no template source, an unparsable template or a non-literal value → UNKNOWN. The Claude Code hook and MCP `check_change(files=…)` take `.yaml/.yml/.json/.template` files that look like templates (`AWS::` and `Resources`) as well as `.tf`; other YAML and JSON match no contract and pass untouched. An edited template that no longer parses is UNKNOWN, never a silent PASS.
 - *Scanner findings.* Checkov `cloudformation` reports (`resource: AWS::EC2::SecurityGroup.BastionSG`, `repo_file_path`) and Trivy `Type: cloudformation` results (`CauseMetadata.Resource` is the logical id) ingest as `cfn-template:<path>#<LogicalId>` (`ingest/iac.py`). `locate.resolve_template_ref` reverse-maps the path through `cloudformation.templates` (exactly one stack, else UNKNOWN), checks the template defines that logical id (and type, when Checkov gives one), and reads the physical id from the export or `DescribeStackResources(StackName=…, LogicalResourceId=…)`; then locate runs as for any finding. Only SG ingress, S3 Block Public Access and IAM least privilege apply: catalog rows name Terraform types, so attribute checks on templates stay unsupported.
 - *Not yet.* Unmapped attribute-fix rows, `posturanet verify` of a CloudFormation attribute fix, S3.1, live-resource drift for S3 (`s3:GetBucketPublicAccessBlock` isn't allowlisted) and IAM, security-group sources other than CIDRs in the live comparison, nested-stack parameters.
+
+### 14.5 AWS CDK (FR-10b)
+`cdk/`. CDK synthesizes to CloudFormation, so the stack mapping, the template checks (`cfn.validate.sg_checks` / `s3_checks` / `iam_checks`, `drift`) and the gates are CloudFormation's; only locate, edit and the synth step are new. `pipeline.py` picks it with `cdk.is_cdk` before `cfn.is_cloudformation` and runs the same `_run_sg` / `_run_s3` / `_run_iam` with `iac="cdk"`.
+- *Assembly.* `app.py`. `cdk.assembly` (a `cdk.out` CI synthesized from this commit), else `cdk synth --no-lookups --no-notices --quiet --output <temp>` in `cdk.app` (or the one `cdk.json` in the repo). The CLI runs with every AWS credential variable removed, `AWS_SHARED_CREDENTIALS_FILE` / `AWS_CONFIG_FILE` pointed at a missing file and `AWS_EC2_METADATA_DISABLED=true`, so it makes no AWS calls (region variables stay, so templates that read the region match). It does run the customer's app, as their own CI does. A dry run never synthesizes: without `cdk.assembly` it stops at locate. `manifest.json` artifacts give each stack's deployed name (`stackName`, else the artifact id) and template; nested `cdk:cloud-assembly` artifacts (Stages) are followed.
+- *Locate.* Physical id → stack + logical id (`cfn.locate.stack_row`) → the resource in the synthesized template → `Metadata.aws:cdk:path`. A path ending in `/Resource` is an L2 construct's default child; its parent segment is the construct id. `source.py` masks comments and string contents (offsets kept), then finds the one `new …SecurityGroup(` / `…Bucket(` / `…ManagedPolicy(` call (TS) or call without `new` (Python) whose second argument is that id as a plain string literal, in `*.ts` / `*.py` under the app (skips `node_modules`, `cdk.out`, virtualenvs, tests, `*.d.ts`). None, several, an L1 path or no metadata → StageStop UNKNOWN. Address `cdk.<stack>.<LogicalId>`; location is the construct's file and line.
+- *Edit.* Literal shapes only; anything else is UNKNOWN. SG: `addIngressRule` / `add_ingress_rule` calls on the variable the construct is assigned to (assigned once in the file), with `Peer.anyIpv4|anyIpv6|ipv4('…')|ipv6('…')` and `Port.tcp|udp|tcpRange|udpRange|allTcp|allUdp|allTraffic(…)` or `Port.SSH|HTTP|HTTPS|RDP`; the literal rules must equal the template's ingress, else stop. Open calls are removed and one call per synthesized rule goes where the first was, in its indent, quotes and `;`. S3: `blockPublicAccess` / `block_public_access` set to `BlockPublicAccess.BLOCK_ALL` (replacing a `BlockPublicAccess.X` or `new BlockPublicAccess({…})` literal, or added to the props object or keyword arguments in their layout; no import is added). IAM: the `actions` array of each `PolicyStatement` written inside the `ManagedPolicy` call, after checking they map one-for-one (same count, same action sets) to the synthesized statements, so `addStatements` or policy minimization stop. CRLF is kept.
+- *Validation.* `validate.py`: guardrails; `source` (required: the edited file re-read gives exactly the synthesized rules, `BLOCK_ALL`, or the kept actions); `cdk_synth` (required; SKIPPED in a dry run, so a dry run is INCOMPLETE): the edited file is written in place for the synth and always restored, then `template_scope` (only the target changes; `AWS::CDK::Metadata` ignored) and the CloudFormation per-type checks run on the newly synthesized resource; `drift` as §14.4 on the synthesized-before resource; `cdk_diff` always SKIPPED and not required (it needs the CDK CLI's own credentials and bootstrap roles).
+- *Gate.* `contract check --source` routes `cdk.` contracts to the synthesized template (synthesized once per run) and reports the construct's file and line; a failed synth is UNKNOWN.
+- *Not yet.* Other CDK languages (Java, C#, Go), L1 `Cfn*` constructs, constructs whose id is computed or repeated, rules added through `connections`, `iam.Policy` / `addToPolicy`, attribute fixes and IaC scanner findings on CDK apps.
 
 ## 15. Testing strategy
 | Layer | Tooling | Must cover |

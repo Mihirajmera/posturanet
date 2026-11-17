@@ -1,0 +1,18 @@
+{
+ "Resources": {
+  "Assets1C2D3E4F": {
+   "Type": "AWS::S3::Bucket",
+   "Properties": {
+    "BucketName": "acme-assets",
+    "VersioningConfiguration": {
+     "Status": "Enabled"
+    }
+   },
+   "UpdateReplacePolicy": "Retain",
+   "DeletionPolicy": "Retain",
+   "Metadata": {
+    "aws:cdk:path": "storage/Assets/Resource"
+   }
+  }
+ }
+}

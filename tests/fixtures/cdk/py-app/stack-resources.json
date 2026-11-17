@@ -1,0 +1,26 @@
+{
+  "_comment": "Synthetic `aws cloudformation describe-stack-resources` export for the CDK app. Fake account 123456789012.",
+  "StackResources": [
+    {
+      "StackName": "Prod-platform",
+      "LogicalResourceId": "BastionSg1A2B3C4D",
+      "PhysicalResourceId": "sg-0a91f3c2",
+      "ResourceType": "AWS::EC2::SecurityGroup",
+      "ResourceStatus": "CREATE_COMPLETE"
+    },
+    {
+      "StackName": "Prod-platform",
+      "LogicalResourceId": "Assets1C2D3E4F",
+      "PhysicalResourceId": "acme-assets",
+      "ResourceType": "AWS::S3::Bucket",
+      "ResourceStatus": "CREATE_COMPLETE"
+    },
+    {
+      "StackName": "Prod-platform",
+      "LogicalResourceId": "AppPolicy5A6B7C8D",
+      "PhysicalResourceId": "arn:aws:iam::123456789012:policy/app",
+      "ResourceType": "AWS::IAM::ManagedPolicy",
+      "ResourceStatus": "CREATE_COMPLETE"
+    }
+  ]
+}

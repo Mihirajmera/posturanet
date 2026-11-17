@@ -1,0 +1,6 @@
+version: 1
+iac: cdk
+cloudformation:
+  stack_resources: stack-resources.json
+cdk:
+  assembly: cdk.out
