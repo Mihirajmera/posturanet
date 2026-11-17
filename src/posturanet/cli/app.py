@@ -311,8 +311,8 @@ def contract_build(
         bool,
         typer.Option(
             "--all",
-            help="Every security group, S3 bucket and IAM policy in the state, each from its own "
-            "evidence.",
+            help="Every security group, S3 bucket and IAM policy in the state (or in the "
+            "CloudFormation templates), each from its own evidence.",
         ),
     ] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Don't write the contract.")] = False,
@@ -351,7 +351,9 @@ def _contract_build_all(
     output_format: OutputFormat,
 ) -> None:
     """One contract per security group, S3 bucket and IAM policy in the state. A resource that
-    stops (no evidence, say) doesn't stop the rest."""
+    stops (no evidence, say) doesn't stop the rest. On CloudFormation: the ones a template
+    defines, from the stack-resources export."""
+    from posturanet import cfn
     from posturanet.locate import load_repo_state
     from posturanet.locate.backend import boto3_s3_fetch
     from posturanet.locate.tfstate import ids_of
@@ -364,14 +366,30 @@ def _contract_build_all(
         mode: Mode = "dry-run" if dry_run else "check"
         probe = _context(mode, repo, state, None, window)
         config, _ = load_config(repo)
-        s3_fetch = boto3_s3_fetch(probe.aws) if probe.aws is not None else None
-        tf_state, _ = load_repo_state(repo, config, state, s3_fetch)
-        # (resource, target): S3 and IAM need a control to pick their fix type
-        targets = [(sg, sg) for sg in ids_of(tf_state, "aws_security_group")]
-        targets += [(b, f"S3.8:{b}") for b in ids_of(tf_state, "aws_s3_bucket")]
-        targets += [(a, f"IAM.21:{a}") for a in ids_of(tf_state, "aws_iam_policy")]
-        if not targets:
-            raise UsageError("no security group, S3 bucket or IAM policy in the Terraform state")
+        if cfn.is_cloudformation(repo, config, state):
+            # (resource, target) for what the templates define; SAM-generated ones have no source
+            prefix = {cfn.SG_TYPE: "", cfn.BUCKET_TYPE: "S3.8:", cfn.POLICY_TYPE: "IAM.21:"}
+            rows = cfn.template_rows(repo, config, state, list(prefix))
+            targets = [
+                (str(r["PhysicalResourceId"]), prefix[r["ResourceType"]] + r["PhysicalResourceId"])
+                for r in rows
+            ]
+            if not targets:
+                raise UsageError(
+                    "no security group, bucket or managed policy in the stack-resources export "
+                    "is defined in a template here"
+                )
+        else:
+            s3_fetch = boto3_s3_fetch(probe.aws) if probe.aws is not None else None
+            tf_state, _ = load_repo_state(repo, config, state, s3_fetch)
+            # (resource, target): S3 and IAM need a control to pick their fix type
+            targets = [(sg, sg) for sg in ids_of(tf_state, "aws_security_group")]
+            targets += [(b, f"S3.8:{b}") for b in ids_of(tf_state, "aws_s3_bucket")]
+            targets += [(a, f"IAM.21:{a}") for a in ids_of(tf_state, "aws_iam_policy")]
+            if not targets:
+                raise UsageError(
+                    "no security group, S3 bucket or IAM policy in the Terraform state"
+                )
         records = []
         for resource, t in targets:
             ctx = _context(mode, repo, state, None, window)
@@ -387,7 +405,8 @@ def _contract_build_all(
         n = len(records)
         title = f"{n} resource{'s' if n != 1 else ''}"
         lines = f.open(console.header("contract build", title, f.style))
-        table = [f"{t:<24} {r.result:<10} {r.result_detail}" for t, r in records]
+        w = max(24, *(len(t) for t, _ in records))
+        table = [f"{t:<{w}} {r.result:<10} {r.result_detail}" for t, r in records]
         lines += f.box("Contracts", table)
         built = sum(r.exit_code == 0 for _, r in records)
         lines += f.close(

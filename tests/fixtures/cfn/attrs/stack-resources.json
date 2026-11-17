@@ -1,0 +1,19 @@
+{
+  "_comment": "Synthetic `aws cloudformation describe-stack-resources` export. Fake account 123456789012.",
+  "StackResources": [
+    {
+      "StackName": "data",
+      "LogicalResourceId": "OrdersDb",
+      "PhysicalResourceId": "orders",
+      "ResourceType": "AWS::RDS::DBInstance",
+      "ResourceStatus": "CREATE_COMPLETE"
+    },
+    {
+      "StackName": "data",
+      "LogicalResourceId": "EventsTable",
+      "PhysicalResourceId": "events",
+      "ResourceType": "AWS::DynamoDB::Table",
+      "ResourceStatus": "CREATE_COMPLETE"
+    }
+  ]
+}

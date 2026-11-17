@@ -169,8 +169,16 @@ class LiveIamSource:
         raise StageStop("evidence", "IAM last-accessed job didn't finish in time", unknown=True)
 
     def policy(self, policy_arn: str, today: date) -> IamEvidence:
-        created = _day(self.iam.get_policy(PolicyArn=policy_arn)["Policy"].get("CreateDate"))
-        principals = self._principals(policy_arn)
+        kind, _, name = policy_arn.split(":", 5)[-1].partition("/")
+        if kind in ("role", "user", "group"):
+            # inline policies: last-accessed data for the principal itself (all its policies)
+            name = name.rsplit("/", 1)[-1]
+            key = kind.capitalize()
+            got = getattr(self.iam, f"get_{kind}")(**{f"{key}Name": name})[key]
+            created, principals = _day(got.get("CreateDate")), [f"{kind}/{name}"]
+        else:
+            created = _day(self.iam.get_policy(PolicyArn=policy_arn)["Policy"].get("CreateDate"))
+            principals = self._principals(policy_arn)
         services = []
         for s in self._report(policy_arn):
             ns = str(s["ServiceNamespace"]).lower()
