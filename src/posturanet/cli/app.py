@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Annotated, TextIO
 import typer
 
 from posturanet import __version__
+from posturanet.aws.changeset import changeset_policy
 from posturanet.aws.readonly import iam_policy
 from posturanet.errors import PosturaNetError, StageStop, UsageError
 from posturanet.evidence import FileSource
@@ -149,10 +150,11 @@ def _context(
         window_days=_window(window),
     )
     if mode != "dry-run":
-        from posturanet.aws.session import boto3_factory
+        from posturanet.aws.session import boto3_factory, changeset_client
 
         config, _ = load_config(repo)
         ctx.aws = boto3_factory(config.aws)
+        ctx.changeset = changeset_client(config)  # None unless opted in
     return ctx
 
 
@@ -968,11 +970,22 @@ def verify(
 
 @app.command(epilog=_examples(
     ("posturanet init > policy.json", "save the policy, then attach it to PosturaNet's role"),
+    ("posturanet init --changeset-preview > preview.json",
+     "opt-in only: the policy for the separate change-set preview role"),
 ))  # fmt: skip
-def init() -> None:
+def init(
+    changeset_preview: Annotated[
+        bool,
+        typer.Option(
+            "--changeset-preview",
+            help="Print the opt-in change-set preview policy (separate role) instead.",
+        ),
+    ] = False,
+) -> None:
     """Print the read-only IAM policy for PosturaNet's role. Writes nothing."""
     _banner(sys.stderr)  # stderr, so `posturanet init > policy.json` stays clean JSON
-    console.write(json.dumps(iam_policy(), indent=2) + "\n")
+    policy = changeset_policy() if changeset_preview else iam_policy()
+    console.write(json.dumps(policy, indent=2) + "\n")
 
 
 @app.command(epilog=_examples(
