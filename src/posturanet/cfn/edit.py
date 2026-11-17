@@ -8,6 +8,7 @@ the indentation already used around the change. Values PosturaNet can't read lit
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -17,6 +18,7 @@ from ruamel.yaml.nodes import MappingNode, Node, ScalarNode, SequenceNode
 from posturanet.cfn.locate import CfnResource
 from posturanet.cfn.template import (
     Template,
+    TemplateError,
     block_mapping,
     end,
     get,
@@ -27,10 +29,12 @@ from posturanet.cfn.template import (
     line_end,
     line_of,
     line_start,
+    parse,
     scalar_text,
     start,
     value,
 )
+from posturanet.configfix.catalog import PRESENT, Change, ConfigFix
 from posturanet.errors import StageStop
 from posturanet.iamfix.doc import Statement
 from posturanet.iamfix.shrink import targeted
@@ -60,7 +64,8 @@ Edit = tuple[int, int, str]  # replace text[start:end] with the string
 
 
 def apply(text: str, edits: list[Edit]) -> str:
-    for s, e, new in sorted(edits, key=lambda x: -x[0]):
+    # At one offset a removal goes before an insertion, so it never eats the inserted text.
+    for s, e, new in sorted(edits, key=lambda x: (-x[0], -x[1])):
         text = text[:s] + new + text[e:]
     return text
 
@@ -72,8 +77,28 @@ def _step(res: CfnResource) -> str:
     return " " * width if not res.node.flow_style and width > 0 else "  "
 
 
-def _unsupported(what: str) -> StageStop:
-    return StageStop("fix", f"{what} is not a literal value; PosturaNet won't guess it", [_BY_HAND])
+def _unsupported(what: str, *, unknown: bool = False) -> StageStop:
+    return StageStop(
+        "fix",
+        f"{what} is not a literal value; PosturaNet won't guess it",
+        [_BY_HAND],
+        unknown=unknown,
+    )
+
+
+def remove_pair(text: str, mapping: MappingNode, key: str) -> Edit:
+    """An edit that deletes `key` and its value from `mapping`, comments around it kept."""
+    keys = [k.value for k, _ in mapping.value]
+    i = keys.index(key)
+    k, v = mapping.value[i]
+    if not mapping.flow_style:
+        s, e = line_start(text, start(k)), line_end(text, end(v))
+        if text[e : e + 1] == "\n" and (s == 0 or text[:s].endswith("\n\n")):
+            e += 1  # don't leave two blank lines where one block was
+        return s, e, ""
+    if i + 1 < len(keys):
+        return start(k), start(mapping.value[i + 1][0]), ""
+    return (end(mapping.value[i - 1][1]) if i else start(k)), end(v), ""
 
 
 def insert_pairs(text: str, mapping: MappingNode, pairs: list[tuple[str, Any]], step: str) -> Edit:
@@ -98,7 +123,7 @@ def insert_pairs(text: str, mapping: MappingNode, pairs: list[tuple[str, Any]], 
         f'"{k}": '
         + (
             json_mapping(v, key_ind, step, multiline=multiline)
-            if isinstance(v, list)
+            if isinstance(v, list) and v and isinstance(v[0], tuple)
             else scalar_text(v, as_json=True)
         )
         for k, v in pairs
@@ -114,10 +139,11 @@ def insert_pairs(text: str, mapping: MappingNode, pairs: list[tuple[str, Any]], 
 
 @dataclass
 class IngressEntry:
-    node: MappingNode
+    node: MappingNode  # the inline entry, or the standalone resource's Properties
     rules: list[Rule]
     is_open: bool
     description: str | None
+    resource: str | None = None  # logical id of a standalone SecurityGroupIngress
 
 
 @dataclass
@@ -134,57 +160,81 @@ class CfnSecurityGroup:
         return sorted({r for e in self.entries for r in e.rules})
 
 
-def _refs(v: Any, logical_id: str) -> bool:
-    if isinstance(v, dict):
-        if v.get("Ref") == logical_id:
-            return True
-        att = v.get("Fn::GetAtt")
-        if isinstance(att, list) and att and att[0] == logical_id:
-            return True
-        return any(_refs(x, logical_id) for x in v.values())
-    return isinstance(v, list) and any(_refs(x, logical_id) for x in v)
+def _group_target(v: Any) -> tuple[str, str] | None:
+    """(logical id, "Ref" or attribute) for a plain `Ref` / `Fn::GetAtt` GroupId, else None."""
+    if not isinstance(v, dict) or len(v) != 1:
+        return None
+    if isinstance(v.get("Ref"), str):
+        return v["Ref"], "Ref"
+    att = v.get("Fn::GetAtt")
+    if isinstance(att, str):
+        att = att.split(".", 1)
+    if isinstance(att, list) and len(att) == 2 and all(isinstance(a, str) for a in att):
+        return att[0], att[1]
+    return None
+
+
+def owned_ingress(resources: dict[str, Any], sg_id: str, *, strict: bool = False) -> list[str]:
+    """Logical ids of the SecurityGroupIngress resources that add rules to `sg_id`.
+
+    `resources` is the plain Resources dict. With `strict`, one whose GroupId might point at
+    `sg_id` but isn't a plain `!Ref`/`!GetAtt .GroupId` to a resource here stops UNKNOWN.
+    """
+    out = []
+    for lid, r in resources.items():
+        if not isinstance(r, dict) or r.get("Type") != SG_INGRESS_TYPE:
+            continue
+        props = r.get("Properties")
+        target = _group_target(props.get("GroupId") if isinstance(props, dict) else None)
+        if target in ((sg_id, "Ref"), (sg_id, "GroupId")):
+            out.append(lid)
+        elif strict and (target is None or target[0] == sg_id or target[0] not in resources):
+            raise StageStop(
+                "fix",
+                f"{lid} ({SG_INGRESS_TYPE}) has a GroupId PosturaNet can't tie to a resource "
+                f"in this template, so it may add rules to {sg_id}",
+                [
+                    "fix this group by hand, or set GroupId to !Ref or !GetAtt <group>.GroupId",
+                ],
+                unknown=True,
+            )
+    return out
+
+
+def _entry(node: Node | None, what: str, resource: str | None = None) -> IngressEntry:
+    v = value(node)
+    if not isinstance(node, MappingNode) or not isinstance(v, dict):
+        raise _unsupported(what, unknown=True)
+    for k in ("IpProtocol", "FromPort", "ToPort", "CidrIp", "CidrIpv6"):
+        if is_intrinsic(v.get(k)):
+            raise _unsupported(f"{what} {k}", unknown=True)
+    proto = norm_proto(v.get("IpProtocol", ""))
+    lo, hi = int(v.get("FromPort", -1)), int(v.get("ToPort", -1))
+    cidrs = [str(v[k]) for k in ("CidrIp", "CidrIpv6") if k in v]
+    desc = v.get("Description")
+    return IngressEntry(
+        node,
+        [Rule(c, lo, hi, proto) for c in cidrs],
+        any(c in WORLD for c in cidrs),
+        desc if isinstance(desc, str) else None,
+        resource,
+    )
 
 
 def parse_sg(res: CfnResource) -> CfnSecurityGroup:
+    """Inline SecurityGroupIngress entries, then standalone SecurityGroupIngress resources."""
     t = res.template
-    for lid, node in t.resources.items():
-        if value(get(node, "Type")) == SG_INGRESS_TYPE and _refs(
-            value(get(get(node, "Properties"), "GroupId")), res.logical_id
-        ):
-            raise StageStop(
-                "fix",
-                f"{res.logical_id} also has rules in a separate {SG_INGRESS_TYPE} ({lid}); "
-                "not supported yet",
-                ["fix this group by hand, or move its rules into SecurityGroupIngress"],
-            )
     props = res.properties
     if props is not None and not isinstance(props, MappingNode):
         raise _unsupported(f"{res.logical_id} Properties")
     seq = get(props, "SecurityGroupIngress")
-    if seq is None:
-        return CfnSecurityGroup(res, None)
-    if not isinstance(seq, SequenceNode):
+    if seq is not None and not isinstance(seq, SequenceNode):
         raise _unsupported(f"{res.logical_id} SecurityGroupIngress")
-    entries = []
-    for item in seq.value:
-        v = value(item)
-        if not isinstance(item, MappingNode) or not isinstance(v, dict):
-            raise _unsupported(f"an ingress entry of {res.logical_id}")
-        for k in ("IpProtocol", "FromPort", "ToPort", "CidrIp", "CidrIpv6"):
-            if is_intrinsic(v.get(k)):
-                raise _unsupported(f"{res.logical_id} ingress {k}")
-        proto = norm_proto(v.get("IpProtocol", ""))
-        lo, hi = int(v.get("FromPort", -1)), int(v.get("ToPort", -1))
-        cidrs = [str(v[k]) for k in ("CidrIp", "CidrIpv6") if k in v]
-        desc = v.get("Description")
-        entries.append(
-            IngressEntry(
-                item,
-                [Rule(c, lo, hi, proto) for c in cidrs],
-                any(c in WORLD for c in cidrs),
-                desc if isinstance(desc, str) else None,
-            )
-        )
+    items = seq.value if seq is not None else []
+    entries = [_entry(item, f"an ingress entry of {res.logical_id}") for item in items]
+    plain = value(get(t.root, "Resources"))
+    for lid in owned_ingress(plain, res.logical_id, strict=True):
+        entries.append(_entry(get(t.resources[lid], "Properties"), lid, lid))
     return CfnSecurityGroup(res, seq, entries)
 
 
@@ -210,14 +260,106 @@ def _description(sg: CfnSecurityGroup, r: Rule) -> str:
 
 
 def render_sg(sg: CfnSecurityGroup, synth: Synthesis) -> str:
-    """New template text: open entries removed, synthesized rules where the first one was."""
-    text, seq = sg.text, sg.seq
+    """New template text: open entries removed, synthesized rules where the first one was.
+
+    An open standalone SecurityGroupIngress is deleted, or, when it is the first open entry,
+    edited to carry the first new rule, with copies of it for the rest.
+    """
     open_entries = [e for e in sg.entries if e.is_open]
-    if seq is None or not open_entries:
-        return text
+    if not open_entries:
+        return sg.text
     new_items = [_rule_pairs(r, _description(sg, r)) for r in synth.added]
+    host = open_entries[0]
+    edits: list[Edit] = []
+    for e in open_entries:
+        if e.resource is None:
+            continue
+        if e is host and new_items:
+            edits += _standalone_edits(sg, e, new_items)
+        else:
+            edits.append(remove_pair(sg.text, _resources(sg), e.resource))
+    inline_open = [e for e in open_entries if e.resource is None]
+    if inline_open:
+        assert sg.seq is not None
+        edits += _inline_edits(sg, sg.seq, inline_open, new_items if host.resource is None else [])
+    return apply(sg.text, edits)
+
+
+def _resources(sg: CfnSecurityGroup) -> MappingNode:
+    node = get(sg.res.template.root, "Resources")
+    assert isinstance(node, MappingNode)
+    return node
+
+
+def _set_pairs(
+    sg: CfnSecurityGroup, props: MappingNode, pairs: list[tuple[str, Any]]
+) -> list[Edit]:
+    """Edits that make the rule fields of a standalone resource's Properties equal `pairs`."""
+    t, text = sg.res.template, sg.text
+    edits: list[Edit] = []
+    missing = []
+    for k, v in pairs:
+        node = get(props, k)
+        if node is None:
+            missing.append((k, v))
+        elif value(node) != v:
+            quoted = t.is_json or (isinstance(node, ScalarNode) and node.style == '"')
+            edits.append((start(node), end(node), scalar_text(v, as_json=quoted)))
+    wanted = {k for k, _ in pairs}
+    edits += [
+        remove_pair(text, props, k)
+        for k in ("CidrIp", "CidrIpv6")
+        if k not in wanted and get(props, k) is not None
+    ]
+    if missing:
+        edits.append(insert_pairs(text, props, missing, _step(sg.res)))
+    return edits
+
+
+def _standalone_edits(
+    sg: CfnSecurityGroup, host: IngressEntry, new_items: list[list[tuple[str, Any]]]
+) -> list[Edit]:
+    """The host resource carries the first new rule; copies of it, renamed, carry the rest."""
+    assert host.resource is not None
+    t, text, rs = sg.res.template, sg.text, _resources(sg)
+    key = key_node(rs, host.resource)
+    assert key is not None
+    node = t.resources[host.resource]
+    if rs.flow_style:
+        s, e = start(key), end(node)
+    else:
+        s, e = line_start(text, start(key)), line_end(text, end(node))
+    blank = not rs.flow_style and (text[e : e + 1] == "\n" or text[:s].endswith("\n\n"))
+    taken = set(t.resources)
+    copies = []
+    for pairs in new_items[1:]:
+        n = 2
+        while f"{host.resource}{n}" in taken:
+            n += 1
+        name = f"{host.resource}{n}"
+        taken.add(name)
+        body = apply(text[s:e], [(a - s, b - s, x) for a, b, x in _set_pairs(sg, host.node, pairs)])
+        new_key = json.dumps(name) if key.style == '"' else name
+        body = body[: start(key) - s] + new_key + body[end(key) - s :]
+        copies.append(
+            (",\n" + indent_of(text, s) if rs.flow_style else "\n" if blank else "") + body
+        )
+    lead = "" if rs.flow_style or text[:e].endswith("\n") else "\n"
+    # The copies go in before the host's own inserted fields so those stay inside the host.
+    out: list[Edit] = [(e, e, lead + "".join(copies))] if copies else []
+    return out + _set_pairs(sg, host.node, new_items[0])
+
+
+def _inline_edits(
+    sg: CfnSecurityGroup,
+    seq: SequenceNode,
+    open_entries: list[IngressEntry],
+    new_items: list[list[tuple[str, Any]]],
+) -> list[Edit]:
+    text = sg.text
+    inline = [e for e in sg.entries if e.resource is None]
     if seq.flow_style:
-        return _render_flow(sg, seq, open_entries, new_items)
+        return [_render_flow(sg, seq, inline, open_entries, new_items)]
     edits: list[Edit] = []
     for idx, e in enumerate(open_entries):
         s = line_start(text, start(e.node))
@@ -239,21 +381,22 @@ def render_sg(sg: CfnSecurityGroup, synth: Synthesis) -> str:
             block = block_mapping(pairs, key_ind, "  ")
             lines += [dash + "- " + block[0].lstrip(), *block[1:]]
         edits.append((s, line_end(text, end(e.node)), "".join(f"{ln}\n" for ln in lines)))
-    if len(open_entries) == len(sg.entries) and not new_items:
+    if len(open_entries) == len(inline) and not new_items:
         props = sg.res.properties
         assert isinstance(props, MappingNode)
         key = key_node(props, "SecurityGroupIngress")
         assert key is not None
         edits = [(line_start(text, start(key)), line_end(text, end(seq)), "")]
-    return apply(text, edits)
+    return edits
 
 
 def _render_flow(
     sg: CfnSecurityGroup,
     seq: SequenceNode,
+    inline: list[IngressEntry],
     open_entries: list[IngressEntry],
     new_items: list[list[tuple[str, Any]]],
-) -> str:
+) -> Edit:
     text = sg.text
     raw_seq = text[start(seq) : end(seq)]
     multiline = "\n" in raw_seq
@@ -263,7 +406,7 @@ def _render_flow(
     step = " " * max(key_col - first.start_mark.column, 2)
     obj_multi = "\n" in text[start(first) : end(first)]
     items: list[str] = []
-    for e in sg.entries:
+    for e in inline:
         if e is open_entries[0]:
             items += [json_mapping(p, item_ind, step, multiline=obj_multi) for p in new_items]
         elif not e.is_open:
@@ -273,7 +416,7 @@ def _render_flow(
         body = "[\n" + ",\n".join(item_ind + i for i in items) + "\n" + close + "]"
     else:
         body = "[" + ", ".join(items) + "]"
-    return text[: start(seq)] + body + text[end(seq) :]
+    return start(seq), end(seq), body
 
 
 # --- S3 Block Public Access
@@ -409,6 +552,17 @@ def _sam_label(entry: Node) -> str:
     if isinstance(v, dict) and len(v) == 1:
         return f"SAM policy template {next(iter(v))}"
     return "an intrinsic function"
+
+
+def _refs(v: Any, logical_id: str) -> bool:
+    if isinstance(v, dict):
+        if v.get("Ref") == logical_id:
+            return True
+        att = v.get("Fn::GetAtt")
+        if isinstance(att, list) and att and att[0] == logical_id:
+            return True
+        return any(_refs(x, logical_id) for x in v.values())
+    return isinstance(v, list) and any(_refs(x, logical_id) for x in v)
 
 
 def _attached(lid: str, node: MappingNode, logical_id: str) -> list[Any] | None:
@@ -581,3 +735,132 @@ def iam_edit(policy: CfnPolicy, after: dict[int, list[str]]) -> str:
             s = len(t.text[:s].rstrip(" "))
         edits.append((s, end(node), new))
     return apply(t.text, edits)
+
+
+# --- attribute fixes (configfix catalog rows mapped with ConfigFix.for_cfn)
+
+
+def _prop(res: CfnResource, path: str) -> tuple[bool, Any]:
+    """(present, value) of a property path under Properties; stops on an intrinsic on the way."""
+    cur: Any = value(res.properties) if res.properties is not None else {}
+    for part in path.split("."):
+        if is_intrinsic(cur) or not isinstance(cur, dict):
+            raise _unsupported(f"{res.logical_id} {path}")
+        if part not in cur:
+            return False, None
+        cur = cur[part]
+    return True, cur
+
+
+def _literal(res: CfnResource, c: Change, v: Any) -> Any:
+    """The property as a plain value the change can compare; CloudFormation often writes
+    booleans and numbers as strings."""
+    what = f"{res.logical_id} {c.path}"
+    if v is None or isinstance(v, dict):
+        raise _unsupported(what)
+    if isinstance(v, list):
+        if not all(isinstance(x, str) for x in v):
+            raise _unsupported(what)
+        return v
+    if isinstance(v, str) and isinstance(c.value, bool) and v.lower() in ("true", "false"):
+        return v.lower() == "true"
+    if isinstance(v, str) and c.op == "at_least" and v.isdigit():
+        return int(v)
+    return v
+
+
+def attr_applies(res: CfnResource, fix: ConfigFix) -> tuple[bool, str]:
+    for w in fix.when:
+        present, v = _prop(res, w.path)
+        if is_intrinsic(v):
+            raise _unsupported(f"{res.logical_id} {w.path}")
+        if not present and None in w.in_:
+            continue
+        if present and (PRESENT in w.in_ or v in w.in_):
+            continue
+        shown = "not set" if not present else repr(v)
+        return False, f"{w.path} is {shown}"
+    return True, ""
+
+
+def attr_unmet(res: CfnResource, fix: ConfigFix) -> list[str]:
+    """The changes the resource doesn't meet yet."""
+    unmet = []
+    for c in fix.changes:
+        present, v = _prop(res, c.path)
+        if not present or not c.satisfied_by(_literal(res, c, v)):
+            unmet.append(c.describe())
+    return unmet
+
+
+def _nest(parts: list[str], v: Any) -> list[tuple[str, Any]]:
+    return [(parts[0], _nest(parts[1:], v) if len(parts) > 1 else v)]
+
+
+def _append_items(t: Template, seq: SequenceNode, items: list[str]) -> Edit:
+    text = t.text
+    if not seq.flow_style:
+        ind = indent_of(text, start(seq.value[-1]))
+        pos = line_end(text, end(seq))
+        lead = "" if text[:pos].endswith("\n") else "\n"
+        return pos, pos, lead + "".join(f"{ind}- {scalar_text(i, as_json=False)}\n" for i in items)
+    rendered = [scalar_text(i, as_json=t.is_json) for i in items]
+    if not seq.value:
+        return end(seq) - 1, end(seq) - 1, ", ".join(rendered)
+    last = seq.value[-1]
+    sep = ",\n" + indent_of(text, start(last)) if "\n" in text[start(seq) : end(seq)] else ", "
+    return end(last), end(last), "".join(sep + r for r in rendered)
+
+
+def _attr_edit(res: CfnResource, c: Change) -> Edit | None:
+    """One edit that makes the resource meet `c`, or None if it already does."""
+    present, cur = _prop(res, c.path)
+    if present and c.satisfied_by(_literal(res, c, cur)):
+        return None
+    t, step, parts = res.template, _step(res), c.path.split(".")
+    want: Any = list(c.value) if isinstance(c.value, list) else c.value
+    node = res.properties
+    if node is None:
+        return insert_pairs(t.text, res.node, [("Properties", _nest(parts, want))], step)
+    for i, part in enumerate(parts):
+        if not isinstance(node, MappingNode) or str(node.tag).startswith("!"):
+            raise _unsupported(f"{res.logical_id} {'.'.join(parts[:i]) or 'Properties'}")
+        child = get(node, part)
+        if child is None:
+            return insert_pairs(t.text, node, _nest(parts[i:], want), step)
+        node = child
+    if str(node.tag).startswith("!"):
+        raise _unsupported(f"{res.logical_id} {c.path}")
+    if c.op == "includes":
+        if not isinstance(node, SequenceNode):
+            raise _unsupported(f"{res.logical_id} {c.path}")
+        return _append_items(t, node, [v for v in want if v not in cur])
+    if not isinstance(node, ScalarNode):
+        raise _unsupported(f"{res.logical_id} {c.path}")
+    return start(node), end(node), scalar_text(want, as_json=t.is_json)
+
+
+def attr_edit(res: CfnResource, fix: ConfigFix) -> tuple[str, list[str], list[str]]:
+    """(new text, changes made, changes already met). `fix` carries CloudFormation paths."""
+    ok, why = attr_applies(res, fix)
+    if not ok:
+        raise StageStop(
+            "fix", f"the {fix.control} fix doesn't apply here: {why}", ["fix this resource by hand"]
+        )
+    text, changed, already = res.template.text, [], []
+    for c in fix.changes:
+        # Re-read after each edit: two changes can share a parent that the first one adds.
+        try:
+            t = parse(text, res.template.path)
+        except TemplateError as exc:
+            raise StageStop("fix", f"the edited template doesn't parse: {exc}") from exc
+        cur = CfnResource(
+            res.stack, res.logical_id, res.type, t, t.resources[res.logical_id], res.line
+        )
+        e = _attr_edit(cur, c)
+        if e is None:
+            already.append(c.describe())
+        else:
+            text = apply(text, [e])
+            changed.append(c.describe())
+    return text, changed, already

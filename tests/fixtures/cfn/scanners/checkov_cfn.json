@@ -1,0 +1,32 @@
+[
+  {
+    "check_type": "cloudformation",
+    "results": {
+      "passed_checks": [],
+      "failed_checks": [
+        {
+          "check_id": "CKV_AWS_53",
+          "bc_check_id": "BC_AWS_S3_19",
+          "check_name": "Ensure S3 bucket has block public ACLS enabled",
+          "check_result": {"result": "FAILED"},
+          "file_path": "/templates/storage.yaml",
+          "repo_file_path": "/templates/storage.yaml",
+          "file_line_range": [6, 12],
+          "resource": "AWS::S3::Bucket.AssetsBucket",
+          "severity": null
+        },
+        {
+          "check_id": "CKV_AWS_21",
+          "check_name": "Ensure the S3 bucket has versioning enabled",
+          "check_result": {"result": "FAILED"},
+          "file_path": "/templates/storage.yaml",
+          "repo_file_path": "/templates/storage.yaml",
+          "file_line_range": [6, 12],
+          "resource": "AWS::S3::Bucket.AssetsBucket",
+          "severity": null
+        }
+      ]
+    },
+    "summary": {"passed": 0, "failed": 2}
+  }
+]
