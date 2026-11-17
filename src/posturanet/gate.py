@@ -367,7 +367,10 @@ def check_source(repo: Path, config: Config, files: list[Path] | None = None) ->
     """Judge every contract from the HCL. With `files`, only contracts on resources in them."""
     wanted = None if files is None else {f.resolve() for f in files}
     results: list[ContractResult] = []
-    for loaded in _all_contracts(repo, config):
+    contracts = _all_contracts(repo, config)
+    if any(cfn.split_address(x.contract.resource) for x in contracts):
+        results += _unreadable_templates(repo, files or [])
+    for loaded in contracts:
         c = loaded.contract
         if cfn.split_address(c.resource):
             res = _source_cfn(loaded, repo, config, wanted)
@@ -380,6 +383,28 @@ def check_source(repo: Path, config: Config, files: list[Path] | None = None) ->
         if res is not None:
             results.append(res)
     return GateResult(_overall(results), results, "source")
+
+
+def _unreadable_templates(repo: Path, files: list[Path]) -> list[ContractResult]:
+    """An edited file that looks like a template but no longer parses can't be checked: UNKNOWN,
+    never a silent PASS (find_templates would just skip it)."""
+    out = []
+    for f in files:
+        text = cfn_template.maybe_template(f)
+        if text is None:
+            continue
+        try:
+            cfn_template.parse(text, f)
+        except cfn_template.TemplateError as exc:
+            try:
+                rel = f.resolve().relative_to(repo.resolve()).as_posix()
+            except ValueError:
+                rel = f.as_posix()
+            reason = f"{exc}; can't check the contracts in it"
+            out.append(
+                ContractResult(rel, "", "UNKNOWN", [reason], source_file=rel, subject="template")
+            )
+    return out
 
 
 def _in_scope(repo: Path, file_rel: str, wanted: set[Path] | None) -> bool:
@@ -515,7 +540,9 @@ def _source_cfn(
     result = ContractResult(c.resource, loaded.rel, "PASS", subject=subject)
     parts = cfn.split_address(c.resource)
     assert parts is not None
-    res = cfn.resolve(repo, config, *parts)
+    stack, logical = parts
+    logical, _, name = logical.partition(".")  # `.<PolicyName>` marks an inline IAM policy
+    res = cfn.resolve(repo, config, stack, logical)
     if isinstance(res, str):
         return _finish(result, loaded, [], [res], []) if wanted is None else None
     file_rel = res.template.path.resolve().relative_to(repo.resolve()).as_posix()
@@ -526,8 +553,8 @@ def _source_cfn(
         if isinstance(c, BehaviorContract):
             return _judge(result, c, cfn.parse_sg(res).rules(), loaded.text)
         if isinstance(c, IamContract):
-            cfn.parse_policy(res)  # stops on anything that isn't a literal statement list
-            doc = cfn_template.value(cfn_template.get(res.properties, "PolicyDocument"))
+            # stops on anything that isn't a literal statement list
+            doc = cfn_template.value(cfn.parse_policy(res, name or None).doc)
             if _intrinsic_anywhere(doc):
                 return _finish(result, loaded, [], ["the policy uses intrinsic functions"], [])
             violations, unknowns, needles = iam_gate.judge(c, doc)

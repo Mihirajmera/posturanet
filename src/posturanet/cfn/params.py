@@ -125,6 +125,22 @@ class Scope:
             return True if True in parts else None if None in parts else False
         return None
 
+    def pick(self, v: Any) -> tuple[Any, list[str]]:
+        """Unwrap `Fn::If` (and `AWS::NoValue`) around `v` without reading anything inside it."""
+        sources: list[str] = []
+        while is_intrinsic(v):
+            ((fn, arg),) = v.items()
+            if fn == "Ref" and arg == "AWS::NoValue":
+                return NO_VALUE, sources
+            if fn != "Fn::If" or not isinstance(arg, list) or len(arg) != 3:
+                break
+            picked = self.condition(arg[0]) if isinstance(arg[0], str) else None
+            if picked is None:
+                raise Unresolved(f"condition {arg[0]} can't be resolved from known parameters")
+            sources.append(f"condition {arg[0]}")
+            v = arg[1] if picked else arg[2]
+        return v, sources
+
     def resolve(self, v: Any) -> tuple[Any, list[str]]:
         """(the literal value, the parameters and conditions it came from) or `Unresolved`."""
         if is_intrinsic(v):

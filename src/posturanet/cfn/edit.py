@@ -8,6 +8,7 @@ the indentation already used around the change. Values PosturaNet can't read lit
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -15,23 +16,29 @@ from typing import Any
 from ruamel.yaml.nodes import MappingNode, Node, ScalarNode, SequenceNode
 
 from posturanet.cfn.locate import CfnResource
-from posturanet.cfn.params import NO_VALUE, Unresolved, param_stop, unresolved_stop
+from posturanet.cfn.params import NO_VALUE, Scope, Unresolved, param_stop, unresolved_stop
 from posturanet.cfn.template import (
     Template,
+    TemplateError,
     block_mapping,
     end,
     get,
     indent_of,
+    is_intrinsic,
     json_mapping,
     key_node,
     line_end,
+    line_of,
     line_start,
+    parse,
     scalar_text,
     start,
     value,
 )
+from posturanet.configfix.catalog import PRESENT, Change, ConfigFix
 from posturanet.errors import StageStop
 from posturanet.iamfix.doc import Statement
+from posturanet.iamfix.shrink import targeted
 from posturanet.synth.hcl_render import DEFAULT_DESCRIPTION
 from posturanet.synth.sg_rules import WORLD, Rule, norm_proto
 from posturanet.synth.sg_z3 import Synthesis
@@ -40,6 +47,10 @@ SG_TYPE = "AWS::EC2::SecurityGroup"
 SG_INGRESS_TYPE = "AWS::EC2::SecurityGroupIngress"
 BUCKET_TYPE = "AWS::S3::Bucket"
 POLICY_TYPE = "AWS::IAM::ManagedPolicy"
+STANDALONE_POLICY_TYPE = "AWS::IAM::Policy"
+SAM_FUNCTION_TYPE = "AWS::Serverless::Function"
+# Resources an IAM finding can name: the managed policy, or the principal holding inline policies.
+IAM_TYPES = [POLICY_TYPE, "AWS::IAM::Role", "AWS::IAM::User", "AWS::IAM::Group"]
 PAB = "PublicAccessBlockConfiguration"
 # Terraform flag name -> CloudFormation property name.
 PAB_FLAGS = {
@@ -54,7 +65,8 @@ Edit = tuple[int, int, str]  # replace text[start:end] with the string
 
 
 def apply(text: str, edits: list[Edit]) -> str:
-    for s, e, new in sorted(edits, key=lambda x: -x[0]):
+    # At one offset a removal goes before an insertion, so it never eats the inserted text.
+    for s, e, new in sorted(edits, key=lambda x: (-x[0], -x[1])):
         text = text[:s] + new + text[e:]
     return text
 
@@ -66,8 +78,28 @@ def _step(res: CfnResource) -> str:
     return " " * width if not res.node.flow_style and width > 0 else "  "
 
 
-def _unsupported(what: str) -> StageStop:
-    return StageStop("fix", f"{what} is not a literal value; PosturaNet won't guess it", [_BY_HAND])
+def _unsupported(what: str, *, unknown: bool = False) -> StageStop:
+    return StageStop(
+        "fix",
+        f"{what} is not a literal value; PosturaNet won't guess it",
+        [_BY_HAND],
+        unknown=unknown,
+    )
+
+
+def remove_pair(text: str, mapping: MappingNode, key: str) -> Edit:
+    """An edit that deletes `key` and its value from `mapping`, comments around it kept."""
+    keys = [k.value for k, _ in mapping.value]
+    i = keys.index(key)
+    k, v = mapping.value[i]
+    if not mapping.flow_style:
+        s, e = line_start(text, start(k)), line_end(text, end(v))
+        if text[e : e + 1] == "\n" and (s == 0 or text[:s].endswith("\n\n")):
+            e += 1  # don't leave two blank lines where one block was
+        return s, e, ""
+    if i + 1 < len(keys):
+        return start(k), start(mapping.value[i + 1][0]), ""
+    return (end(mapping.value[i - 1][1]) if i else start(k)), end(v), ""
 
 
 def insert_pairs(text: str, mapping: MappingNode, pairs: list[tuple[str, Any]], step: str) -> Edit:
@@ -92,7 +124,7 @@ def insert_pairs(text: str, mapping: MappingNode, pairs: list[tuple[str, Any]], 
         f'"{k}": '
         + (
             json_mapping(v, key_ind, step, multiline=multiline)
-            if isinstance(v, list)
+            if isinstance(v, list) and v and isinstance(v[0], tuple)
             else scalar_text(v, as_json=True)
         )
         for k, v in pairs
@@ -108,10 +140,11 @@ def insert_pairs(text: str, mapping: MappingNode, pairs: list[tuple[str, Any]], 
 
 @dataclass
 class IngressEntry:
-    node: Node
+    node: Node  # the inline entry, or the standalone resource's Properties
     rules: list[Rule]
     is_open: bool
     description: str | None
+    resource: str | None = None  # logical id of a standalone SecurityGroupIngress
     sources: list[str] = field(default_factory=list)  # parameters/conditions it reads
 
 
@@ -129,61 +162,100 @@ class CfnSecurityGroup:
         return sorted({r for e in self.entries for r in e.rules})
 
 
-def _refs(v: Any, logical_id: str) -> bool:
-    if isinstance(v, dict):
-        if v.get("Ref") == logical_id:
-            return True
-        att = v.get("Fn::GetAtt")
-        if isinstance(att, list) and att and att[0] == logical_id:
-            return True
-        return any(_refs(x, logical_id) for x in v.values())
-    return isinstance(v, list) and any(_refs(x, logical_id) for x in v)
+def _group_target(v: Any) -> tuple[str, str] | None:
+    """(logical id, "Ref" or attribute) for a plain `Ref` / `Fn::GetAtt` GroupId, else None."""
+    if not isinstance(v, dict) or len(v) != 1:
+        return None
+    if isinstance(v.get("Ref"), str):
+        return v["Ref"], "Ref"
+    att = v.get("Fn::GetAtt")
+    if isinstance(att, str):
+        att = att.split(".", 1)
+    if isinstance(att, list) and len(att) == 2 and all(isinstance(a, str) for a in att):
+        return att[0], att[1]
+    return None
+
+
+def owned_ingress(resources: dict[str, Any], sg_id: str, *, strict: bool = False) -> list[str]:
+    """Logical ids of the SecurityGroupIngress resources that add rules to `sg_id`.
+
+    `resources` is the plain Resources dict. With `strict`, one whose GroupId might point at
+    `sg_id` but isn't a plain `!Ref`/`!GetAtt .GroupId` to a resource here stops UNKNOWN.
+    """
+    out = []
+    for lid, r in resources.items():
+        if not isinstance(r, dict) or r.get("Type") != SG_INGRESS_TYPE:
+            continue
+        props = r.get("Properties")
+        target = _group_target(props.get("GroupId") if isinstance(props, dict) else None)
+        if target in ((sg_id, "Ref"), (sg_id, "GroupId")):
+            out.append(lid)
+        elif strict and (target is None or target[0] == sg_id or target[0] not in resources):
+            raise StageStop(
+                "fix",
+                f"{lid} ({SG_INGRESS_TYPE}) has a GroupId PosturaNet can't tie to a resource "
+                f"in this template, so it may add rules to {sg_id}",
+                [
+                    "fix this group by hand, or set GroupId to !Ref or !GetAtt <group>.GroupId",
+                ],
+                unknown=True,
+            )
+    return out
+
+
+_RULE_KEYS = ("IpProtocol", "FromPort", "ToPort", "CidrIp", "CidrIpv6")
+
+
+def _entry(node: Node | None, what: str, scope: Scope, resource: str | None = None) -> IngressEntry:
+    try:
+        v, sources = scope.pick(value(node))
+        for k in _RULE_KEYS if isinstance(v, dict) else ():
+            if k in v:
+                r, src = scope.resolve(v[k])
+                sources += src
+                v[k] = r
+                if r is NO_VALUE:
+                    del v[k]
+    except Unresolved as exc:
+        raise unresolved_stop(what, exc) from exc
+    if node is not None and v is NO_VALUE:  # `!If [Cond, {...}, !Ref AWS::NoValue]`, Cond false
+        return IngressEntry(node, [], False, None, resource, sources)
+    if node is None or not isinstance(v, dict) or not (isinstance(node, MappingNode) or sources):
+        raise _unsupported(what, unknown=True)
+    proto = norm_proto(v.get("IpProtocol", ""))
+    lo, hi = int(v.get("FromPort", -1)), int(v.get("ToPort", -1))
+    cidrs = [str(v[k]) for k in ("CidrIp", "CidrIpv6") if k in v]
+    desc = v.get("Description")
+    return IngressEntry(
+        node,
+        [Rule(c, lo, hi, proto) for c in cidrs],
+        any(c in WORLD for c in cidrs),
+        desc if isinstance(desc, str) else None,
+        resource,
+        sources,
+    )
 
 
 def parse_sg(res: CfnResource) -> CfnSecurityGroup:
+    """Inline SecurityGroupIngress entries, then standalone SecurityGroupIngress resources."""
     t = res.template
-    for lid, node in t.resources.items():
-        if value(get(node, "Type")) == SG_INGRESS_TYPE and _refs(
-            value(get(get(node, "Properties"), "GroupId")), res.logical_id
-        ):
-            raise StageStop(
-                "fix",
-                f"{res.logical_id} also has rules in a separate {SG_INGRESS_TYPE} ({lid}); "
-                "not supported yet",
-                ["fix this group by hand, or move its rules into SecurityGroupIngress"],
-            )
     props = res.properties
     if props is not None and not isinstance(props, MappingNode):
         raise _unsupported(f"{res.logical_id} Properties")
     seq = get(props, "SecurityGroupIngress")
-    if seq is None:
-        return CfnSecurityGroup(res, None)
-    if not isinstance(seq, SequenceNode):
+    if seq is not None and not isinstance(seq, SequenceNode):
         raise _unsupported(f"{res.logical_id} SecurityGroupIngress")
-    entries = []
-    for item in seq.value:
-        try:
-            v, sources = res.scope.resolve(value(item))
-        except Unresolved as exc:
-            raise unresolved_stop(f"an ingress entry of {res.logical_id}", exc) from exc
-        if v is NO_VALUE:  # `!If [Cond, {…}, !Ref AWS::NoValue]` with Cond false: kept as is
-            entries.append(IngressEntry(item, [], False, None, sources))
-            continue
-        if not isinstance(v, dict):
-            raise _unsupported(f"an ingress entry of {res.logical_id}")
-        proto = norm_proto(v.get("IpProtocol", ""))
-        lo, hi = int(v.get("FromPort", -1)), int(v.get("ToPort", -1))
-        cidrs = [str(v[k]) for k in ("CidrIp", "CidrIpv6") if k in v]
-        desc = v.get("Description")
-        entries.append(
-            IngressEntry(
-                item,
-                [Rule(c, lo, hi, proto) for c in cidrs],
-                any(c in WORLD for c in cidrs),
-                desc if isinstance(desc, str) else None,
-                sources,
-            )
-        )
+    items = seq.value if seq is not None else []
+    scope = res.scope
+    entries = [_entry(item, f"an ingress entry of {res.logical_id}", scope) for item in items]
+    plain = value(get(t.root, "Resources"))
+    for lid in owned_ingress(plain, res.logical_id, strict=True):
+        node, cond = t.resources[lid], value(get(t.resources[lid], "Condition"))
+        on = scope.condition(str(cond)) if cond is not None else True
+        if on is None:
+            raise unresolved_stop(lid, Unresolved(f"condition {cond} can't be resolved"))
+        if on:  # a false Condition means the stack doesn't create it
+            entries.append(_entry(get(node, "Properties"), lid, scope, lid))
     return CfnSecurityGroup(res, seq, entries)
 
 
@@ -209,17 +281,110 @@ def _description(sg: CfnSecurityGroup, r: Rule) -> str:
 
 
 def render_sg(sg: CfnSecurityGroup, synth: Synthesis) -> str:
-    """New template text: open entries removed, synthesized rules where the first one was."""
-    text, seq = sg.text, sg.seq
+    """New template text: open entries removed, synthesized rules where the first one was.
+
+    An open standalone SecurityGroupIngress is deleted, or, when it is the first open entry,
+    edited to carry the first new rule, with copies of it for the rest.
+    """
     open_entries = [e for e in sg.entries if e.is_open]
-    if seq is None or not open_entries:
-        return text
+    if not open_entries:
+        return sg.text
     for e in open_entries:
         if e.sources:
-            raise param_stop(f"an open ingress entry of {sg.res.logical_id}", e.sources)
+            what = e.resource or f"an open ingress entry of {sg.res.logical_id}"
+            raise param_stop(what, e.sources)
     new_items = [_rule_pairs(r, _description(sg, r)) for r in synth.added]
+    host = open_entries[0]
+    edits: list[Edit] = []
+    for e in open_entries:
+        if e.resource is None:
+            continue
+        if e is host and new_items:
+            edits += _standalone_edits(sg, e, new_items)
+        else:
+            edits.append(remove_pair(sg.text, _resources(sg), e.resource))
+    inline_open = [e for e in open_entries if e.resource is None]
+    if inline_open:
+        assert sg.seq is not None
+        edits += _inline_edits(sg, sg.seq, inline_open, new_items if host.resource is None else [])
+    return apply(sg.text, edits)
+
+
+def _resources(sg: CfnSecurityGroup) -> MappingNode:
+    node = get(sg.res.template.root, "Resources")
+    assert isinstance(node, MappingNode)
+    return node
+
+
+def _set_pairs(
+    sg: CfnSecurityGroup, props: MappingNode, pairs: list[tuple[str, Any]]
+) -> list[Edit]:
+    """Edits that make the rule fields of a standalone resource's Properties equal `pairs`."""
+    t, text = sg.res.template, sg.text
+    edits: list[Edit] = []
+    missing = []
+    for k, v in pairs:
+        node = get(props, k)
+        if node is None:
+            missing.append((k, v))
+        elif value(node) != v:
+            quoted = t.is_json or (isinstance(node, ScalarNode) and node.style == '"')
+            edits.append((start(node), end(node), scalar_text(v, as_json=quoted)))
+    wanted = {k for k, _ in pairs}
+    edits += [
+        remove_pair(text, props, k)
+        for k in ("CidrIp", "CidrIpv6")
+        if k not in wanted and get(props, k) is not None
+    ]
+    if missing:
+        edits.append(insert_pairs(text, props, missing, _step(sg.res)))
+    return edits
+
+
+def _standalone_edits(
+    sg: CfnSecurityGroup, host: IngressEntry, new_items: list[list[tuple[str, Any]]]
+) -> list[Edit]:
+    """The host resource carries the first new rule; copies of it, renamed, carry the rest."""
+    assert host.resource is not None and isinstance(host.node, MappingNode)
+    t, text, rs = sg.res.template, sg.text, _resources(sg)
+    key = key_node(rs, host.resource)
+    assert key is not None
+    node = t.resources[host.resource]
+    if rs.flow_style:
+        s, e = start(key), end(node)
+    else:
+        s, e = line_start(text, start(key)), line_end(text, end(node))
+    blank = not rs.flow_style and (text[e : e + 1] == "\n" or text[:s].endswith("\n\n"))
+    taken = set(t.resources)
+    copies = []
+    for pairs in new_items[1:]:
+        n = 2
+        while f"{host.resource}{n}" in taken:
+            n += 1
+        name = f"{host.resource}{n}"
+        taken.add(name)
+        body = apply(text[s:e], [(a - s, b - s, x) for a, b, x in _set_pairs(sg, host.node, pairs)])
+        new_key = json.dumps(name) if key.style == '"' else name
+        body = body[: start(key) - s] + new_key + body[end(key) - s :]
+        copies.append(
+            (",\n" + indent_of(text, s) if rs.flow_style else "\n" if blank else "") + body
+        )
+    lead = "" if rs.flow_style or text[:e].endswith("\n") else "\n"
+    # The copies go in before the host's own inserted fields so those stay inside the host.
+    out: list[Edit] = [(e, e, lead + "".join(copies))] if copies else []
+    return out + _set_pairs(sg, host.node, new_items[0])
+
+
+def _inline_edits(
+    sg: CfnSecurityGroup,
+    seq: SequenceNode,
+    open_entries: list[IngressEntry],
+    new_items: list[list[tuple[str, Any]]],
+) -> list[Edit]:
+    text = sg.text
+    inline = [e for e in sg.entries if e.resource is None]
     if seq.flow_style:
-        return _render_flow(sg, seq, open_entries, new_items)
+        return [_render_flow(sg, seq, inline, open_entries, new_items)]
     edits: list[Edit] = []
     for idx, e in enumerate(open_entries):
         s = line_start(text, start(e.node))
@@ -243,21 +408,22 @@ def render_sg(sg: CfnSecurityGroup, synth: Synthesis) -> str:
             block = block_mapping(pairs, key_ind, "  ")
             lines += [dash + "- " + block[0].lstrip(), *block[1:]]
         edits.append((s, line_end(text, end(e.node)), "".join(f"{ln}\n" for ln in lines)))
-    if len(open_entries) == len(sg.entries) and not new_items:
+    if len(open_entries) == len(inline) and not new_items:
         props = sg.res.properties
         assert isinstance(props, MappingNode)
         key = key_node(props, "SecurityGroupIngress")
         assert key is not None
         edits = [(line_start(text, start(key)), line_end(text, end(seq)), "")]
-    return apply(text, edits)
+    return edits
 
 
 def _render_flow(
     sg: CfnSecurityGroup,
     seq: SequenceNode,
+    inline: list[IngressEntry],
     open_entries: list[IngressEntry],
     new_items: list[list[tuple[str, Any]]],
-) -> str:
+) -> Edit:
     text = sg.text
     raw_seq = text[start(seq) : end(seq)]
     multiline = "\n" in raw_seq
@@ -267,7 +433,7 @@ def _render_flow(
     step = " " * max(key_col - first.start_mark.column, 2)
     obj_multi = "\n" in text[start(first) : end(first)]
     items: list[str] = []
-    for e in sg.entries:
+    for e in inline:
         if e is open_entries[0]:
             items += [json_mapping(p, item_ind, step, multiline=obj_multi) for p in new_items]
         elif not e.is_open:
@@ -277,7 +443,7 @@ def _render_flow(
         body = "[\n" + ",\n".join(item_ind + i for i in items) + "\n" + close + "]"
     else:
         body = "[" + ", ".join(items) + "]"
-    return text[: start(seq)] + body + text[end(seq) :]
+    return start(seq), end(seq), body
 
 
 # --- S3 Block Public Access
@@ -356,15 +522,30 @@ def s3_flags(res: CfnResource) -> dict[str, Any]:
     return out
 
 
-# --- IAM managed policies
+# --- IAM policy documents
 
 
 @dataclass
 class CfnPolicy:
-    res: CfnResource
+    res: CfnResource  # the resource whose text holds the document
     statements: list[Statement]
     action_nodes: dict[int, Node]
+    doc: MappingNode | None = None
+    name: str | None = None  # inline PolicyName (SAM: the generated one); None = whole resource
     sources: dict[int, list[str]] = field(default_factory=dict)  # parameterised Action lists
+
+    @property
+    def address(self) -> str:
+        """`cfn.<stack>.<LogicalId>`, plus `.<PolicyName>` for an inline document."""
+        return self.res.address + (f".{self.name}" if self.name else "")
+
+    @property
+    def where(self) -> str:
+        return f"{self.name} in {self.res.logical_id}" if self.name else self.res.logical_id
+
+
+def _iam_unknown(why: str, *steps: str) -> StageStop:
+    return StageStop("fix", why, list(steps) or ["shrink this policy by hand"], unknown=True)
 
 
 def _strs(v: Any, what: str) -> list[str]:
@@ -372,34 +553,191 @@ def _strs(v: Any, what: str) -> list[str]:
         return [v]
     if isinstance(v, list) and all(isinstance(x, str) for x in v):
         return list(v)
-    raise _unsupported(what)
+    raise _iam_unknown(f"{what} is not a literal value; PosturaNet won't guess it", _BY_HAND)
 
 
-def parse_policy(res: CfnResource) -> CfnPolicy:
-    doc = get(res.properties, "PolicyDocument")
+def _sam_policies(res: CfnResource) -> list[Node]:
+    pols = get(res.properties, "Policies")
+    return [] if pols is None else pols.value if isinstance(pols, SequenceNode) else [pols]
+
+
+def _inline_doc(res: CfnResource, name: str) -> MappingNode:
+    """The document named `name` inside `res` (Role/User/Group `Policies`, SAM `Policies`)."""
+    if res.type == SAM_FUNCTION_TYPE:
+        prefix = f"{res.logical_id}RolePolicy"
+        idx = name[len(prefix) :]
+        entries = _sam_policies(res)
+        if not name.startswith(prefix) or not idx.isdigit() or int(idx) >= len(entries):
+            raise _iam_unknown(f"{res.logical_id} has no SAM policy {name}")
+        entry = entries[int(idx)]
+        if not isinstance(entry, MappingNode) or get(entry, "Statement") is None:
+            raise _iam_unknown(
+                f"{name} ({_sam_label(entry)}) is not an inline statement document",
+                "SAM policy templates and managed policies are fixed by hand",
+            )
+        return entry
+    for entry in _entries(res):
+        if value(get(entry, "PolicyName")) == name:
+            doc = get(entry, "PolicyDocument")
+            if not isinstance(doc, MappingNode):
+                raise _iam_unknown(f"PolicyDocument of {name} in {res.logical_id} is not literal")
+            return doc
+    raise _iam_unknown(f"{res.logical_id} has no inline policy named {name}")
+
+
+def _entries(res: CfnResource) -> list[MappingNode]:
+    pols = get(res.properties, "Policies")
+    if pols is None:
+        return []
+    if not isinstance(pols, SequenceNode) or not all(
+        isinstance(e, MappingNode) and isinstance(value(get(e, "PolicyName")), str)
+        for e in pols.value
+    ):
+        raise _iam_unknown(f"{res.logical_id} Policies is not a literal list of named policies")
+    return list(pols.value)
+
+
+def _sam_label(entry: Node) -> str:
+    v = value(entry)
+    if is_intrinsic(v):
+        return "an intrinsic function"
+    if isinstance(v, str):
+        return f"managed policy {v}"
+    if isinstance(v, dict) and len(v) == 1:
+        return f"SAM policy template {next(iter(v))}"
+    return "an intrinsic function"
+
+
+def _refs(v: Any, logical_id: str) -> bool:
+    if isinstance(v, dict):
+        if v.get("Ref") == logical_id:
+            return True
+        att = v.get("Fn::GetAtt")
+        if isinstance(att, list) and att and att[0] == logical_id:
+            return True
+        return any(_refs(x, logical_id) for x in v.values())
+    return isinstance(v, list) and any(_refs(x, logical_id) for x in v)
+
+
+def _attached(lid: str, node: MappingNode, logical_id: str) -> list[Any] | None:
+    """Every principal an `AWS::IAM::Policy` attaches to, if `logical_id` is one of them."""
+    props = value(get(node, "Properties"))
+    lists = [props.get(k) for k in ("Roles", "Users", "Groups")] if isinstance(props, dict) else []
+    if not any(_refs(v, logical_id) for v in lists):
+        return None
+    if not all(v is None or isinstance(v, list) for v in lists):
+        raise _iam_unknown(f"{lid} lists its principals with an intrinsic function")
+    return [p for v in lists for p in v or []]
+
+
+def documents(res: CfnResource) -> tuple[list[CfnPolicy], list[str]]:
+    """(the readable policy documents that apply to `res`, labels of the ones that can't be read).
+
+    Role/User/Group: inline `Policies` entries plus `AWS::IAM::Policy` resources in the same
+    template that attach to it. SAM function: its `Policies` statement documents."""
+    if res.type == POLICY_TYPE:
+        return [parse_policy(res)], []
+    if res.type == SAM_FUNCTION_TYPE:
+        if get(res.properties, "Role") is not None:
+            raise _iam_unknown(f"{res.logical_id} uses its own Role; SAM generates no policy")
+        found, opaque = [], []
+        for i, entry in enumerate(_sam_policies(res)):
+            if isinstance(entry, MappingNode) and get(entry, "Statement") is not None:
+                found.append(parse_policy(res, f"{res.logical_id}RolePolicy{i}"))
+            else:
+                opaque.append(_sam_label(entry))
+        return found, opaque
+    found = [parse_policy(res, str(value(get(e, "PolicyName")))) for e in _entries(res)]
+    for lid, node in res.template.resources.items():
+        if value(get(node, "Type")) != STANDALONE_POLICY_TYPE:
+            continue
+        principals = _attached(lid, node, res.logical_id)
+        if principals is None:
+            continue
+        if len(principals) != 1:
+            # the evidence is this principal's use only; the others would lose access
+            raise _iam_unknown(
+                f"{lid} also attaches to other principals; the evidence covers {res.logical_id} "
+                "only",
+                f"shrink {lid} by hand, or give {res.logical_id} its own policy",
+            )
+        key = key_node(get(res.template.root, "Resources"), lid)  # type: ignore[arg-type]
+        line = line_of(key) if key is not None else res.line
+        other = CfnResource(
+            res.stack, lid, STANDALONE_POLICY_TYPE, res.template, node, line, res.scope
+        )
+        found.append(parse_policy(other))
+    return found, []
+
+
+def select_policy(res: CfnResource, control: str) -> CfnPolicy:
+    """The one document behind the finding: the managed policy itself, or the single
+    inline document on the role/user/group/function that has the wildcard `control` flags."""
+    found, opaque = documents(res)
+    if res.type == POLICY_TYPE:
+        return found[0]
+    hits = [
+        p
+        for p in found
+        if any(
+            s.effect == "Allow" and any(targeted(control, a) for a in s.actions or [])
+            for s in p.statements
+        )
+    ]
+    if len(hits) == 1:
+        return hits[0]
+    if hits:
+        raise _iam_unknown(
+            f"{len(hits)} policies on {res.logical_id} have the {control} wildcard: "
+            + ", ".join(p.where for p in hits),
+            "shrink these policies by hand, or split the role",
+        )
+    why = f"no inline policy document on {res.logical_id} has the {control} wildcard"
+    if opaque:
+        why += "; " + ", ".join(opaque) + " can't be read as statements"
+    raise _iam_unknown(
+        why,
+        "SAM policy templates and managed policies are fixed by hand",
+        "a managed policy with the wildcard has its own finding",
+    )
+
+
+def parse_policy(res: CfnResource, name: str | None = None) -> CfnPolicy:
+    doc = (
+        _inline_doc(res, name)
+        if name is not None
+        else get(res.properties, "PolicyDocument")
+        if res.type in (POLICY_TYPE, STANDALONE_POLICY_TYPE)
+        else None
+    )
     if not isinstance(doc, MappingNode):
-        raise _unsupported(f"{res.logical_id} PolicyDocument")
+        raise _iam_unknown(f"{res.logical_id} PolicyDocument is not a literal document")
     st = get(doc, "Statement")
     nodes = (
         st.value if isinstance(st, SequenceNode) else [st] if isinstance(st, MappingNode) else None
     )
+    where = f"{name} in {res.logical_id}" if name else res.logical_id
     if nodes is None:
-        raise _unsupported(f"{res.logical_id} Statement")
+        raise _iam_unknown(f"{where} Statement is not a literal list")
     statements: list[Statement] = []
     action_nodes: dict[int, Node] = {}
     sources: dict[int, list[str]] = {}
     text = res.template.text
     for idx, s in enumerate(nodes):
         v = value(s)
+        what = f"{where} statement {idx + 1}"
         if not isinstance(s, MappingNode) or not isinstance(v, dict):
-            raise _unsupported(f"statement {idx + 1}")
+            raise _iam_unknown(f"{what} is not a literal mapping")
         if not isinstance(v.get("Effect"), str):
-            raise _unsupported(f"statement {idx + 1} Effect")
+            raise _iam_unknown(f"{what} Effect is not a literal value")
         action = get(s, "Action")
         actions = None
         if action is not None:
-            raw, src = _resolved(res, value(action), f"statement {idx + 1} Action")
-            actions = _strs(raw, f"statement {idx + 1} Action")
+            try:
+                raw, src = res.scope.resolve(value(action))
+            except Unresolved as exc:
+                raise unresolved_stop(f"{what} Action", exc) from exc
+            actions = _strs(raw, f"{what} Action")
             action_nodes[idx] = action
             if src:
                 sources[idx] = src
@@ -407,9 +745,7 @@ def parse_policy(res: CfnResource) -> CfnPolicy:
         resources = (
             ["<NotResource>"]
             if "NotResource" in v
-            else [r if isinstance(r, str) else "<expression>" for r in res_v]
-            if isinstance(res_v, list)
-            else [res_v if isinstance(res_v, str) else "<expression>"]
+            else _strs(res_v, f"{what} Resource")
             if res_v is not None
             else []
         )
@@ -427,7 +763,7 @@ def parse_policy(res: CfnResource) -> CfnPolicy:
                 container=(start(s), end(s)),
             )
         )
-    return CfnPolicy(res, statements, action_nodes, sources)
+    return CfnPolicy(res, statements, action_nodes, doc, name, sources)
 
 
 def render_actions(t: Template, node: Node, actions: list[str], step: str) -> str:
@@ -458,9 +794,138 @@ def iam_edit(policy: CfnPolicy, after: dict[int, list[str]]) -> str:
         if i not in after:
             continue
         if i in policy.sources:
-            raise param_stop(f"statement {i + 1} Action", policy.sources[i])
+            raise param_stop(f"{policy.where} statement {i + 1} Action", policy.sources[i])
         new, s = render_actions(t, node, after[i], step), start(node)
         if new.startswith("\n"):  # a block list after `Action:` leaves no trailing space
             s = len(t.text[:s].rstrip(" "))
         edits.append((s, end(node), new))
     return apply(t.text, edits)
+
+
+# --- attribute fixes (configfix catalog rows mapped with ConfigFix.for_cfn)
+
+
+def _prop(res: CfnResource, path: str) -> tuple[bool, Any]:
+    """(present, value) of a property path under Properties; stops on an intrinsic on the way."""
+    cur: Any = value(res.properties) if res.properties is not None else {}
+    for part in path.split("."):
+        if is_intrinsic(cur) or not isinstance(cur, dict):
+            raise _unsupported(f"{res.logical_id} {path}")
+        if part not in cur:
+            return False, None
+        cur = cur[part]
+    return True, cur
+
+
+def _literal(res: CfnResource, c: Change, v: Any) -> Any:
+    """The property as a plain value the change can compare; CloudFormation often writes
+    booleans and numbers as strings."""
+    what = f"{res.logical_id} {c.path}"
+    if v is None or isinstance(v, dict):
+        raise _unsupported(what)
+    if isinstance(v, list):
+        if not all(isinstance(x, str) for x in v):
+            raise _unsupported(what)
+        return v
+    if isinstance(v, str) and isinstance(c.value, bool) and v.lower() in ("true", "false"):
+        return v.lower() == "true"
+    if isinstance(v, str) and c.op == "at_least" and v.isdigit():
+        return int(v)
+    return v
+
+
+def attr_applies(res: CfnResource, fix: ConfigFix) -> tuple[bool, str]:
+    for w in fix.when:
+        present, v = _prop(res, w.path)
+        if is_intrinsic(v):
+            raise _unsupported(f"{res.logical_id} {w.path}")
+        if not present and None in w.in_:
+            continue
+        if present and (PRESENT in w.in_ or v in w.in_):
+            continue
+        shown = "not set" if not present else repr(v)
+        return False, f"{w.path} is {shown}"
+    return True, ""
+
+
+def attr_unmet(res: CfnResource, fix: ConfigFix) -> list[str]:
+    """The changes the resource doesn't meet yet."""
+    unmet = []
+    for c in fix.changes:
+        present, v = _prop(res, c.path)
+        if not present or not c.satisfied_by(_literal(res, c, v)):
+            unmet.append(c.describe())
+    return unmet
+
+
+def _nest(parts: list[str], v: Any) -> list[tuple[str, Any]]:
+    return [(parts[0], _nest(parts[1:], v) if len(parts) > 1 else v)]
+
+
+def _append_items(t: Template, seq: SequenceNode, items: list[str]) -> Edit:
+    text = t.text
+    if not seq.flow_style:
+        ind = indent_of(text, start(seq.value[-1]))
+        pos = line_end(text, end(seq))
+        lead = "" if text[:pos].endswith("\n") else "\n"
+        return pos, pos, lead + "".join(f"{ind}- {scalar_text(i, as_json=False)}\n" for i in items)
+    rendered = [scalar_text(i, as_json=t.is_json) for i in items]
+    if not seq.value:
+        return end(seq) - 1, end(seq) - 1, ", ".join(rendered)
+    last = seq.value[-1]
+    sep = ",\n" + indent_of(text, start(last)) if "\n" in text[start(seq) : end(seq)] else ", "
+    return end(last), end(last), "".join(sep + r for r in rendered)
+
+
+def _attr_edit(res: CfnResource, c: Change) -> Edit | None:
+    """One edit that makes the resource meet `c`, or None if it already does."""
+    present, cur = _prop(res, c.path)
+    if present and c.satisfied_by(_literal(res, c, cur)):
+        return None
+    t, step, parts = res.template, _step(res), c.path.split(".")
+    want: Any = list(c.value) if isinstance(c.value, list) else c.value
+    node = res.properties
+    if node is None:
+        return insert_pairs(t.text, res.node, [("Properties", _nest(parts, want))], step)
+    for i, part in enumerate(parts):
+        if not isinstance(node, MappingNode) or str(node.tag).startswith("!"):
+            raise _unsupported(f"{res.logical_id} {'.'.join(parts[:i]) or 'Properties'}")
+        child = get(node, part)
+        if child is None:
+            return insert_pairs(t.text, node, _nest(parts[i:], want), step)
+        node = child
+    if str(node.tag).startswith("!"):
+        raise _unsupported(f"{res.logical_id} {c.path}")
+    if c.op == "includes":
+        if not isinstance(node, SequenceNode):
+            raise _unsupported(f"{res.logical_id} {c.path}")
+        return _append_items(t, node, [v for v in want if v not in cur])
+    if not isinstance(node, ScalarNode):
+        raise _unsupported(f"{res.logical_id} {c.path}")
+    return start(node), end(node), scalar_text(want, as_json=t.is_json)
+
+
+def attr_edit(res: CfnResource, fix: ConfigFix) -> tuple[str, list[str], list[str]]:
+    """(new text, changes made, changes already met). `fix` carries CloudFormation paths."""
+    ok, why = attr_applies(res, fix)
+    if not ok:
+        raise StageStop(
+            "fix", f"the {fix.control} fix doesn't apply here: {why}", ["fix this resource by hand"]
+        )
+    text, changed, already = res.template.text, [], []
+    for c in fix.changes:
+        # Re-read after each edit: two changes can share a parent that the first one adds.
+        try:
+            t = parse(text, res.template.path)
+        except TemplateError as exc:
+            raise StageStop("fix", f"the edited template doesn't parse: {exc}") from exc
+        cur = CfnResource(
+            res.stack, res.logical_id, res.type, t, t.resources[res.logical_id], res.line, res.scope
+        )
+        e = _attr_edit(cur, c)
+        if e is None:
+            already.append(c.describe())
+        else:
+            text = apply(text, [e])
+            changed.append(c.describe())
+    return text, changed, already

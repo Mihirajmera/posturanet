@@ -235,3 +235,21 @@ def test_conditions_evaluate_only_when_known(tmp_path: Path) -> None:
     with pytest.raises(Unresolved):
         scope.resolve({"Fn::If": ["R", "a", "b"]})
     assert Scope().condition("P") is None  # no template, nothing known
+
+
+def test_standalone_ingress_from_a_parameter_stops_unknown(tmp_path: Path) -> None:
+    text = (
+        "Parameters:\n  Admin:\n    Type: String\n    Default: 0.0.0.0/0\n"
+        "Resources:\n  G:\n    Type: AWS::EC2::SecurityGroup\n"
+        "    Properties:\n      GroupDescription: g\n"
+        "  GIn:\n    Type: AWS::EC2::SecurityGroupIngress\n    Properties:\n"
+        "      GroupId: !Ref G\n      IpProtocol: tcp\n      FromPort: 22\n      ToPort: 22\n"
+        "      CidrIp: !Ref Admin\n"
+    )
+    t = parse(text, tmp_path / "g.yaml")
+    res = cfn.CfnResource("s", "G", cfn.SG_TYPE, t, t.resources["G"], 6, Scope(t, "s"))
+    sg = cfn.parse_sg(res)
+    assert sg.rules() == [Rule("0.0.0.0/0", 22, 22, "tcp")]  # GroupId's !Ref isn't a rule field
+    with pytest.raises(StageStop) as exc:
+        render_sg(sg, Synthesis(sg.rules(), [], [Rule("192.0.2.1/32", 22, 22, "tcp")], [], [], []))
+    assert exc.value.unknown and "GIn" in exc.value.reason and "parameter Admin" in exc.value.reason

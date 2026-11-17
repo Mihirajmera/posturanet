@@ -5,11 +5,15 @@ from an export of it (`cloudformation.stack_resources` or `--state`). The templa
 file in the repo that defines that logical id with that type. Anything else stops with
 UNKNOWN: a resource with no source line (a SAM-generated role, a console resource) is never
 guessed at.
+
+An IaC scanner finding names a template file and a logical id instead of a physical id
+(`resolve_template_ref`): the stack is the one `cloudformation.templates` maps that file to.
 """
 
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -28,13 +32,15 @@ from posturanet.cfn.template import (
     load,
     value,
 )
-from posturanet.errors import StageStop
+from posturanet.errors import StageStop, UsageError
+from posturanet.ingest.iac import split_template_ref
 from posturanet.locate.codeowners import find_codeowners, owners_for
 from posturanet.models import Confidence, Config, Finding, Location
 
 PREFIX = "cfn."
 STACK_TYPES = ("AWS::CloudFormation::Stack", "AWS::Serverless::Application")
 _MAX_DEPTH = 5
+_IAM_PRINCIPAL_ARN = re.compile(r"^arn:aws[\w-]*:iam::\d{12}:(?:role|user|group)/(?:.*/)?([^/]+)$")
 
 
 @dataclass
@@ -100,6 +106,44 @@ def _rel(path: Path, repo: Path) -> str:
         return path.as_posix()
 
 
+def _export_path(repo: Path, config: Config, state_path: Path | None) -> Path | None:
+    if state_path is not None:
+        return state_path
+    named = config.cloudformation.stack_resources
+    return repo / named if named else None
+
+
+def template_rows(
+    repo: Path, config: Config, state_path: Path | None, types: list[str]
+) -> list[dict[str, Any]]:
+    """Rows of the stack-resources export of one of `types` that a template here defines."""
+    export = _export_path(repo, config, state_path)
+    if export is None:
+        raise UsageError(
+            "listing CloudFormation resources needs a describe-stack-resources export: "
+            "set cloudformation.stack_resources or pass --state"
+        )
+    rows = _stack_rows(export)
+    if rows is None:
+        raise UsageError(f"{_rel(export, repo)} is not a describe-stack-resources export")
+    return [
+        r
+        for r in rows
+        if r.get("ResourceType") in types
+        and r.get("PhysicalResourceId")
+        and isinstance(
+            resolve(
+                repo,
+                config,
+                str(r.get("StackName")),
+                str(r.get("LogicalResourceId")),
+                str(r.get("ResourceType")),
+            ),
+            CfnResource,
+        )
+    ]
+
+
 def stack_row(
     ids: list[str],
     repo: Path,
@@ -109,21 +153,11 @@ def stack_row(
 ) -> tuple[dict[str, Any], str, list[dict[str, Any]] | None]:
     """(the stack resource whose physical id is one of `ids`, where it came from, the export's
     rows or None when read live)."""
-    export = state_path or (
-        repo / config.cloudformation.stack_resources
-        if config.cloudformation.stack_resources
-        else None
-    )
-    if export is not None:
-        rows = _stack_rows(export)
-        if rows is None:
-            raise StageStop(
-                "locate",
-                f"{_rel(export, repo)} is not a describe-stack-resources export",
-                ["export it with `aws cloudformation describe-stack-resources --stack-name …`"],
-            )
-        label = _rel(export, repo)
-        export_rows: list[dict[str, Any]] | None = rows
+    loaded = _export(repo, config, state_path)
+    export_rows: list[dict[str, Any]] | None = None
+    if loaded is not None:
+        rows, label = loaded
+        export_rows = rows
     elif aws is not None:
         cf = aws("cloudformation")
         rows = []
@@ -139,18 +173,8 @@ def stack_row(
                     "locate", f"cloudformation:DescribeStackResources failed: {exc}"
                 ) from exc
         label = "cloudformation:DescribeStackResources"
-        export_rows = None
     else:
-        raise StageStop(
-            "locate",
-            "mapping a resource to its CloudFormation stack needs AWS access, which a dry run "
-            "does not use",
-            [
-                "set cloudformation.stack_resources to an export of "
-                "`aws cloudformation describe-stack-resources` (never commit real exports)",
-                "or drop --dry-run",
-            ],
-        )
+        raise _needs_aws()
     found = {
         (str(r.get("StackName")), str(r.get("LogicalResourceId"))): r
         for r in rows
@@ -174,6 +198,121 @@ def stack_row(
             ["fix the duplicate export rows, then re-run"],
         )
     return next(iter(found.values())), label, export_rows
+
+
+def _export(
+    repo: Path, config: Config, state_path: Path | None
+) -> tuple[list[dict[str, Any]], str] | None:
+    """(rows, label) of the stack-resources export, if one is given."""
+    export = _export_path(repo, config, state_path)
+    if export is None:
+        return None
+    rows = _stack_rows(export)
+    if rows is None:
+        raise StageStop(
+            "locate",
+            f"{_rel(export, repo)} is not a describe-stack-resources export",
+            ["export it with `aws cloudformation describe-stack-resources --stack-name …`"],
+        )
+    return rows, _rel(export, repo)
+
+
+def _needs_aws() -> StageStop:
+    return StageStop(
+        "locate",
+        "mapping a resource to its CloudFormation stack needs AWS access, which a dry run "
+        "does not use",
+        [
+            "set cloudformation.stack_resources to an export of "
+            "`aws cloudformation describe-stack-resources` (never commit real exports)",
+            "or drop --dry-run",
+        ],
+    )
+
+
+def resolve_template_ref(
+    finding: Finding,
+    repo: Path,
+    config: Config,
+    state_path: Path | None,
+    aws: ClientFactory | None,
+) -> Finding:
+    """A scanner names `template#LogicalId`; find its stack and the deployed resource's id.
+
+    The stack comes only from `cloudformation.templates` (stack -> template): one template can
+    be deployed as many stacks, so it is never guessed.
+    """
+    ref = split_template_ref(finding.resource.address)
+    if ref is None:
+        return finding
+    path, logical = ref
+    stacks = sorted(
+        s
+        for s, p in config.cloudformation.templates.items()
+        if Path(p).as_posix().removeprefix("./") == path
+    )
+    if len(stacks) != 1:
+        raise StageStop(
+            "locate",
+            f"{path} is mapped to {len(stacks)} stacks in cloudformation.templates"
+            if stacks
+            else f"no stack is mapped to {path} in cloudformation.templates",
+            [
+                f"add `cloudformation.templates.<stack>: {path}` to .posturanet.yml "
+                "for the one stack this finding is about",
+                "run the scanner from the repo root so its paths match the repo",
+            ],
+            unknown=True,
+        )
+    stack = stacks[0]
+    rtype = finding.resource.type if finding.resource.type.startswith("AWS::") else None
+    res = resolve(repo, config, stack, logical, rtype)
+    if isinstance(res, str):
+        raise StageStop("locate", res, ["fix this resource by hand"], unknown=True)
+    loaded = _export(repo, config, state_path)
+    if loaded is not None:
+        rows, label = loaded
+    elif aws is not None:
+        label = "cloudformation:DescribeStackResources"
+        try:
+            rows = aws("cloudformation").describe_stack_resources(
+                StackName=stack, LogicalResourceId=logical
+            )["StackResources"]
+        except Exception as exc:  # botocore ClientError; boto3 is only imported in aws/
+            if "does not exist" not in str(exc):
+                raise StageStop("locate", f"{label} failed: {exc}") from exc
+            rows = []
+    else:
+        raise _needs_aws()
+    physical = sorted(
+        {
+            str(r["PhysicalResourceId"])
+            for r in rows
+            if r.get("StackName") == stack
+            and r.get("LogicalResourceId") == logical
+            and r.get("PhysicalResourceId")
+        }
+    )
+    if len(physical) != 1:
+        raise StageStop(
+            "locate",
+            f"{stack}/{logical} matches {len(physical)} deployed resources ({label})",
+            [
+                "PosturaNet fixes deployed resources: deploy the stack, then re-run",
+                "check that cloudformation.templates names the stack this template deploys",
+            ],
+            unknown=True,
+        )
+    pid = physical[0]
+    resource = finding.resource.model_copy(
+        update={
+            "id": pid,
+            "arn": pid if pid.startswith("arn:") else None,
+            "type": res.type,
+            "address": res.address,
+        }
+    )
+    return finding.model_copy(update={"resource": resource})
 
 
 def resolve(
@@ -324,16 +463,24 @@ def _resolve_row(
         if isinstance(res, str):
             return res
         res.scope = Scope(t, stack, aws, *passed)
+    return _condition(res)
+
+
+def _condition(res: CfnResource) -> CfnResource | str:
+    """`res`, or why its `Condition` keeps it out of the deployed stack (or can't be known)."""
     cond = value(get(res.node, "Condition"))
-    if cond is not None:
-        on = res.scope.condition(str(cond))
-        if on is None:
-            return f"{logical} has Condition {cond}, which can't be resolved from known parameters"
-        if not on:
-            return (
-                f"{logical} has Condition {cond}, which is false for stack {stack}'s "
-                "parameters, so the template doesn't create it"
-            )
+    if cond is None:
+        return res
+    on = res.scope.condition(str(cond))
+    if on is None:
+        return (
+            f"{res.logical_id} has Condition {cond}, which can't be resolved from known parameters"
+        )
+    if not on:
+        return (
+            f"{res.logical_id} has Condition {cond}, which is false for stack {res.stack}'s "
+            "parameters, so the template doesn't create it"
+        )
     return res
 
 
@@ -346,6 +493,8 @@ def locate(
     types: list[str],
 ) -> tuple[Location, CfnResource]:
     ids = [i for i in dict.fromkeys([finding.resource.id, finding.resource.arn]) if i]
+    # a role, user or group's physical id is its name, not its ARN
+    ids += [m.group(1) for i in ids if (m := _IAM_PRINCIPAL_ARN.match(i)) and m.group(1) not in ids]
     row, label, rows = stack_row(ids, repo, config, state_path, aws)
     stack, logical = str(row["StackName"]), str(row["LogicalResourceId"])
     rtype = str(row.get("ResourceType"))
@@ -356,6 +505,12 @@ def locate(
             ["`posturanet fixes list` shows every control PosturaNet fixes"],
         )
     res = _resolve_row(row, rows, repo, config, aws, rtype)
+    if isinstance(res, str) and rtype == "AWS::IAM::Role" and logical.endswith("Role"):
+        # SAM names a function's generated role `<Function>Role`; its policies live on the function
+        fn = resolve(repo, config, stack, logical[: -len("Role")], "AWS::Serverless::Function")
+        if isinstance(fn, CfnResource) and fn.template.sam:
+            fn.scope = Scope(fn.template, stack, aws)
+            res = _condition(fn)
     if isinstance(res, str):
         raise StageStop(
             "locate",
@@ -372,6 +527,8 @@ def locate(
         f"physical id matched in {label}: stack {stack}, logical id {logical}",
         f"defined in {file_rel}" + (" (SAM template)" if res.template.sam else ""),
     ]
+    if res.logical_id != logical:
+        reasoning.insert(1, f"{logical} is the role SAM generates for {res.logical_id}")
     if get(res.template.root, "Parameters") is not None:
         reasoning.append(f"parameter values from {res.scope.source}")
     owners: list[str] = []
