@@ -167,7 +167,7 @@ def test_sg_edit_keeps_comments_and_untouched_entries(repo: Path) -> None:
     )
     assert record.result == "DRY RUN", record.stages
     assert proposal is not None
-    new = proposal.diff.files[0].new_content
+    new = proposal.diff.files[0].new_content.replace("\r\n", "\n")
     assert "0.0.0.0/0\n          Description: SSH" not in new
     assert "# Bastion host access" in new and "# monitoring stays as it is" in new
     assert "CidrIp: 10.0.4.12/32\n          Description: SSH from anywhere" in new
@@ -202,7 +202,7 @@ def test_s3_edit_inserts_block_into_sam_template(repo: Path) -> None:
     res = _res(repo, "storage", "AssetsBucket")
     diff, already = cfn.s3_diff(repo, res)
     assert already == []
-    new = diff.files[0].new_content
+    new = diff.files[0].new_content.replace("\r\n", "\n")
     assert (
         "    Status: Enabled\n      PublicAccessBlockConfiguration:\n        BlockPublicAcls: true\n"
         in new
@@ -221,7 +221,7 @@ def test_s3_edit_flips_false_flags_and_adds_missing(repo: Path) -> None:
     res = _res(repo, "storage", "AssetsBucket")
     diff, already = cfn.s3_diff(repo, res)
     assert already == ["IgnorePublicAcls"]
-    new = diff.files[0].new_content
+    new = diff.files[0].new_content.replace("\r\n", "\n")
     assert (
         "BlockPublicAcls: true\n        IgnorePublicAcls: true\n        BlockPublicPolicy: true\n"
         in new
