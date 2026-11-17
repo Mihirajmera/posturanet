@@ -726,8 +726,15 @@ def _run_s3(
         if scope == "account":
             raise StageStop(
                 "locate",
-                f"{control} is an account setting; CloudFormation has no resource for it",
-                ["turn on account-level Block Public Access in the S3 console or with Terraform"],
+                f"{control} is the account-level S3 Block Public Access setting; CloudFormation "
+                "has no resource type for it, so there is no template line to change",
+                [
+                    "if the account has a Terraform repo, run PosturaNet there: it adds an "
+                    "`aws_s3_account_public_access_block` resource",
+                    "otherwise a person turns it on in the S3 console (Block Public Access "
+                    "settings for this account) or runs "
+                    "`aws s3control put-public-access-block`; PosturaNet won't run it",
+                ],
                 unknown=True,
             )
         loc, res = cfn.locate(finding, repo, config, ctx.state_path, ctx.aws, [cfn.BUCKET_TYPE])

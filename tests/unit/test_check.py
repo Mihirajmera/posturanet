@@ -301,8 +301,38 @@ def test_contract_build_all_lists_every_group(tmp_repo: Path) -> None:
 
     out = CliRunner().invoke(app, ["contract", "build", "--all", "--dry-run", "--repo", str(tmp_repo), "--format", "json"])  # fmt: skip
     assert out.exit_code == 0, out.output
-    assert [r["group"] for r in json.loads(out.stdout)] == ["sg-0a91f3c2"]
+    assert [r["resource"] for r in json.loads(out.stdout)] == ["sg-0a91f3c2"]
     both = CliRunner().invoke(app, ["contract", "build", "sg-1", "--all", "--repo", str(tmp_repo)])
     assert both.exit_code == 2 and "not both" in both.stderr
     flows = CliRunner().invoke(app, ["contract", "build", "--all", "--repo", str(tmp_repo), "--evidence-file", str(tmp_repo / "main.tf")])  # fmt: skip
-    assert flows.exit_code == 2 and "each group's own flow logs" in flows.stderr
+    assert flows.exit_code == 2 and "each resource's own evidence" in flows.stderr
+
+
+def test_contract_build_all_covers_s3_and_iam() -> None:
+    tf = Path(__file__).resolve().parents[1] / "fixtures" / "tf"
+    for repo, expected in [
+        ("s3", ["acme-assets", "acme-reports"]),
+        ("iam", [f"arn:aws:iam::123456789012:policy/{n}" for n in ("admin", "app", "deploy")]),
+    ]:
+        args = ["contract", "build", "--all", "--dry-run", "--repo", str(tf / repo), "--format", "json"]  # fmt: skip
+        out = CliRunner().invoke(app, args)
+        assert out.exit_code == 0, out.output
+        rows = json.loads(out.stdout)
+        assert [r["resource"] for r in rows] == expected
+        assert {r["result"] for r in rows} == {"DRY RUN"}
+
+
+def test_manual_target_can_name_its_control() -> None:
+    from posturanet.ingest.manual import finding_from_resource_id
+    from posturanet.models import FixType
+
+    s3 = finding_from_resource_id("S3.8:acme-assets")
+    assert (s3.control_id, s3.resource.id, s3.fix_type) == (
+        "S3.8",
+        "acme-assets",
+        FixType.S3_PUBLIC,
+    )
+    arn = "arn:aws:iam::123456789012:policy/app"
+    iam = finding_from_resource_id(f"IAM.21:{arn}")
+    assert (iam.resource.id, iam.fix_type) == (arn, FixType.IAM_LEAST_PRIVILEGE)
+    assert finding_from_resource_id("sg-0a91f3c2").control_id == "manual"  # plain ids unchanged
