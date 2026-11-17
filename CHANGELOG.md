@@ -9,6 +9,7 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 - The edit replaces only the target's ingress entries, Block Public Access flags or `Action` lists, in the template's own style; comments and every other line stay as written.
 - Validation is static and the PR says so: a change set needs `cloudformation:CreateChangeSet`, a write PosturaNet doesn't hold. Outside a dry run, the target must match the deployed template (`cloudformation:GetTemplate`). `cfn-lint` runs when installed.
 - New config: `iac` (`auto`, `terraform`, `cloudformation`) and `cloudformation.stack_resources` / `cloudformation.templates`. Two read-only calls join the allowlist and the generated IAM policy: `cloudformation:DescribeStackResources`, `cloudformation:GetTemplate`.
+- For a security group, the `drift` check also reads the live group (`ec2:DescribeSecurityGroups`, already allowlisted) and fails when its CIDR ingress differs from the template's, so a group someone changed outside CloudFormation stops the run instead of getting a PR. Still SKIPPED in a dry run.
 - Not yet: S3.1 (no CloudFormation resource), attribute fixes and IaC scanner findings on templates.
 
 ### Added (contract check on every PR)
