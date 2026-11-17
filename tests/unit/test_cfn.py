@@ -37,14 +37,40 @@ def repo(tmp_path: Path) -> Path:
     return dst
 
 
-def _fake_aws(body: str) -> Any:
-    """A read-only CloudFormation client whose deployed template is `body`."""
+# BastionSG's ingress as EC2 reports it, matching templates/network.yaml.
+LIVE_BASTION = [
+    {
+        "IpProtocol": "tcp",
+        "FromPort": 22,
+        "ToPort": 22,
+        "IpRanges": [{"CidrIp": "0.0.0.0/0"}],
+        "Ipv6Ranges": [],
+    },
+    {
+        "IpProtocol": "tcp",
+        "FromPort": 9100,
+        "ToPort": 9100,
+        "IpRanges": [{"CidrIp": "10.0.0.0/16"}],
+    },
+]
 
-    class Cfn:
+
+def _fake_aws(body: str, ingress: list[dict[str, Any]] | None = None) -> Any:
+    """Read-only clients: the deployed template is `body`, BastionSG's live ingress `ingress`."""
+
+    class Fake:
         def get_template(self, **kw: Any) -> dict[str, Any]:
             return {"TemplateBody": body}
 
-    return lambda service: ReadOnlyClient(Cfn(), service)
+        def describe_stack_resources(self, **kw: Any) -> dict[str, Any]:
+            return json.loads((CFN / "stack-resources.json").read_text("utf-8"))
+
+        def describe_security_groups(self, **kw: Any) -> dict[str, Any]:
+            assert kw == {"GroupIds": ["sg-0a91f3c2"]}
+            perms = LIVE_BASTION if ingress is None else ingress
+            return {"SecurityGroups": [{"GroupId": "sg-0a91f3c2", "IpPermissions": perms}]}
+
+    return lambda service: ReadOnlyClient(Fake(), service)
 
 
 def _ctx(evidence: Path, **kw: Any) -> Context:
@@ -138,6 +164,8 @@ def test_live_locate_and_drift_use_only_allowlisted_calls(repo: Path) -> None:
                 op(**kw)
                 if name == "describe_stack_resources":
                     return json.loads((repo / "stack-resources.json").read_text("utf-8"))
+                if name == "describe_security_groups":
+                    return {"SecurityGroups": [{"IpPermissions": LIVE_BASTION}]}
                 return {"TemplateBody": (repo / "templates/network.yaml").read_text("utf-8")}
 
             return wrapped
@@ -152,7 +180,12 @@ def test_live_locate_and_drift_use_only_allowlisted_calls(repo: Path) -> None:
     from posturanet.cfn.validate import _drift
 
     assert _drift(res, factory, offline=False).result.value == "pass"
-    assert calls == ["cloudformation:DescribeStackResources", "cloudformation:GetTemplate"]
+    assert calls == [
+        "cloudformation:DescribeStackResources",
+        "cloudformation:GetTemplate",
+        "cloudformation:DescribeStackResources",
+        "ec2:DescribeSecurityGroups",
+    ]
     assert all(is_allowed(c) for c in calls)
     assert not is_allowed("cloudformation:CreateChangeSet")
     assert not is_allowed("cloudformation:ExecuteChangeSet")
@@ -298,6 +331,77 @@ def test_check_mode_validates_with_deployed_template(repo: Path) -> None:
     record = run_fix(str(SG), repo, config, ctx)
     assert record.result == "STOPPED" and record.exit_code == 4
     assert any("differs from stack network" in s.summary for s in record.stages)
+
+
+def _bastion_drift(repo: Path, aws: Any) -> Any:
+    from posturanet.cfn.validate import _drift
+
+    return _drift(_res(repo, "network", "BastionSG"), aws, offline=False)
+
+
+def test_live_sg_matching_passes_with_all_traffic_and_ipv6(repo: Path) -> None:
+    """EC2 omits ports for "-1" and canonicalises CIDRs; both sides are normalised alike."""
+    path = repo / "templates/network.yaml"
+    text = path.read_text("utf-8").replace(
+        "          Description: node exporter\n",
+        "          Description: node exporter\n"
+        "        - {IpProtocol: '-1', FromPort: 0, ToPort: 65535, CidrIpv6: '2001:db8::/32'}\n",
+    )
+    path.write_text(text, "utf-8")
+    live = [*LIVE_BASTION, {"IpProtocol": "-1", "Ipv6Ranges": [{"CidrIpv6": "2001:db8::/32"}]}]
+    check = _bastion_drift(repo, _fake_aws(text, live))
+    assert check.result.value == "pass", check.detail
+    assert "sg-0a91f3c2" in check.detail
+
+
+def test_live_sg_changed_out_of_band_fails(repo: Path) -> None:
+    body = (repo / "templates/network.yaml").read_text("utf-8")
+    live = [*LIVE_BASTION, {"IpProtocol": "tcp", "FromPort": 3389, "ToPort": 3389,
+                            "IpRanges": [{"CidrIp": "198.51.100.0/24"}]}]  # fmt: skip
+    check = _bastion_drift(repo, _fake_aws(body, live))
+    assert check.result.value == "fail" and check.required
+    assert "1 rule(s) only live, 0 only in the template" in check.detail
+    assert "outside CloudFormation" in check.detail
+
+    # a rule removed by hand is drift too
+    check = _bastion_drift(repo, _fake_aws(body, LIVE_BASTION[:1]))
+    assert check.result.value == "fail" and "0 rule(s) only live, 1 only" in check.detail
+
+
+def test_live_sg_read_error_is_error(repo: Path) -> None:
+    body = (repo / "templates/network.yaml").read_text("utf-8")
+    fake = _fake_aws(body)
+
+    def factory(service: str) -> Any:
+        if service == "ec2":
+
+            class Denied:
+                def describe_security_groups(self, **kw: Any) -> Any:
+                    raise RuntimeError("AccessDenied")
+
+            return ReadOnlyClient(Denied(), service)
+        return fake(service)
+
+    check = _bastion_drift(repo, factory)
+    assert check.result.value == "error" and "AccessDenied" in check.detail
+
+
+def test_live_sg_skipped_in_dry_run(repo: Path) -> None:
+    from posturanet.cfn.validate import _drift
+
+    check = _drift(_res(repo, "network", "BastionSG"), None, offline=True)
+    assert check.result.value == "skipped"
+
+
+def test_check_mode_stops_on_live_sg_drift(repo: Path) -> None:
+    body = (repo / "templates/network.yaml").read_text("utf-8")
+    live = [{**LIVE_BASTION[0], "IpRanges": [{"CidrIp": "203.0.113.0/24"}]}, LIVE_BASTION[1]]
+    ctx = _ctx(FIX / "flows/bastion_90d.json", mode="check", aws=_fake_aws(body, live))
+    config, _ = load_config(repo)
+    config.evidence.min_confidence_for_pr = "medium"
+    record = run_fix(str(SG), repo, config, ctx)
+    assert record.result == "STOPPED" and record.exit_code == 4
+    assert any("outside CloudFormation" in s.summary for s in record.stages)
 
 
 # --- contract check --source
