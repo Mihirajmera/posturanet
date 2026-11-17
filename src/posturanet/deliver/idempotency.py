@@ -31,12 +31,16 @@ def contract_sha(contract: BehaviorContract) -> str:
 
 
 def issue(control: str, address: str) -> str:
-    """One problem, whichever scanner reported it: the control on the resolved Terraform address.
+    """One problem, whichever scanner or control reported it: the control's family on the
+    resolved Terraform address.
 
-    Security Hub, Prowler, Checkov and Trivy give the same problem different finding ids; keying
-    PRs on this instead means they all update one PR (FR-28).
+    Security Hub, Prowler, Checkov and Trivy give the same problem different finding ids, and
+    related controls (EC2.13 and EC2.19 on one group) need the same change; keying PRs on this
+    means they all update one PR (FR-28).
     """
-    return f"{control}@{address}"
+    from posturanet.ingest.controls import issue_family
+
+    return f"{issue_family(control)}@{address}"
 
 
 def idempotency_key(finding_id: str, contract: BehaviorContract, diff_sha: str) -> str:
