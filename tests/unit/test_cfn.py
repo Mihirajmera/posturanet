@@ -177,9 +177,9 @@ def test_live_locate_and_drift_use_only_allowlisted_calls(repo: Path) -> None:
     config.cloudformation.stack_resources = None
     finding = ingest(str(SG))
     _, res = cfn.locate(finding, repo, config, None, factory, [cfn.SG_TYPE])
-    from posturanet.cfn.validate import _drift
+    from posturanet.cfn.validate import drift
 
-    assert _drift(res, factory, offline=False).result.value == "pass"
+    assert drift(res, factory, offline=False).result.value == "pass"
     assert calls == [
         "cloudformation:DescribeStackResources",
         "cloudformation:GetTemplate",
@@ -334,9 +334,9 @@ def test_check_mode_validates_with_deployed_template(repo: Path) -> None:
 
 
 def _bastion_drift(repo: Path, aws: Any) -> Any:
-    from posturanet.cfn.validate import _drift
+    from posturanet.cfn.validate import drift
 
-    return _drift(_res(repo, "network", "BastionSG"), aws, offline=False)
+    return drift(_res(repo, "network", "BastionSG"), aws, offline=False)
 
 
 def test_live_sg_matching_passes_with_all_traffic_and_ipv6(repo: Path) -> None:
@@ -387,9 +387,9 @@ def test_live_sg_read_error_is_error(repo: Path) -> None:
 
 
 def test_live_sg_skipped_in_dry_run(repo: Path) -> None:
-    from posturanet.cfn.validate import _drift
+    from posturanet.cfn.validate import drift
 
-    check = _drift(_res(repo, "network", "BastionSG"), None, offline=True)
+    check = drift(_res(repo, "network", "BastionSG"), None, offline=True)
     assert check.result.value == "skipped"
 
 

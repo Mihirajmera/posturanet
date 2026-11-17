@@ -9,7 +9,7 @@ If this file conflicts with an older document anywhere else in the repo, **this 
 ## Part 1: Building PosturaNet
 
 ### 1.1 What this project is (30 seconds)
-- **PosturaNet** (always spelled "PosturaNet", never "Postura") is the **remediation layer** for cloud security: it sits after every detector (Security Hub, Prowler, Checkov, Trivy) and every AI coding agent, on AWS with Terraform and CloudFormation today, CDK and Pulumi next (§1.4). Every failed finding must end in an outcome: a fix PR, a runbook, an accepted exception, or a stated reason (PRD §1, G4).
+- **PosturaNet** (always spelled "PosturaNet", never "Postura") is the **remediation layer** for cloud security: it sits after every detector (Security Hub, Prowler, Checkov, Trivy) and every AI coding agent, on AWS with Terraform, CloudFormation and CDK today, Pulumi next (§1.4). Every failed finding must end in an outcome: a fix PR, a runbook, an accepted exception, or a stated reason (PRD §1, G4).
 - Finding in → owner and code located → **usage evidence** (flow logs / CloudTrail) → **behavior contract** → **computed minimal fix** (Z3) → validated **GitHub PR** → post-merge **verification** → signed **audit evidence** (paid).
 - Runs in the **customer's CI or laptop**, with a **read-only** AWS role and the **customer's LLM**. It **never writes to production**. Humans merge.
 - Source-available core under FSL-1.1-ALv2 (free to use, no competing products; each version becomes Apache 2.0 after two years) in `posturanet/`. Paid features live in a separate `posturanet-pro` package, unlocked by a signed license key.
@@ -45,7 +45,7 @@ Build only what's in the current release in PRD §5. **Don't build:**
 
 If a task seems to need any of these, stop and ask the human.
 
-**In scope since 2026-11-14:** CloudFormation (including SAM), AWS CDK and Pulumi, alongside Terraform, so no customer hears "we don't support your IaC". Each one must keep every golden rule: the fix is a reviewed diff to the customer's own source (CDK and Pulumi program code, not only the synthesized template), validation runs that tool's own preview (`cdk diff`, `pulumi preview`, a CloudFormation change set) read-only, and anything PosturaNet can't map back to a source line stops with UNKNOWN. Build order: CloudFormation, then CDK (it synthesizes to CloudFormation), then Pulumi.
+**In scope since 2026-11-14:** CloudFormation (including SAM), AWS CDK and Pulumi, alongside Terraform, so no customer hears "we don't support your IaC". Each one must keep every golden rule: the fix is a reviewed diff to the customer's own source (CDK and Pulumi program code, not only the synthesized template), validation runs that tool's own preview read-only (`cdk synth` with no AWS credentials, `pulumi preview`, a CloudFormation change set; `cdk diff` only if it ever needs no CDK CLI credentials), and anything PosturaNet can't map back to a source line stops with UNKNOWN. Build order: CloudFormation, then CDK (it synthesizes to CloudFormation), then Pulumi.
 
 ### 1.5 Code conventions
 - Python **3.11+**, `src/` layout, type hints everywhere, `from __future__ import annotations`.

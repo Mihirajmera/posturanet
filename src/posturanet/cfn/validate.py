@@ -163,7 +163,7 @@ def _scope(res: CfnResource, edited: CfnResource) -> Check:
     )
 
 
-def _drift(res: CfnResource, aws: ClientFactory | None, offline: bool) -> Check:
+def drift(res: CfnResource, aws: ClientFactory | None, offline: bool) -> Check:
     def check(result: CheckResult, detail: str) -> Check:
         return Check(id="drift", required=True, result=result, detail=detail)
 
@@ -294,7 +294,7 @@ def _validate(
             checks.append(
                 Check(id="recheck", required=True, result=CheckResult.FAIL, detail=exc.reason)
             )
-    checks.append(_drift(res, aws, offline))
+    checks.append(drift(res, aws, offline))
     checks.append(
         Check(id="changeset", required=False, result=CheckResult.SKIPPED, detail=CHANGESET_NOTE)
     )
@@ -302,17 +302,11 @@ def _validate(
     return ValidationReport(checks=checks)
 
 
-def validate_sg(
-    res: CfnResource,
-    diff: Diff,
-    synth: Synthesis,
-    contract: BehaviorContract,
-    control: str,
-    config: Config,
-    aws: ClientFactory | None,
-    *,
-    offline: bool,
-) -> ValidationReport:
+Checks = Callable[[CfnResource], list[Check]]
+
+
+def sg_checks(synth: Synthesis, contract: BehaviorContract, control: str) -> Checks:
+    """Checks on the edited resource: rules as synthesized, contract holds, control passes."""
     expected = sorted({*synth.kept, *synth.added})
 
     def specific(edited: CfnResource) -> list[Check]:
@@ -359,18 +353,24 @@ def validate_sg(
             )
         return out
 
-    return _validate(res, diff, config, aws, offline, specific)
+    return specific
 
 
-def validate_s3(
+def validate_sg(
     res: CfnResource,
     diff: Diff,
+    synth: Synthesis,
+    contract: BehaviorContract,
     control: str,
     config: Config,
     aws: ClientFactory | None,
     *,
     offline: bool,
 ) -> ValidationReport:
+    return _validate(res, diff, config, aws, offline, sg_checks(synth, contract, control))
+
+
+def s3_checks(control: str) -> Checks:
     def specific(edited: CfnResource) -> list[Check]:
         unmet = [k for k, v in s3_flags(edited).items() if v is not True and v != "true"]
         return [
@@ -384,21 +384,24 @@ def validate_s3(
             )
         ]
 
-    return _validate(res, diff, config, aws, offline, specific)
+    return specific
 
 
-def validate_iam(
+def validate_s3(
     res: CfnResource,
     diff: Diff,
     control: str,
-    changes: list[StatementChange],
-    usage: dict[str, ServiceUse],
-    extra: list[str],
     config: Config,
     aws: ClientFactory | None,
     *,
     offline: bool,
 ) -> ValidationReport:
+    return _validate(res, diff, config, aws, offline, s3_checks(control))
+
+
+def iam_checks(
+    control: str, changes: list[StatementChange], usage: dict[str, ServiceUse], extra: list[str]
+) -> Checks:
     bad = check_invariants(changes, usage, extra)
 
     def specific(edited: CfnResource) -> list[Check]:
@@ -431,4 +434,20 @@ def validate_iam(
             ),
         ]
 
-    return _validate(res, diff, config, aws, offline, specific)
+    return specific
+
+
+def validate_iam(
+    res: CfnResource,
+    diff: Diff,
+    control: str,
+    changes: list[StatementChange],
+    usage: dict[str, ServiceUse],
+    extra: list[str],
+    config: Config,
+    aws: ClientFactory | None,
+    *,
+    offline: bool,
+) -> ValidationReport:
+    checks = iam_checks(control, changes, usage, extra)
+    return _validate(res, diff, config, aws, offline, checks)

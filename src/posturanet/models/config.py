@@ -41,6 +41,15 @@ class CloudFormationConfig(_Strict):
     templates: dict[str, str] = Field(default_factory=dict)
 
 
+class CdkConfig(_Strict):
+    # The CDK app directory (holds cdk.json), relative to the repo root; found when unset.
+    app: str | None = None
+    # A cloud assembly your CI already synthesized from this commit (`cdk synth -o …`).
+    # Unset: PosturaNet runs `cdk synth --no-lookups` itself, outside dry runs.
+    assembly: str | None = None
+    binary: str = "cdk"
+
+
 class FlowLogsConfig(_Strict):
     mode: Literal["logs_insights"] = "logs_insights"
     log_group: str | None = None
@@ -85,11 +94,12 @@ class DeliveryConfig(_Strict):
 class Config(_Strict):
     version: Literal[1] = 1
     aws: AwsConfig = Field(default_factory=AwsConfig)
-    # auto: CloudFormation when a stack-resources export is given, or the repo has templates
-    # and no .tf files.
-    iac: Literal["auto", "terraform", "cloudformation"] = "auto"
+    # auto: CDK when the repo has a cdk.json and no .tf files; else CloudFormation when a
+    # stack-resources export is given, or the repo has templates and no .tf files.
+    iac: Literal["auto", "terraform", "cloudformation", "cdk"] = "auto"
     terraform: TerraformConfig = Field(default_factory=TerraformConfig)
     cloudformation: CloudFormationConfig = Field(default_factory=CloudFormationConfig)
+    cdk: CdkConfig = Field(default_factory=CdkConfig)
     evidence: EvidenceConfig = Field(default_factory=EvidenceConfig)
     contracts: ContractsConfig = Field(default_factory=ContractsConfig)
     synthesis: SynthesisConfig = Field(default_factory=SynthesisConfig)

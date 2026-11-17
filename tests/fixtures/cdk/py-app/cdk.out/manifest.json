@@ -1,0 +1,13 @@
+{
+  "version": "36.0.0",
+  "artifacts": {
+    "assembly-Prod": {
+      "type": "cdk:cloud-assembly",
+      "properties": { "directoryName": "assembly-Prod", "displayName": "Prod" }
+    },
+    "Tree": {
+      "type": "cdk:tree",
+      "properties": { "file": "tree.json" }
+    }
+  }
+}
