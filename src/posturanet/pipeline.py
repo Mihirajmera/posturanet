@@ -1070,11 +1070,12 @@ def _run_iam(
     doc: PolicyDoc | None = None
     policy: cfn.CfnPolicy | None = None
     if iac == "cloudformation":
-        loc, res = cfn.locate(finding, repo, config, ctx.state_path, ctx.aws, [cfn.POLICY_TYPE])
-        policy = cfn.parse_policy(res)
+        loc, res = cfn.locate(finding, repo, config, ctx.state_path, ctx.aws, cfn.IAM_TYPES)
+        policy = cfn.select_policy(res, control)
+        loc = loc.model_copy(update={"address": policy.address, "line": policy.res.line})
         statements, form = policy.statements, "cloudformation"
         doc_file, doc_original = loc.file, res.template.on_disk(res.template.text)
-        where = f"PolicyDocument of {res.logical_id} in {loc.file}"
+        where = f"PolicyDocument of {policy.where} in {loc.file}"
     else:
         s3_fetch = boto3_s3_fetch(ctx.aws) if ctx.aws is not None else None
         loc, match = locate_match(
@@ -1277,6 +1278,7 @@ def _run_iam(
             config,
             ctx.aws,
             offline=dry,
+            name=policy.name,
         )
     else:
         assert doc is not None

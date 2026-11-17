@@ -129,6 +129,7 @@ def iam_diff(repo: Path, policy: CfnPolicy, changes: list[StatementChange]) -> D
     diff = _diff(repo, policy.res, new, summary, "template:iam_least_privilege@1:cloudformation")
     return diff.model_copy(
         update={
+            "target_address": policy.address,
             "rules_before": [a for c in changes for a in c.before],
             "rules_after": [a for c in changes for a in c.after],
         }
@@ -450,11 +451,12 @@ def validate_iam(
     aws: ClientFactory | None,
     *,
     offline: bool,
+    name: str | None = None,
 ) -> ValidationReport:
     bad = check_invariants(changes, usage, extra)
 
     def specific(edited: CfnResource) -> list[Check]:
-        statements = parse_policy(edited).statements
+        statements = parse_policy(edited, name).statements
         as_json: list[dict[str, object]] = [
             {"Sid": s.sid, "Effect": s.effect, "Action": s.actions or [], "Resource": s.resources}
             for s in statements

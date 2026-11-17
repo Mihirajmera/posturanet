@@ -1,0 +1,83 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Synthetic inline-policy stack for PosturaNet tests.
+
+Resources:
+  WorkerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: ec2.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: worker-logs
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: logs:PutLogEvents
+                Resource: "*"
+        - PolicyName: worker-data
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: Data  # keep this comment
+                Effect: Allow
+                Action:
+                  - ec2:*
+                  - logs:*
+                Resource: "*"
+
+  BatchRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: batch.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: batch-a
+          PolicyDocument:
+            Statement:
+              - {Effect: Allow, Action: "ec2:*", Resource: "*"}
+        - PolicyName: batch-b
+          PolicyDocument:
+            Statement:
+              - {Effect: Allow, Action: "logs:*", Resource: "*"}
+
+  UploadRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: ec2.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: upload
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: ["s3:*"]
+                Resource: !Sub "arn:aws:s3:::${AWS::StackName}-uploads/*"
+
+  ReportsUser:
+    Type: AWS::IAM::User
+
+  ReportsPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: reports
+      Users:
+        - !Ref ReportsUser
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: [ec2:*, logs:*]
+            Resource: "*"

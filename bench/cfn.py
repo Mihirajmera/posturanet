@@ -26,7 +26,7 @@ from bench.cases import END, PROBE  # noqa: E402
 from bench.common import Expect, Result, per_case, summary  # noqa: E402
 from posturanet import cfn  # noqa: E402
 from posturanet.aws.readonly import ReadOnlyClient  # noqa: E402
-from posturanet.cfn.template import parse  # noqa: E402
+from posturanet.cfn.template import get, parse, value  # noqa: E402
 from posturanet.evidence import FileSource  # noqa: E402
 from posturanet.iamfix.shrink import targeted  # noqa: E402
 from posturanet.models.config import load_config  # noqa: E402
@@ -319,7 +319,8 @@ def _score(case: CfnCase, new: str | None, file: str, note: str) -> Result:
         return Result("PosturaNet", "STOPPED", case.expect, note=note)
     _, _, stack, logical, _, _ = FAMILY[case.family]
     t = parse(new, Path(file))
-    res = cfn.CfnResource(stack, logical, "", t, t.resources[logical], 1)
+    node = t.resources[logical]
+    res = cfn.CfnResource(stack, logical, value(get(node, "Type")), t, node, 1)
     out = Result("PosturaNet", "FIXED", case.expect, note=note)
     if case.family == "sg":
         rules = cfn.parse_sg(res).rules()
