@@ -49,6 +49,7 @@ from posturanet.iamfix.evidence import usage as iam_usage
 from posturanet.iamfix.shrink import shrink
 from posturanet.iamfix.validate import validate_iam_fix
 from posturanet.ingest import ingest
+from posturanet.ingest.iac import split_template_ref
 from posturanet.locate import load_repo_state, locate_match, module_dir, resolve_address
 from posturanet.locate.backend import boto3_s3_fetch
 from posturanet.locate.codeowners import find_codeowners, owners_for
@@ -152,7 +153,9 @@ def _run(
     # --- ingest
     finding = ingest(target)
     record.finding = finding
-    if cfn.is_cloudformation(repo, config, ctx.state_path):
+    if cfn.is_cloudformation(repo, config, ctx.state_path) or split_template_ref(
+        finding.resource.address
+    ):
         return _run_cfn_dispatch(finding, repo, config, ctx, record)
     if finding.resource.address and finding.fix_type is not FixType.UNSUPPORTED:
         # IaC scanner finding: a Terraform address, resolved to the deployed resource.
@@ -173,10 +176,16 @@ def _run_cfn_dispatch(
     finding: Finding, repo: Path, config: Config, ctx: Context, record: RunRecord
 ) -> tuple[RunRecord, Proposal | None]:
     """CloudFormation and SAM templates: the same three evidence-backed fix types."""
-    if finding.resource.address:
+    evidence_backed = (FixType.SG_INGRESS, FixType.S3_PUBLIC, FixType.IAM_LEAST_PRIVILEGE)
+    if split_template_ref(finding.resource.address) and finding.fix_type in evidence_backed:
+        # IaC scanner finding on a template: map it to its stack and the deployed resource.
+        finding = cfn.resolve_template_ref(finding, repo, config, ctx.state_path, ctx.aws)
+        record.finding = finding
+    address = finding.resource.address
+    if address and not (cfn.split_address(address) or split_template_ref(address)):
         raise StageStop(
             "ingest",
-            "IaC scanner findings on CloudFormation templates are not supported yet",
+            f"{address} is a Terraform address, but this repo is CloudFormation",
             ["pass the Security Hub finding, or `CONTROL:resource-id`, instead"],
             unknown=True,
         )
