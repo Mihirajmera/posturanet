@@ -1,0 +1,64 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Synthetic nested network stack for PosturaNet tests (RFC 1918 / RFC 5737 only).
+
+Parameters:
+  Env:
+    Type: String
+    Default: dev
+  MonitoringCidr:
+    Type: String
+    Default: 192.0.2.0/24
+  AdminCidr:
+    Type: String
+    Default: 0.0.0.0/0
+  SshPort:
+    Type: Number
+    Default: 22
+  DbPassword:
+    Type: String
+    NoEcho: true
+    Default: synthetic-not-a-secret
+
+Conditions:
+  IsProd: !Equals [!Ref Env, prod]
+  IsDev: !Not [!Condition IsProd]
+
+Resources:
+  AppSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: app
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+          Description: SSH from anywhere
+        - IpProtocol: tcp
+          FromPort: 9100
+          ToPort: 9100
+          CidrIp: !Ref MonitoringCidr
+          Description: node exporter
+        - !If
+          - IsProd
+          - IpProtocol: tcp
+            FromPort: 443
+            ToPort: 443
+            CidrIp: 10.1.0.0/16
+          - !Ref AWS::NoValue
+
+  AdminSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: admin
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref SshPort
+          ToPort: !Ref SshPort
+          CidrIp: !Ref AdminCidr
+
+  DebugSG:
+    Type: AWS::EC2::SecurityGroup
+    Condition: IsDev
+    Properties:
+      GroupDescription: debug
