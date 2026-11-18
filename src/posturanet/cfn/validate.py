@@ -3,7 +3,8 @@
 The template is validated statically: it parses, only the target resource changed, the edited
 resource passes the control and the contract, and (with AWS access) the repo template still
 matches what the stack deployed (`cloudformation:GetTemplate`, read-only) and, for security
-groups, the live group's ingress (`ec2:DescribeSecurityGroups`) still matches the template.
+groups, buckets and managed policies, the live resource (`ec2:DescribeSecurityGroups`,
+`s3:GetBucketPublicAccessBlock`, `iam:GetPolicyVersion`) still matches the template.
 `cfn-lint` runs when installed. A change set, CloudFormation's own preview, needs
 `cloudformation:CreateChangeSet` (a write), so it runs only when the customer opts in
 (`cloudformation.changeset_preview`): an UPDATE change set under its own role, never executed,
@@ -13,16 +14,21 @@ always deleted.
 from __future__ import annotations
 
 import hashlib
+import json
 import shutil
 import subprocess
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 from posturanet.aws.changeset import NAME_PREFIX, ChangeSetClient
 from posturanet.aws.session import ClientFactory
 from posturanet.cfn.edit import (
+    BUCKET_TYPE,
+    PAB_FLAGS,
+    POLICY_TYPE,
     SG_TYPE,
     CfnPolicy,
     CfnSecurityGroup,
@@ -221,7 +227,123 @@ def drift(res: CfnResource, aws: ClientFactory | None, offline: bool) -> Check:
         )
     if res.type == SG_TYPE:
         return _live_sg(res, aws, check)
+    if res.type == BUCKET_TYPE:
+        return _live_s3(res, aws, check)
+    if res.type == POLICY_TYPE:
+        return _live_policy(res, aws, check)
     return check(CheckResult.PASS, f"{res.logical_id} matches the template stack {res.stack} runs")
+
+
+def _physical_id(res: CfnResource, aws: ClientFactory) -> str:
+    """The deployed resource's physical id; StopIteration when the stack has none."""
+    rows = aws("cloudformation").describe_stack_resources(
+        StackName=res.stack, LogicalResourceId=res.logical_id
+    )["StackResources"]
+    return str(
+        next(
+            r["PhysicalResourceId"]
+            for r in rows
+            if r.get("LogicalResourceId") == res.logical_id and r.get("PhysicalResourceId")
+        )
+    )
+
+
+def _error_code(exc: Exception) -> str:
+    response = getattr(exc, "response", None)
+    return str(response.get("Error", {}).get("Code", "")) if isinstance(response, dict) else ""
+
+
+def _live_s3(
+    res: CfnResource, aws: ClientFactory, check: Callable[[CheckResult, str], Check]
+) -> Check:
+    """Compare the live bucket's Block Public Access flags with the template's, before the edit."""
+    try:
+        bucket = _physical_id(res, aws)
+    except StopIteration:
+        return check(
+            CheckResult.ERROR, f"stack {res.stack} has no physical id for {res.logical_id}"
+        )
+    except Exception as exc:  # botocore ClientError; boto3 is only imported in aws/
+        return check(CheckResult.ERROR, f"reading the stack's resources failed: {exc}")
+    try:
+        conf = aws("s3").get_public_access_block(Bucket=bucket)["PublicAccessBlockConfiguration"]
+    except Exception as exc:  # botocore ClientError; boto3 is only imported in aws/
+        if _error_code(exc) != "NoSuchPublicAccessBlockConfiguration":
+            return check(CheckResult.ERROR, f"reading the live bucket failed: {exc}")
+        conf = {}  # no configuration: every flag is off
+    planned = s3_flags(res)
+    if "<unknown>" in planned.values():
+        return check(CheckResult.ERROR, f"{res.logical_id} Block Public Access isn't literal")
+    differ = [
+        cfn_name
+        for tf_name, cfn_name in PAB_FLAGS.items()
+        if bool(conf.get(cfn_name, False)) != (str(planned[tf_name]).lower() == "true")
+    ]
+    if differ:
+        return check(
+            CheckResult.FAIL,
+            f"live bucket {bucket} differs from {res.logical_id} in the template "
+            f"({', '.join(differ)}); someone changed it outside CloudFormation. Reconcile it first",
+        )
+    return check(
+        CheckResult.PASS,
+        f"{res.logical_id} matches stack {res.stack}; live bucket {bucket} Block Public Access "
+        "matches",
+    )
+
+
+def _actions(doc: object) -> list[tuple[str, tuple[str, ...], tuple[str, ...]]]:
+    """Each statement's (Effect, Action, NotAction), lower-cased and sorted. Resources and
+    conditions aren't compared: templates build them with intrinsics; the fix edits actions."""
+
+    def names(v: object) -> tuple[str, ...]:
+        items = v if isinstance(v, list) else [] if v is None else [v]
+        return tuple(sorted(str(x).lower() for x in items))
+
+    stmts = doc.get("Statement", []) if isinstance(doc, dict) else []
+    stmts = stmts if isinstance(stmts, list) else [stmts]
+    return sorted(
+        (str(st.get("Effect", "")), names(st.get("Action")), names(st.get("NotAction")))
+        for st in stmts
+        if isinstance(st, dict)
+    )
+
+
+def _live_policy(
+    res: CfnResource, aws: ClientFactory, check: Callable[[CheckResult, str], Check]
+) -> Check:
+    """Compare the live default version's actions with the template's, before the edit."""
+    try:
+        parse_policy(res)  # stops on actions that aren't literal
+    except StageStop as exc:
+        return check(CheckResult.ERROR, exc.reason)
+    try:
+        arn = _physical_id(res, aws)
+        iam = aws("iam")
+        version = iam.get_policy(PolicyArn=arn)["Policy"]["DefaultVersionId"]
+        live = iam.get_policy_version(PolicyArn=arn, VersionId=version)["PolicyVersion"]["Document"]
+    except StopIteration:
+        return check(
+            CheckResult.ERROR, f"stack {res.stack} has no physical id for {res.logical_id}"
+        )
+    except Exception as exc:  # botocore ClientError; boto3 is only imported in aws/
+        return check(CheckResult.ERROR, f"reading the live policy failed: {exc}")
+    if isinstance(live, str):  # the API returns it URL-encoded; boto3 usually decodes it
+        try:
+            live = json.loads(unquote(live))
+        except json.JSONDecodeError:
+            return check(CheckResult.ERROR, "the live policy document isn't readable JSON")
+    planned = value(get(res.properties, "PolicyDocument"))
+    if _actions(live) != _actions(planned):
+        return check(
+            CheckResult.FAIL,
+            f"live policy {arn} ({version}) has other actions than {res.logical_id} in the "
+            "template; someone changed it outside CloudFormation. Reconcile it first",
+        )
+    return check(
+        CheckResult.PASS,
+        f"{res.logical_id} matches stack {res.stack}; live policy {version} actions match",
+    )
 
 
 def _norm(r: Rule) -> Rule:
@@ -235,14 +357,7 @@ def _live_sg(
 ) -> Check:
     """Compare the live group's CIDR ingress with the template's, before the edit."""
     try:
-        rows = aws("cloudformation").describe_stack_resources(
-            StackName=res.stack, LogicalResourceId=res.logical_id
-        )["StackResources"]
-        group_id = next(
-            r["PhysicalResourceId"]
-            for r in rows
-            if r.get("LogicalResourceId") == res.logical_id and r.get("PhysicalResourceId")
-        )
+        group_id = _physical_id(res, aws)
         groups = aws("ec2").describe_security_groups(GroupIds=[group_id])["SecurityGroups"]
     except StopIteration:
         return check(
