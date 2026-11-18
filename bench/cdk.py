@@ -28,7 +28,7 @@ from typing import Any, Literal
 ROOT = Path(__file__).resolve().parent.parent
 
 from bench.cases import END  # noqa: E402
-from bench.cfn import IAM_REQUIRED, SG_HOSTILE, SG_LEGIT, _covers  # noqa: E402
+from bench.cfn import IAM_REQUIRED, SG_HOSTILE, SG_LEGIT, _covers, _NoPab  # noqa: E402
 from bench.common import Expect, Result, per_case, summary  # noqa: E402
 from posturanet import cfn  # noqa: E402
 from posturanet.aws.readonly import ReadOnlyClient  # noqa: E402
@@ -438,6 +438,19 @@ def _aws(case: CdkCase, repo: Path) -> Any:
         def describe_security_groups(self, **kw: Any) -> dict[str, Any]:
             return {"SecurityGroups": [{"GroupId": kw["GroupIds"][0], "IpPermissions": live}]}
 
+        # The live bucket and policy match the deployed template.
+        def get_public_access_block(self, **kw: Any) -> dict[str, Any]:
+            if "PublicAccessBlockConfiguration" not in props:
+                raise _NoPab
+            return {"PublicAccessBlockConfiguration": props["PublicAccessBlockConfiguration"]}
+
+        def get_policy(self, **kw: Any) -> dict[str, Any]:
+            return {"Policy": {"DefaultVersionId": "v1"}}
+
+        def get_policy_version(self, **kw: Any) -> dict[str, Any]:
+            return {"PolicyVersion": {"Document": props["PolicyDocument"]}}
+
+    props: dict[str, Any] = doc["Resources"][FAMILY[case.family][2]].get("Properties", {})
     return lambda service: ReadOnlyClient(Fake(), service)
 
 

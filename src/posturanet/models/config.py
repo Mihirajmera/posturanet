@@ -58,6 +58,15 @@ class CdkConfig(_Strict):
     binary: str = "cdk"
 
 
+class PulumiConfig(_Strict):
+    # The Pulumi project directory (holds Pulumi.yaml), relative to the repo root; found when
+    # there is exactly one.
+    program: str | None = None
+    # A `pulumi stack export` of the deployed stack. Required: PosturaNet never runs the
+    # Pulumi CLI. State can hold secrets; keep the export out of git.
+    stack_export: str | None = None
+
+
 class FlowLogsConfig(_Strict):
     mode: Literal["logs_insights"] = "logs_insights"
     log_group: str | None = None
@@ -99,20 +108,38 @@ class DeliveryConfig(_Strict):
     max_open_prs: int = Field(default=5, ge=1)
 
 
+class OutcomeShareConfig(_Strict):
+    # Opt-in (FR-45a, golden rule 6). No default endpoint: the receiving service isn't built.
+    enabled: bool = False
+    endpoint: str | None = Field(default=None, pattern=r"^https://\S+$")
+
+
 class Config(_Strict):
     version: Literal[1] = 1
     aws: AwsConfig = Field(default_factory=AwsConfig)
-    # auto: CDK when the repo has a cdk.json and no .tf files; else CloudFormation when a
-    # stack-resources export is given, or the repo has templates and no .tf files.
-    iac: Literal["auto", "terraform", "cloudformation", "cdk"] = "auto"
+    # auto: CDK when the repo has a cdk.json and no .tf files; else Pulumi when it has a
+    # Pulumi.yaml and no .tf files; else CloudFormation when a stack-resources export is
+    # given, or the repo has templates and no .tf files.
+    iac: Literal["auto", "terraform", "cloudformation", "cdk", "pulumi"] = "auto"
     terraform: TerraformConfig = Field(default_factory=TerraformConfig)
     cloudformation: CloudFormationConfig = Field(default_factory=CloudFormationConfig)
     cdk: CdkConfig = Field(default_factory=CdkConfig)
+    pulumi: PulumiConfig = Field(default_factory=PulumiConfig)
     evidence: EvidenceConfig = Field(default_factory=EvidenceConfig)
     contracts: ContractsConfig = Field(default_factory=ContractsConfig)
     synthesis: SynthesisConfig = Field(default_factory=SynthesisConfig)
     validation: ValidationConfig = Field(default_factory=ValidationConfig)
     delivery: DeliveryConfig = Field(default_factory=DeliveryConfig)
+    outcome_share: OutcomeShareConfig = Field(default_factory=OutcomeShareConfig)
+
+    @model_validator(mode="after")
+    def _share_endpoint(self) -> Config:
+        if self.outcome_share.enabled and not self.outcome_share.endpoint:
+            raise ValueError(
+                "outcome_share.enabled needs outcome_share.endpoint (an https:// URL); "
+                "PosturaNet ships no default endpoint"
+            )
+        return self
 
     @model_validator(mode="after")
     def _changeset_role(self) -> Config:

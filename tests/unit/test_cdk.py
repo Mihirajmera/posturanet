@@ -16,6 +16,7 @@ from posturanet import cdk
 from posturanet.aws.readonly import ReadOnlyClient, iam_action, is_allowed
 from posturanet.cdk import source
 from posturanet.cdk.app import SubprocessCdk
+from posturanet.cfn.template import parse, value
 from posturanet.cli.app import app as cli
 from posturanet.contracts import dump_contract
 from posturanet.errors import StageStop
@@ -100,7 +101,30 @@ def _fake_aws(repo: Path, template: str, ingress: list[dict[str, Any]] | None = 
             ]  # fmt: skip
             return {"SecurityGroups": [{"GroupId": "sg-0a91f3c2", "IpPermissions": perms}]}
 
+        def get_public_access_block(self, **kw: Any) -> dict[str, Any]:
+            raise NoPab()  # the deployed bucket has no Block Public Access configuration
+
+        def get_policy(self, **kw: Any) -> dict[str, Any]:
+            return {"Policy": {"DefaultVersionId": "v1"}}
+
+        def get_policy_version(self, **kw: Any) -> dict[str, Any]:
+            return {"PolicyVersion": {"Document": _deployed_policy(json.loads(body))}}
+
     return lambda service: ReadOnlyClient(Fake(), service)
+
+
+class NoPab(Exception):
+    response = {"Error": {"Code": "NoSuchPublicAccessBlockConfiguration"}}  # noqa: RUF012
+
+
+def _deployed_policy(body: Any) -> Any:
+    """The PolicyDocument of the deployed template's managed policy, as IAM would return it."""
+    doc = body if isinstance(body, dict) else value(parse(body, Path("deployed.yaml")).root)
+    return next(
+        r["Properties"]["PolicyDocument"]
+        for r in doc["Resources"].values()
+        if r["Type"] == "AWS::IAM::ManagedPolicy"
+    )
 
 
 # --- source scanning
