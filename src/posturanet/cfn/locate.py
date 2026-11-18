@@ -14,13 +14,14 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from ruamel.yaml.nodes import MappingNode, Node
 
 from posturanet.aws.session import ClientFactory
+from posturanet.cfn.params import NO_VALUE, Scope, Unresolved
 from posturanet.cfn.template import (
     Template,
     TemplateError,
@@ -37,6 +38,8 @@ from posturanet.locate.codeowners import find_codeowners, owners_for
 from posturanet.models import Confidence, Config, Finding, Location
 
 PREFIX = "cfn."
+STACK_TYPES = ("AWS::CloudFormation::Stack", "AWS::Serverless::Application")
+_MAX_DEPTH = 5
 _IAM_PRINCIPAL_ARN = re.compile(r"^arn:aws[\w-]*:iam::\d{12}:(?:role|user|group)/(?:.*/)?([^/]+)$")
 
 
@@ -48,6 +51,7 @@ class CfnResource:
     template: Template
     node: MappingNode
     line: int  # line of the logical id key
+    scope: Scope = field(default_factory=Scope)  # parameters and conditions; empty = none known
 
     @property
     def address(self) -> str:
@@ -174,14 +178,14 @@ def stack_row(
         if r.get("PhysicalResourceId") in ids
     }
     if not found:
+        steps = [
+            "check that this resource is managed by CloudFormation",
+            "if it was created in the console, codifying it comes in a later release",
+        ]
+        if any(r.get("ResourceType") in STACK_TYPES for r in rows):
+            steps.insert(0, "add each nested stack's describe-stack-resources rows to the export")
         raise StageStop(
-            "locate",
-            f"{ids[0]} is not in any CloudFormation stack ({label})",
-            [
-                "check that this resource is managed by CloudFormation",
-                "if it was created in the console, codifying it comes in a later release",
-            ],
-            unknown=True,
+            "locate", f"{ids[0]} is not in any CloudFormation stack ({label})", steps, unknown=True
         )
     if len(found) > 1:
         raise StageStop(
@@ -309,16 +313,22 @@ def resolve_template_ref(
 
 
 def resolve(
-    repo: Path, config: Config, stack: str, logical_id: str, rtype: str | None = None
+    repo: Path,
+    config: Config,
+    stack: str,
+    logical_id: str,
+    rtype: str | None = None,
+    *,
+    candidates: list[Template] | None = None,
 ) -> CfnResource | str:
     """The template resource for `stack/logical_id`, or why it can't be found."""
     mapped = config.cloudformation.templates.get(stack)
-    if mapped:
+    if candidates is None and mapped:
         try:
             candidates = [load(repo / mapped)]
         except (OSError, TemplateError) as exc:
             return f"cloudformation.templates.{stack} ({mapped}): {exc}"
-    else:
+    elif candidates is None:
         candidates = find_templates(repo)
     hits = []
     for t in candidates:
@@ -347,6 +357,130 @@ def resolve(
     return CfnResource(stack, logical_id, found_type, t, node, line_of(key) if key else 1)
 
 
+def _parent_row(
+    row: dict[str, Any], rows: list[dict[str, Any]] | None, aws: ClientFactory | None
+) -> dict[str, Any] | None:
+    """The `AWS::CloudFormation::Stack` row that created `row`'s stack, when it's nested."""
+    sid, name = row.get("StackId"), row.get("StackName")
+
+    def is_parent(r: dict[str, Any]) -> bool:
+        pid = str(r.get("PhysicalResourceId", ""))
+        return r.get("ResourceType") in STACK_TYPES and (
+            pid == sid or (bool(name) and f":stack/{name}/" in pid)
+        )
+
+    if rows is None:
+        if not sid or aws is None:
+            return None
+        try:
+            rows = aws("cloudformation").describe_stack_resources(PhysicalResourceId=sid)[
+                "StackResources"
+            ]
+        except Exception as exc:  # botocore ClientError; boto3 is only imported in aws/
+            if "does not exist" in str(exc):
+                return None
+            why = f"cloudformation:DescribeStackResources failed: {exc}"
+            raise StageStop("locate", why) from exc
+    return next((r for r in rows if is_parent(r)), None)
+
+
+def _nested_template(parent: CfnResource, repo: Path) -> Template | str:
+    """The local template a nested stack resource points at (`TemplateURL` or SAM `Location`)."""
+    key = "TemplateURL" if parent.type == STACK_TYPES[0] else "Location"
+    url = value(get(parent.properties, key))
+    try:
+        url, _ = parent.scope.resolve(url)
+    except Unresolved as exc:
+        return f"{parent.logical_id} {key}: {exc}"
+    if not isinstance(url, str) or not url:
+        return f"{parent.logical_id} {key} is not a template path in this repo"
+    if "://" in url or url.startswith("s3:"):
+        return f"{parent.logical_id} {key} is a URL, not a template in this repo"
+    path = (parent.template.path.parent / url).resolve()
+    if not path.is_relative_to(repo.resolve()):
+        return f"{parent.logical_id} {key} points outside the repo"
+    try:
+        return load(path)
+    except (OSError, TemplateError) as exc:
+        return f"{parent.logical_id} {key} ({url}): {exc}"
+
+
+def _passed(parent: CfnResource) -> tuple[dict[str, Any], set[str]] | str:
+    """(parameter values the parent passes to the nested stack, names it passes but can't
+    resolve). Offline only; live runs read the nested stack's own parameters."""
+    raw = value(get(parent.properties, "Parameters"))
+    if raw is None:
+        return {}, set()
+    if not isinstance(raw, dict) or "Ref" in raw or any(k.startswith("Fn::") for k in raw):
+        return f"{parent.logical_id} Parameters is not a literal mapping"
+    passed: dict[str, Any] = {}
+    blocked: set[str] = set()
+    for k, v in raw.items():
+        try:
+            r, _ = parent.scope.resolve(v)
+        except Unresolved:
+            blocked.add(k)
+            continue
+        if r is not NO_VALUE:
+            passed[k] = r
+    return passed, blocked
+
+
+def _resolve_row(
+    row: dict[str, Any],
+    rows: list[dict[str, Any]] | None,
+    repo: Path,
+    config: Config,
+    aws: ClientFactory | None,
+    rtype: str | None,
+    depth: int = 0,
+) -> CfnResource | str:
+    """`resolve` for a stack-resources row, following nested stacks up to their parent's
+    `TemplateURL`, with the stack's parameters and the resource's `Condition` checked."""
+    stack, logical = str(row["StackName"]), str(row["LogicalResourceId"])
+    parent_row = None if stack in config.cloudformation.templates else _parent_row(row, rows, aws)
+    if parent_row is None:
+        res = resolve(repo, config, stack, logical, rtype)
+        if isinstance(res, str):
+            return res
+        res.scope = Scope(res.template, stack, aws)
+    else:
+        if depth >= _MAX_DEPTH:
+            return f"{stack} is nested more than {_MAX_DEPTH} stacks deep"
+        parent = _resolve_row(parent_row, rows, repo, config, aws, None, depth + 1)
+        if isinstance(parent, str):
+            return f"nested stack {stack}: {parent}"
+        if parent.type not in STACK_TYPES:
+            return f"{parent.stack}/{parent.logical_id} is a {parent.type}, not a nested stack"
+        t = _nested_template(parent, repo)
+        passed = _passed(parent) if aws is None else ({}, set())  # live: its own params
+        if isinstance(t, str) or isinstance(passed, str):
+            return f"nested stack {stack}: {t if isinstance(t, str) else passed}"
+        res = resolve(repo, config, stack, logical, rtype, candidates=[t])
+        if isinstance(res, str):
+            return res
+        res.scope = Scope(t, stack, aws, *passed)
+    return _condition(res)
+
+
+def _condition(res: CfnResource) -> CfnResource | str:
+    """`res`, or why its `Condition` keeps it out of the deployed stack (or can't be known)."""
+    cond = value(get(res.node, "Condition"))
+    if cond is None:
+        return res
+    on = res.scope.condition(str(cond))
+    if on is None:
+        return (
+            f"{res.logical_id} has Condition {cond}, which can't be resolved from known parameters"
+        )
+    if not on:
+        return (
+            f"{res.logical_id} has Condition {cond}, which is false for stack {res.stack}'s "
+            "parameters, so the template doesn't create it"
+        )
+    return res
+
+
 def locate(
     finding: Finding,
     repo: Path,
@@ -359,6 +493,8 @@ def locate(
     # a role, user or group's physical id is its name, not its ARN
     ids += [m.group(1) for i in ids if (m := _IAM_PRINCIPAL_ARN.match(i)) and m.group(1) not in ids]
     row, label = stack_row(ids, repo, config, state_path, aws)
+    loaded = _export(repo, config, state_path)  # nested stacks: the parent rows, offline
+    rows = loaded[0] if loaded is not None else None
     stack, logical = str(row["StackName"]), str(row["LogicalResourceId"])
     rtype = str(row.get("ResourceType"))
     if rtype not in types:
@@ -367,11 +503,13 @@ def locate(
             f"{stack}/{logical} is a {rtype}, not {' or '.join(types)}",
             ["`posturanet fixes list` shows every control PosturaNet fixes"],
         )
-    res = resolve(repo, config, stack, logical, rtype)
+    res = _resolve_row(row, rows, repo, config, aws, rtype)
     if isinstance(res, str) and rtype == "AWS::IAM::Role" and logical.endswith("Role"):
         # SAM names a function's generated role `<Function>Role`; its policies live on the function
         fn = resolve(repo, config, stack, logical[: -len("Role")], "AWS::Serverless::Function")
-        res = fn if isinstance(fn, CfnResource) and fn.template.sam else res
+        if isinstance(fn, CfnResource) and fn.template.sam:
+            fn.scope = Scope(fn.template, stack, aws)
+            res = _condition(fn)
     if isinstance(res, str):
         raise StageStop(
             "locate",
@@ -390,6 +528,8 @@ def locate(
     ]
     if res.logical_id != logical:
         reasoning.insert(1, f"{logical} is the role SAM generates for {res.logical_id}")
+    if get(res.template.root, "Parameters") is not None:
+        reasoning.append(f"parameter values from {res.scope.source}")
     owners: list[str] = []
     codeowners = find_codeowners(repo)
     if codeowners is not None:
