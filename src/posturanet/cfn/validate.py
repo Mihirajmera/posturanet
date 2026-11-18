@@ -158,7 +158,7 @@ def _edited(res: CfnResource, diff: Diff) -> CfnResource | str:
     node = t.resources.get(res.logical_id)
     if node is None:
         return f"{res.logical_id} is missing from the edited template"
-    return CfnResource(res.stack, res.logical_id, res.type, t, node, res.line)
+    return CfnResource(res.stack, res.logical_id, res.type, t, node, res.line, res.scope)
 
 
 def _own(resources: dict[str, Any], logical_id: str) -> dict[str, Any]:

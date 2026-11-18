@@ -42,8 +42,10 @@ ALLOWLIST: tuple[str, ...] = (
     "securityhub:GetFindingsV2",
     "securityhub:GetRemediationsV2",
     "securityhub:ListExposuresByRemediationV2",
-    # CloudFormation (FR-5): physical id -> stack and logical id; deployed template for drift.
+    # CloudFormation (FR-5): physical id -> stack and logical id; deployed template for drift;
+    # the stack's parameter values (NoEcho ones are never read).
     "cloudformation:DescribeStackResources",
+    "cloudformation:DescribeStacks",
     "cloudformation:GetTemplate",
     # CloudFormation drift (FR-5): the live bucket's Block Public Access, before the edit.
     "s3:GetBucketPublicAccessBlock",
