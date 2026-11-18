@@ -12,13 +12,16 @@ PASS. Three contract kinds:
 Two inputs:
 - `check_plan`: `terraform show -json` output. Exact, needs a plan (and so AWS read access).
 - `check_source`: the HCL in the working tree. Offline and fast, for editor and agent hooks;
-  only literal values can be judged, everything else is UNKNOWN.
+  only literal values can be judged, everything else is UNKNOWN. CloudFormation contracts are
+  judged from the template; CDK contracts from the synthesized template (`cdk.assembly`, or
+  `cdk synth --no-lookups` with no AWS credentials).
 """
 
 from __future__ import annotations
 
 import json
 import re
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -27,7 +30,7 @@ from pydantic import BaseModel, ValidationError
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
-from posturanet import cfn
+from posturanet import cdk, cfn
 from posturanet.cfn import template as cfn_template
 from posturanet.configfix.hcl_attrs import ABSENT, BLOCK, Unsupported, lookup, resource_block
 from posturanet.errors import StageStop
@@ -370,18 +373,28 @@ def check_source(repo: Path, config: Config, files: list[Path] | None = None) ->
     contracts = _all_contracts(repo, config)
     if any(cfn.split_address(x.contract.resource) for x in contracts):
         results += _unreadable_templates(repo, files or [])
-    for loaded in contracts:
-        c = loaded.contract
-        if cfn.split_address(c.resource):
-            res = _source_cfn(loaded, repo, config, wanted)
-        elif isinstance(c, BehaviorContract):
-            res = _source_sg(loaded, repo, config, wanted)
-        elif isinstance(c, IamContract):
-            res = _source_iam(loaded, repo, config, wanted)
-        else:
-            res = _source_s3(loaded, repo, config, wanted)
-        if res is not None:
-            results.append(res)
+    with ExitStack() as stack:
+        assembly: list[tuple[Path, str] | str] = []  # synthesized once, on first use
+        for loaded in contracts:
+            c = loaded.contract
+            if cdk.split_address(c.resource):
+                if not assembly:
+                    try:
+                        found = stack.enter_context(cdk.assembly(repo, config, None, dry=False))
+                        assembly.append(found)
+                    except StageStop as exc:
+                        assembly.append(exc.reason)
+                res = _source_cdk(loaded, repo, config, wanted, assembly[0])
+            elif cfn.split_address(c.resource):
+                res = _source_cfn(loaded, repo, config, wanted)
+            elif isinstance(c, BehaviorContract):
+                res = _source_sg(loaded, repo, config, wanted)
+            elif isinstance(c, IamContract):
+                res = _source_iam(loaded, repo, config, wanted)
+            else:
+                res = _source_s3(loaded, repo, config, wanted)
+            if res is not None:
+                results.append(res)
     return GateResult(_overall(results), results, "source")
 
 
@@ -530,14 +543,7 @@ def _source_cfn(
 ) -> ContractResult | None:
     """A contract on a CloudFormation resource, judged from the template (literals only)."""
     c = loaded.contract
-    subject = (
-        "ingress"
-        if isinstance(c, BehaviorContract)
-        else "policy"
-        if isinstance(c, IamContract)
-        else "public access block"
-    )
-    result = ContractResult(c.resource, loaded.rel, "PASS", subject=subject)
+    result = ContractResult(c.resource, loaded.rel, "PASS", subject=_subject(c))
     parts = cfn.split_address(c.resource)
     assert parts is not None
     stack, logical = parts
@@ -549,6 +555,47 @@ def _source_cfn(
     result.source_file, result.source_line = file_rel, res.line
     if not _in_scope(repo, file_rel, wanted):
         return None
+    return _judge_template(result, loaded, res, name)
+
+
+def _subject(c: AnyContract) -> str:
+    if isinstance(c, BehaviorContract):
+        return "ingress"
+    return "policy" if isinstance(c, IamContract) else "public access block"
+
+
+def _source_cdk(
+    loaded: _Loaded,
+    repo: Path,
+    config: Config,
+    wanted: set[Path] | None,
+    assembly: tuple[Path, str] | str,
+) -> ContractResult | None:
+    """A contract on a CDK construct, judged from the synthesized template; the result points
+    at the construct in the program source."""
+    c = loaded.contract
+    result = ContractResult(c.resource, loaded.rel, "PASS", subject=_subject(c))
+    parts = cdk.split_address(c.resource)
+    assert parts is not None
+    try:
+        target = (
+            assembly if isinstance(assembly, str) else cdk.resolve(repo, config, *assembly, *parts)
+        )
+    except StageStop as exc:
+        target = exc.reason
+    if isinstance(target, str):
+        return _finish(result, loaded, [], [target], []) if wanted is None else None
+    file_rel = target.construct.file.resolve().relative_to(repo.resolve()).as_posix()
+    result.source_file, result.source_line = file_rel, target.construct.line
+    if not _in_scope(repo, file_rel, wanted):
+        return None
+    return _judge_template(result, loaded, target.res)
+
+
+def _judge_template(
+    result: ContractResult, loaded: _Loaded, res: cfn.CfnResource, name: str = ""
+) -> ContractResult:
+    c = loaded.contract
     try:
         if isinstance(c, BehaviorContract):
             return _judge(result, c, cfn.parse_sg(res).rules(), loaded.text)

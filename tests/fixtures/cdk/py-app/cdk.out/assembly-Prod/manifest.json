@@ -1,0 +1,14 @@
+{
+  "version": "36.0.0",
+  "artifacts": {
+    "Prodplatform1F2E3D4C": {
+      "type": "aws:cloudformation:stack",
+      "environment": "aws://unknown-account/unknown-region",
+      "properties": {
+        "templateFile": "Prodplatform1F2E3D4C.template.json",
+        "stackName": "Prod-platform"
+      },
+      "displayName": "Prod/platform"
+    }
+  }
+}

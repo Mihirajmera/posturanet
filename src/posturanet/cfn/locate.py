@@ -150,14 +150,11 @@ def stack_row(
     config: Config,
     state_path: Path | None,
     aws: ClientFactory | None,
-) -> tuple[dict[str, Any], str, list[dict[str, Any]] | None]:
-    """(the stack resource whose physical id is one of `ids`, where it came from, the export's
-    rows or None when read live)."""
+) -> tuple[dict[str, Any], str]:
+    """(the stack resource whose physical id is one of `ids`, where it came from)."""
     loaded = _export(repo, config, state_path)
-    export_rows: list[dict[str, Any]] | None = None
     if loaded is not None:
         rows, label = loaded
-        export_rows = rows
     elif aws is not None:
         cf = aws("cloudformation")
         rows = []
@@ -197,7 +194,7 @@ def stack_row(
             + ", ".join(f"{s}/{lid}" for s, lid in sorted(found)),
             ["fix the duplicate export rows, then re-run"],
         )
-    return next(iter(found.values())), label, export_rows
+    return next(iter(found.values())), label
 
 
 def _export(
@@ -495,7 +492,9 @@ def locate(
     ids = [i for i in dict.fromkeys([finding.resource.id, finding.resource.arn]) if i]
     # a role, user or group's physical id is its name, not its ARN
     ids += [m.group(1) for i in ids if (m := _IAM_PRINCIPAL_ARN.match(i)) and m.group(1) not in ids]
-    row, label, rows = stack_row(ids, repo, config, state_path, aws)
+    row, label = stack_row(ids, repo, config, state_path, aws)
+    loaded = _export(repo, config, state_path)  # nested stacks: the parent rows, offline
+    rows = loaded[0] if loaded is not None else None
     stack, logical = str(row["StackName"]), str(row["LogicalResourceId"])
     rtype = str(row.get("ResourceType"))
     if rtype not in types:

@@ -19,7 +19,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
-from posturanet import __version__, cfn, iamfix, s3fix
+from posturanet import __version__, cdk, cfn, iamfix, s3fix
+from posturanet.aws.changeset import ChangeSetClient
 from posturanet.aws.session import ClientFactory
 from posturanet.configfix import edit_resource, fixes_for
 from posturanet.configfix import pr as config_pr
@@ -96,7 +97,9 @@ class Context:
     state_path: Path | None = None
     evidence: FlowSource | None = None
     aws: ClientFactory | None = None
+    changeset: ChangeSetClient | None = None  # opt-in only (cloudformation.changeset_preview)
     terraform: TerraformRunner | None = None
+    cdk: cdk.CdkRunner | None = None
     github: GitHub | None = None
     window_days: int | None = None
     stop_after: Literal["contract"] | None = None
@@ -153,10 +156,12 @@ def _run(
     # --- ingest
     finding = ingest(target)
     record.finding = finding
+    if cdk.is_cdk(repo, config):
+        return _run_cfn_dispatch(finding, repo, config, ctx, record, iac="cdk")
     if cfn.is_cloudformation(repo, config, ctx.state_path) or split_template_ref(
         finding.resource.address
     ):
-        return _run_cfn_dispatch(finding, repo, config, ctx, record)
+        return _run_cfn_dispatch(finding, repo, config, ctx, record, iac="cloudformation")
     if finding.resource.address and finding.fix_type is not FixType.UNSUPPORTED:
         # IaC scanner finding: a Terraform address, resolved to the deployed resource.
         fetch = boto3_s3_fetch(ctx.aws) if ctx.aws is not None else None
@@ -173,9 +178,22 @@ def _run(
 
 
 def _run_cfn_dispatch(
-    finding: Finding, repo: Path, config: Config, ctx: Context, record: RunRecord
+    finding: Finding,
+    repo: Path,
+    config: Config,
+    ctx: Context,
+    record: RunRecord,
+    *,
+    iac: Literal["cloudformation", "cdk"],
 ) -> tuple[RunRecord, Proposal | None]:
-    """CloudFormation and SAM templates: the same three evidence-backed fix types."""
+    """CloudFormation, SAM and CDK: the same three evidence-backed fix types."""
+    if iac == "cdk" and finding.resource.address:
+        raise StageStop(
+            "ingest",
+            "IaC scanner findings on CDK apps are not supported yet",
+            ["pass the Security Hub finding, or `CONTROL:resource-id`, instead"],
+            unknown=True,
+        )
     evidence_backed = (FixType.SG_INGRESS, FixType.S3_PUBLIC, FixType.IAM_LEAST_PRIVILEGE)
     if split_template_ref(finding.resource.address) and finding.fix_type in evidence_backed:
         # IaC scanner finding on a template: map it to its stack and the deployed resource.
@@ -190,13 +208,20 @@ def _run_cfn_dispatch(
             unknown=True,
         )
     if finding.fix_type is FixType.S3_PUBLIC:
-        return _run_s3(finding, repo, config, ctx, record, iac="cloudformation")
+        return _run_s3(finding, repo, config, ctx, record, iac=iac)
     if finding.fix_type is FixType.IAM_LEAST_PRIVILEGE:
-        return _run_iam(finding, repo, config, ctx, record, iac="cloudformation")
+        return _run_iam(finding, repo, config, ctx, record, iac=iac)
     if finding.fix_type is FixType.CONFIG_ATTRIBUTE:
+        if iac == "cdk":
+            raise StageStop(
+                "ingest",
+                f"{finding.control_id} is an attribute fix; those don't edit CDK apps yet",
+                ["set the construct prop by hand"],
+                unknown=True,
+            )
         record.stages.append(_ingest_stage(finding))
         return _run_config(finding, repo, config, ctx, record, iac="cloudformation")
-    return _run_sg(finding, repo, config, ctx, record, iac="cloudformation")
+    return _run_sg(finding, repo, config, ctx, record, iac=iac)
 
 
 def _run_sg(
@@ -206,7 +231,7 @@ def _run_sg(
     ctx: Context,
     record: RunRecord,
     *,
-    iac: Literal["terraform", "cloudformation"],
+    iac: Literal["terraform", "cloudformation", "cdk"],
 ) -> tuple[RunRecord, Proposal | None]:
     dry = ctx.mode == "dry-run"
     if finding.fix_type is not FixType.SG_INGRESS:
@@ -228,8 +253,14 @@ def _run_sg(
     # --- locate
     match: StateMatch | None = None
     res: cfn.CfnResource | None = None
+    target: cdk.CdkTarget | None = None
     if iac == "cloudformation":
         loc, res = cfn.locate(finding, repo, config, ctx.state_path, ctx.aws, [cfn.SG_TYPE])
+    elif iac == "cdk":
+        loc, target = cdk.locate(
+            finding, repo, config, ctx.state_path, ctx.aws, [cfn.SG_TYPE], ctx.cdk, dry=dry
+        )
+        res = target.res
     else:
         s3_fetch = boto3_s3_fetch(ctx.aws) if ctx.aws is not None else None
         loc, match = locate_match(finding, repo, config, ctx.state_path, s3_fetch)
@@ -371,7 +402,9 @@ def _run_sg(
             )
         loc.drift = False
     synth = synthesize(contract, current, config.synthesis)
-    if isinstance(sg, cfn.CfnSecurityGroup):
+    if target is not None:
+        diff = cdk.sg_diff(repo, target, synth)
+    elif isinstance(sg, cfn.CfnSecurityGroup):
         diff = cfn.sg_diff(repo, sg, synth)
     else:
         diff = make_diff(repo, sg, synth, loc.address)
@@ -379,9 +412,29 @@ def _run_sg(
     record.stages.append(StageResult(name="fix", status=StageStatus.OK, summary=diff.summary))
 
     # --- validate
-    if res is not None:
+    if target is not None:
+        report = cdk.validate_sg(
+            target,
+            diff,
+            synth,
+            contract,
+            finding.control_id,
+            config,
+            ctx.aws,
+            ctx.cdk,
+            offline=dry,
+        )
+    elif res is not None:
         report = cfn.validate_sg(
-            res, diff, synth, contract, finding.control_id, config, ctx.aws, offline=dry
+            res,
+            diff,
+            synth,
+            contract,
+            finding.control_id,
+            config,
+            ctx.aws,
+            offline=dry,
+            changeset=ctx.changeset,
         )
     else:
         tf = ctx.terraform or SubprocessTerraform(
@@ -438,7 +491,8 @@ def _run_sg(
         return record, proposal
 
     gh = ctx.github or _github(config, ctx)
-    local_originals: dict[str, str | None] = {f.path: sg.text for f in diff.files}
+    original = target.original if target is not None else sg.text
+    local_originals: dict[str, str | None] = {f.path: original for f in diff.files}
     if contract_text is not None:
         local_originals[rel_path] = original_contract
     result = deliver(
@@ -632,7 +686,9 @@ def _run_config(
 
     # --- validate
     if res is not None:
-        report = cfn.validate_attr(res, diff, fix, config, ctx.aws, offline=dry)
+        report = cfn.validate_attr(
+            res, diff, fix, config, ctx.aws, offline=dry, changeset=ctx.changeset
+        )
     else:
         tf = ctx.terraform or SubprocessTerraform(
             config.terraform.binary, config.validation.timeout_s
@@ -729,7 +785,7 @@ def _run_s3(
     ctx: Context,
     record: RunRecord,
     *,
-    iac: Literal["terraform", "cloudformation"] = "terraform",
+    iac: Literal["terraform", "cloudformation", "cdk"] = "terraform",
 ) -> tuple[RunRecord, Proposal | None]:
     """S3 Block Public Access (FR-50): evidence that nothing uses public access, then the fix."""
     dry = ctx.mode == "dry-run"
@@ -748,8 +804,9 @@ def _run_s3(
 
     # --- locate
     res: cfn.CfnResource | None = None
+    target_cdk: cdk.CdkTarget | None = None
     bucket: str | None = None
-    if iac == "cloudformation":
+    if iac in ("cloudformation", "cdk"):
         if scope == "account":
             raise StageStop(
                 "locate",
@@ -764,7 +821,13 @@ def _run_s3(
                 ],
                 unknown=True,
             )
-        loc, res = cfn.locate(finding, repo, config, ctx.state_path, ctx.aws, [cfn.BUCKET_TYPE])
+        if iac == "cdk":
+            loc, target_cdk = cdk.locate(
+                finding, repo, config, ctx.state_path, ctx.aws, [cfn.BUCKET_TYPE], ctx.cdk, dry=dry
+            )
+            res = target_cdk.res
+        else:
+            loc, res = cfn.locate(finding, repo, config, ctx.state_path, ctx.aws, [cfn.BUCKET_TYPE])
         bucket = finding.resource.id
         target = s3fix.S3Target("update", loc.address, loc.file, loc.line, bucket)
     elif scope == "bucket":
@@ -793,7 +856,9 @@ def _run_s3(
     record.location = loc
     owners_text = ", ".join(loc.owners) if loc.owners else "no owner found"
     block = (
-        f"PublicAccessBlockConfiguration on {res.logical_id}"
+        f"blockPublicAccess on {target_cdk.construct_path}"
+        if target_cdk is not None
+        else f"PublicAccessBlockConfiguration on {res.logical_id}"
         if res is not None
         else f"public access block {target.address} (exists)"
         if target.action == "update"
@@ -929,7 +994,10 @@ def _run_s3(
 
     # --- fix
     original: str | None
-    if res is not None:
+    already: list[str] = []
+    if target_cdk is not None:
+        diff, original = cdk.s3_diff(repo, target_cdk), target_cdk.original
+    elif res is not None:
         diff, already = cfn.s3_diff(repo, res)
         original = res.template.on_disk(res.template.text)
     else:
@@ -945,8 +1013,12 @@ def _run_s3(
     )
 
     # --- validate
-    if res is not None:
-        report = cfn.validate_s3(res, diff, control, config, ctx.aws, offline=dry)
+    if target_cdk is not None:
+        report = cdk.validate_s3(target_cdk, diff, control, config, ctx.aws, ctx.cdk, offline=dry)
+    elif res is not None:
+        report = cfn.validate_s3(
+            res, diff, control, config, ctx.aws, offline=dry, changeset=ctx.changeset
+        )
     else:
         tf = ctx.terraform or SubprocessTerraform(
             config.terraform.binary, config.validation.timeout_s
@@ -1053,7 +1125,7 @@ def _run_iam(
     ctx: Context,
     record: RunRecord,
     *,
-    iac: Literal["terraform", "cloudformation"] = "terraform",
+    iac: Literal["terraform", "cloudformation", "cdk"] = "terraform",
 ) -> tuple[RunRecord, Proposal | None]:
     """IAM least privilege (FR-51): replace wildcard actions with the actions in use."""
     dry = ctx.mode == "dry-run"
@@ -1069,7 +1141,15 @@ def _run_iam(
     # --- locate
     doc: PolicyDoc | None = None
     policy: cfn.CfnPolicy | None = None
-    if iac == "cloudformation":
+    iam_cdk: cdk.CdkTarget | None = None
+    if iac == "cdk":
+        loc, iam_cdk = cdk.locate(
+            finding, repo, config, ctx.state_path, ctx.aws, [cfn.POLICY_TYPE], ctx.cdk, dry=dry
+        )
+        statements, form = cfn.parse_policy(iam_cdk.res).statements, "cdk"
+        doc_file, doc_original = loc.file, iam_cdk.original
+        where = f"PolicyStatements of {iam_cdk.construct_path} in {loc.file}"
+    elif iac == "cloudformation":
         loc, res = cfn.locate(finding, repo, config, ctx.state_path, ctx.aws, cfn.IAM_TYPES)
         policy = cfn.select_policy(res, control)
         loc = loc.model_copy(update={"address": policy.address, "line": policy.res.line})
@@ -1246,7 +1326,9 @@ def _run_iam(
         return record, None
 
     # --- fix
-    if policy is not None:
+    if iam_cdk is not None:
+        diff = cdk.iam_diff(repo, iam_cdk, result.changes)
+    elif policy is not None:
         diff = cfn.iam_diff(repo, policy, result.changes)
     else:
         assert doc is not None
@@ -1267,7 +1349,20 @@ def _run_iam(
     )
 
     # --- validate
-    if policy is not None:
+    if iam_cdk is not None:
+        report = cdk.validate_iam(
+            iam_cdk,
+            diff,
+            control,
+            result.changes,
+            use,
+            extra,
+            config,
+            ctx.aws,
+            ctx.cdk,
+            offline=dry,
+        )
+    elif policy is not None:
         report = cfn.validate_iam(
             policy.res,
             diff,
@@ -1278,6 +1373,7 @@ def _run_iam(
             config,
             ctx.aws,
             offline=dry,
+            changeset=ctx.changeset,
             name=policy.name,
         )
     else:
@@ -1486,11 +1582,13 @@ def _unknowns(record: RunRecord, outside: list[NetRule]) -> list[str]:
 
 def _preview(address: str) -> str:
     """The read-only preview behind the drift check, for the IaC that defines `address`."""
+    if cdk.split_address(address):
+        return "cdk synth and the deployed-template check"
     return "the deployed-template check" if cfn.split_address(address) else "terraform plan"
 
 
 def _drift_unknown(address: str) -> str:
-    if cfn.split_address(address):
+    if cfn.split_address(address) or cdk.split_address(address):
         return "drift: not checked (needs cloudformation:GetTemplate, skipped in a dry run)"
     return "drift: not checked (needs terraform plan)"
 

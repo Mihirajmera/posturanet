@@ -4,6 +4,17 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Added (AWS CDK)
+- `posturanet fix` and `contract check --source` work on AWS CDK apps in TypeScript and Python, for the same three evidence-backed fixes. The finding's resource maps to its stack and logical id as for CloudFormation, then through the synthesized template's `aws:cdk:path` to the one L2 construct (`SecurityGroup`, `Bucket`, `ManagedPolicy`) in the app source whose id is that literal. No path metadata, an L1 `Cfn*` construct, or a computed or repeated id stops with UNKNOWN.
+- The fix edits the program, not the template, and only literals: `addIngressRule` peers, `blockPublicAccess: BlockPublicAccess.BLOCK_ALL`, `PolicyStatement` `actions`. Before editing, PosturaNet checks the literals explain the synthesized template exactly (every ingress rule, every statement), so rules from `connections.allowFrom` or statements from `addStatements` stop instead of being missed.
+- Validation re-reads the edited source and, outside a dry run, runs `cdk synth --no-lookups` with AWS credentials removed from its environment (no AWS calls), then the CloudFormation checks on the new template: only the target changed, the rules match, the contract holds, the control passes, and the target matches the deployed template (`cloudformation:GetTemplate`). `cdk diff` is not run and the PR says so. No new AWS permissions.
+- New config: `iac: cdk` (auto-detected from `cdk.json`), `cdk.app`, `cdk.assembly` (a `cdk.out` CI already synthesized; needed for dry runs) and `cdk.binary`.
+- Not yet: other CDK languages, L1 constructs, attribute fixes and IaC scanner findings on CDK apps.
+
+### Added (opt-in CloudFormation change-set preview)
+- `cloudformation.changeset_preview` (off by default, needs its own `role_arn`): outside a dry run, PosturaNet creates an UPDATE change set of the edited template, makes the `changeset` check required, and passes it only when CloudFormation would modify just the target, in place. The change set is always deleted and never executed.
+- `posturanet init --changeset-preview` prints the separate policy for that role, with an explicit Deny on `ExecuteChangeSet` and stack writes. The read-only allowlist and `posturanet init` output are unchanged. This is the one opt-in exception to NFR-2.
+
 ### Added (CloudFormation and SAM)
 - `posturanet fix` and `contract check --source` work on CloudFormation and SAM templates (YAML or JSON, `!Ref`/`!GetAtt` short forms included) for the same three evidence-backed fixes: security group ingress, S3 Block Public Access and IAM least privilege. The finding's resource maps to its stack and logical id through `cloudformation:DescribeStackResources`, or offline through `cloudformation.stack_resources` (an export of it), then to the one template that defines it. Anything without a source line, such as a SAM-generated role, stops with UNKNOWN.
 - The edit replaces only the target's ingress entries, Block Public Access flags or `Action` lists, in the template's own style; comments and every other line stay as written.
