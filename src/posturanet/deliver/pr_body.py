@@ -128,6 +128,8 @@ def verify_spec(p: Proposal) -> VerifySpec:
 def _method(check_id: str, address: str) -> str:
     if check_id == "drift" and address.startswith(("cfn.", "cdk.")):
         return "cloudformation-gettemplate"
+    if check_id == "drift" and address.startswith("pulumi."):
+        return "pulumi-stack-export"
     return {
         "invariants": "z3",
         "plan_scope": "terraform-plan",

@@ -159,7 +159,7 @@ def _edited(res: CfnResource, diff: Diff) -> CfnResource | str:
     node = t.resources.get(res.logical_id)
     if node is None:
         return f"{res.logical_id} is missing from the edited template"
-    return CfnResource(res.stack, res.logical_id, res.type, t, node, res.line)
+    return CfnResource(res.stack, res.logical_id, res.type, t, node, res.line, res.scope)
 
 
 def _own(resources: dict[str, Any], logical_id: str) -> dict[str, Any]:
@@ -509,7 +509,8 @@ def _changeset(
             sorted(stack.get("Capabilities", [])),
         )
         created = True
-        result, detail = _judge(res, _wait(client, res.stack, name, config.validation.timeout_s))
+        cs = _wait(client, res.stack, name, config.validation.timeout_s)
+        result, detail = _judge(res, cs, _own_ingress(res, body))
     except Exception as exc:  # botocore errors; boto3 is only imported in aws/
         result, detail = CheckResult.ERROR, f"change set failed: {exc}"
     finally:
@@ -546,8 +547,31 @@ def _wait(client: ChangeSetClient, stack: str, name: str, timeout_s: int) -> dic
     raise TimeoutError(f"change set not ready after {timeout_s}s")
 
 
-def _judge(res: CfnResource, cs: dict[str, Any]) -> tuple[CheckResult, str]:
-    """PASS only for one in-place Modify of the target resource."""
+def _own_ingress(res: CfnResource, body: str) -> set[str]:
+    """A group's own SecurityGroupIngress resources, before and after the edit: the fix may
+    modify, replace, add or remove them."""
+    if res.type != SG_TYPE:
+        return set()
+    try:
+        after = value(get(parse(body, res.template.path).root, "Resources"))
+    except TemplateError:
+        return set()
+    before = value(get(res.template.root, "Resources"))
+    return {
+        lid
+        for resources in (before, after)
+        if isinstance(resources, dict)
+        for lid in owned_ingress(resources, res.logical_id)
+    }
+
+
+def _judge(
+    res: CfnResource, cs: dict[str, Any], own: set[str] | None = None
+) -> tuple[CheckResult, str]:
+    """PASS only for an in-place Modify of the target and, for a security group, changes to its
+    own SecurityGroupIngress resources (each one rule; replacing one is how CloudFormation
+    edits it). Anything else in the change set fails."""
+    own = own or set()
     if cs.get("Status") == "FAILED":
         reason = str(cs.get("StatusReason", ""))
         if "didn't contain changes" in reason or "No updates" in reason:
@@ -562,9 +586,24 @@ def _judge(res: CfnResource, cs: dict[str, Any]) -> tuple[CheckResult, str]:
         c.get("ResourceChange", {}) for c in cs.get("Changes", []) if c.get("Type") == "Resource"
     ]
     ids = sorted(str(c.get("LogicalResourceId")) for c in changes)
-    if ids != [res.logical_id]:
+    others = [i for i in ids if i != res.logical_id and i not in own]
+    if others or not ids or ids.count(res.logical_id) > 1:
         return CheckResult.FAIL, f"the change set touches {len(ids)} resource(s): {', '.join(ids)}"
-    change = changes[0]
+    rules = [c for c in changes if c.get("LogicalResourceId") in own]
+    for c in rules:
+        if c.get("Action") not in ("Add", "Modify", "Remove"):
+            return CheckResult.FAIL, (
+                f"CloudFormation would {c.get('Action')} {c.get('LogicalResourceId')}"
+            )
+    extra = f", plus {len(rules)} of its own ingress resource(s)" if rules else ""
+    target = [c for c in changes if c.get("LogicalResourceId") == res.logical_id]
+    if not target:  # only standalone ingress resources change; the group itself doesn't
+        return (
+            CheckResult.PASS,
+            f"CloudFormation would change only {len(rules)} of {res.logical_id}'s "
+            "ingress resource(s)",
+        )
+    change = target[0]
     if change.get("Action") != "Modify":
         return CheckResult.FAIL, f"CloudFormation would {change.get('Action')} {res.logical_id}"
     replacement = change.get("Replacement", "False")
@@ -572,7 +611,7 @@ def _judge(res: CfnResource, cs: dict[str, Any]) -> tuple[CheckResult, str]:
         return CheckResult.FAIL, (
             f"CloudFormation would replace {res.logical_id} (Replacement: {replacement})"
         )
-    return CheckResult.PASS, f"CloudFormation would modify only {res.logical_id}, in place"
+    return CheckResult.PASS, f"CloudFormation would modify only {res.logical_id}, in place{extra}"
 
 
 def _cfn_lint(diff: Diff, timeout_s: int) -> Check:

@@ -53,6 +53,7 @@ class Outcome(BaseModel):
     finding_id: str
     control: str
     address: str
+    fix_type: str | None = None  # set by verify; the outcome share (FR-45a) needs it
     merged_at: datetime | None = None
     merge_sha: str | None = None
     watch_from: datetime | None = None
