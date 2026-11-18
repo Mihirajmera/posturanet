@@ -321,8 +321,13 @@ def _score(case: CfnCase, new: str | None, file: str, note: str) -> Result:
     t = parse(new, Path(file))
     node = t.resources[logical]
     res = cfn.CfnResource(stack, logical, value(get(node, "Type")), t, node, 1)
-    out = Result("PosturaNet", "FIXED", case.expect, note=note)
-    if case.family == "sg":
+    return score(case.family, case.expect, res, note)
+
+
+def score(family: Family, expect: Expect, res: cfn.CfnResource, note: str) -> Result:
+    """A validated fix, scored on the edited resource against the family's ground truth."""
+    out = Result("PosturaNet", "FIXED", expect, note=note)
+    if family == "sg":
         rules = cfn.parse_sg(res).rules()
 
         def admitted(ip: str, port: int) -> bool:
@@ -332,7 +337,7 @@ def _score(case: CfnCase, new: str | None, file: str, note: str) -> Result:
         out.allowed = [r.label() for r in rules]
         out.broken = [f"{ip}:{p}" for ip, p in SG_LEGIT if not admitted(ip, p)]
         out.exposed = [f"{ip}:{p}" for ip, p in SG_HOSTILE if admitted(ip, p)]
-    elif case.family == "s3":
+    elif family == "s3":
         flags = cfn.s3_flags(res)
         out.exposed = [k for k, v in flags.items() if v is not True]
         out.allowed = ["Block Public Access: " + ("all on" if not out.exposed else "partial")]
