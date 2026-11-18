@@ -346,3 +346,53 @@ def test_unmapped_control_stops_unknown(repo: Path, tmp_path: Path) -> None:
     record = run_fix(str(finding), repo, load_config(repo)[0])
     assert record.result == "STOPPED" and record.exit_code == 3
     assert any("no CloudFormation property mapping" in s.summary for s in record.stages)
+
+
+class _PR:
+    def __init__(self, body: str) -> None:
+        self.body = body
+
+    def get_pr(self, number: int) -> dict[str, Any]:
+        return {"body": self.body, "merged_at": "2026-10-31T00:00:00Z", "state": "closed"}
+
+
+def test_verify_attribute_fix_from_the_deployed_template(repo: Path, tmp_path: Path) -> None:
+    from posturanet.deliver.idempotency import verify_marker
+    from posturanet.models.outcome import VerifySpec
+    from posturanet.verify import VerifyContext, run_verify
+
+    config = load_config(repo)[0]
+    body = (repo / "templates/data.yaml").read_text("utf-8")
+    record = run_fix(str(RDS8), repo, config, Context(mode="check", aws=_fake_aws(body)))
+    assert record.result == "VALIDATED" and record.diff is not None
+    fixed = record.diff.files[0].new_content
+    spec = VerifySpec(  # as configfix.pr.verify_spec writes it for this fix
+        fix_type="config_attribute",
+        control="RDS.8",
+        finding_id="f",
+        resource_id="orders",
+        address="cfn.data.OrdersDb",
+        key="k",
+        watch_hours=0,
+        changes=[c.model_dump() for c in _row("RDS.8").changes],
+    )
+    pr = _PR(verify_marker(spec))
+    deployed = tmp_path / "get-template.json"
+    ctx = VerifyContext(github=pr, state_path=deployed, watch_hours=0)  # type: ignore[arg-type]
+
+    deployed.write_text(json.dumps({"TemplateBody": fixed}), "utf-8")
+    record = run_verify("acme/infra#9", repo, config, ctx)
+    assert record.result == "CONFIRMED", record.stages
+    assert record.unknowns == [
+        "confirmed from the deployed stack template; live drift after apply isn't seen"
+    ]
+
+    # CloudFormation's string spelling counts as applied.
+    quoted = fixed.replace("DeletionProtection: true", 'DeletionProtection: "true"')
+    deployed.write_text(quoted, "utf-8")
+    assert run_verify("acme/infra#9", repo, config, ctx).result == "CONFIRMED"
+
+    deployed.write_text(body, "utf-8")
+    record = run_verify("acme/infra#9", repo, config, ctx)
+    assert record.result == "NOT APPLIED" and record.exit_code == 3
+    assert "DeletionProtection is False" in record.stages[1].summary
