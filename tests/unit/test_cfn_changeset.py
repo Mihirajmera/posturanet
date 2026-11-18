@@ -221,7 +221,8 @@ def test_execute_never_appears_in_source() -> None:
 
 
 def test_policies_stay_apart() -> None:
-    assert not set(CHANGESET_ACTIONS) & set(ALLOWLIST)
+    # Only the stack read both roles need is shared; no change-set action is read-only.
+    assert set(CHANGESET_ACTIONS) & set(ALLOWLIST) == {"cloudformation:DescribeStacks"}
     assert not any(is_allowed(a) for a in CHANGESET_ACTIONS if "Change" in a)
     policy = changeset_policy()
     allowed = {a for s in policy["Statement"] if s["Effect"] == "Allow" for a in s["Action"]}
