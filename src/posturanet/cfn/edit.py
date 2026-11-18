@@ -17,6 +17,7 @@ from ruamel.yaml.nodes import MappingNode, Node, ScalarNode, SequenceNode
 
 from posturanet.cfn.locate import CfnResource
 from posturanet.cfn.template import (
+    Raw,
     Template,
     TemplateError,
     block_mapping,
@@ -740,8 +741,34 @@ def iam_edit(policy: CfnPolicy, after: dict[int, list[str]]) -> str:
 # --- attribute fixes (configfix catalog rows mapped with ConfigFix.for_cfn)
 
 
+def _kv_path(path: str) -> tuple[str, str] | None:
+    """`Attrs[some.key]` → ("Attrs", "some.key"): the Value of a {Key, Value} list item."""
+    if not path.endswith("]") or "[" not in path:
+        return None
+    head, key = path[:-1].split("[", 1)
+    return head, key
+
+
+def _kv_index(res: CfnResource, path: str, items: Any, key: str) -> int | None:
+    if is_intrinsic(items) or not isinstance(items, list):
+        raise _unsupported(f"{res.logical_id} {path}")
+    for i, item in enumerate(items):
+        if not isinstance(item, dict) or not isinstance(item.get("Key"), str):
+            raise _unsupported(f"{res.logical_id} {path}")
+        if item["Key"] == key:
+            return i
+    return None
+
+
 def _prop(res: CfnResource, path: str) -> tuple[bool, Any]:
     """(present, value) of a property path under Properties; stops on an intrinsic on the way."""
+    kv = _kv_path(path)
+    if kv is not None:
+        present, items = _prop(res, kv[0])
+        if not present:
+            return False, None
+        i = _kv_index(res, path, items, kv[1])
+        return (False, None) if i is None else (True, items[i].get("Value"))
     cur: Any = value(res.properties) if res.properties is not None else {}
     for part in path.split("."):
         if is_intrinsic(cur) or not isinstance(cur, dict):
@@ -819,6 +846,8 @@ def _attr_edit(res: CfnResource, c: Change) -> Edit | None:
         return None
     t, step, parts = res.template, _step(res), c.path.split(".")
     want: Any = list(c.value) if isinstance(c.value, list) else c.value
+    if _kv_path(c.path) is not None:
+        return _kv_edit(res, c.path, want)
     node = res.properties
     if node is None:
         return insert_pairs(t.text, res.node, [("Properties", _nest(parts, want))], step)
@@ -838,6 +867,78 @@ def _attr_edit(res: CfnResource, c: Change) -> Edit | None:
     if not isinstance(node, ScalarNode):
         raise _unsupported(f"{res.logical_id} {c.path}")
     return start(node), end(node), scalar_text(want, as_json=t.is_json)
+
+
+def _kv_edit(res: CfnResource, path: str, want: Any) -> Edit:
+    """Set the Value of the {Key, Value} item, adding the item (or the list) if missing."""
+    kv = _kv_path(path)
+    assert kv is not None
+    head, key = kv
+    t, step = res.template, _step(res)
+    val = _kv_text(want)
+    present, items = _prop(res, head)
+    seq = _node_at(res, head) if present else None
+    if seq is not None:
+        if not isinstance(seq, SequenceNode) or str(seq.tag).startswith("!"):
+            raise _unsupported(f"{res.logical_id} {head}")
+        i = _kv_index(res, path, items, key)
+        if i is not None:
+            v = get(seq.value[i], "Value")
+            if not isinstance(v, ScalarNode) or str(v.tag).startswith("!"):
+                raise _unsupported(f"{res.logical_id} {path}")
+            return start(v), end(v), scalar_text(val, as_json=t.is_json)
+        if not seq.flow_style and seq.value:
+            pos = line_end(t.text, end(seq))
+            ind = indent_of(t.text, start(seq.value[-1]))
+            return pos, pos, _lead(t.text, pos) + _kv_block(key, val, ind)
+        flow = _kv_flow(key, val, as_json=t.is_json)
+        if not seq.value:
+            return end(seq) - 1, end(seq) - 1, flow
+        last = seq.value[-1]
+        multiline = "\n" in t.text[start(seq) : end(seq)]
+        sep = ",\n" + indent_of(t.text, start(last)) if multiline else ", "
+        return end(last), end(last), sep + flow
+    # No list yet: add it to the mapping that should hold it.
+    *parents, name = head.split(".")
+    parent = _node_at(res, ".".join(parents)) if parents else res.properties
+    if not isinstance(parent, MappingNode) or str(parent.tag).startswith("!"):
+        raise _unsupported(f"{res.logical_id} {head}")
+    if parent.flow_style or not parent.value:
+        flow = "[" + _kv_flow(key, val, as_json=t.is_json) + "]"
+        return insert_pairs(t.text, parent, [(name, Raw(flow))], step)
+    ind = " " * parent.value[0][0].start_mark.column
+    pos = line_end(t.text, end(parent))
+    return pos, pos, _lead(t.text, pos) + f"{ind}{name}:\n" + _kv_block(key, val, ind + step)
+
+
+def _lead(text: str, pos: int) -> str:
+    return "" if text[:pos].endswith("\n") else "\n"
+
+
+def _kv_text(v: Any) -> str:
+    """CloudFormation takes these Values as strings."""
+    return ("true" if v else "false") if isinstance(v, bool) else str(v)
+
+
+def _kv_block(key: str, val: str, ind: str) -> str:
+    k, v = scalar_text(key, as_json=False), scalar_text(val, as_json=False)
+    return f"{ind}- Key: {k}\n{ind}  Value: {v}\n"
+
+
+def _kv_flow(key: str, val: str, *, as_json: bool) -> str:
+    k, v = ('"Key"', '"Value"') if as_json else ("Key", "Value")
+    return f"{{{k}: {scalar_text(key, as_json=as_json)}, {v}: {scalar_text(val, as_json=as_json)}}}"
+
+
+def _node_at(res: CfnResource, path: str) -> Node | None:
+    node: Node | None = res.properties
+    for part in path.split("."):
+        if not isinstance(node, MappingNode) or str(node.tag).startswith("!"):
+            raise _unsupported(f"{res.logical_id} {path}")
+        node = get(node, part)
+        if node is None:
+            return None
+    return node
 
 
 def attr_edit(res: CfnResource, fix: ConfigFix) -> tuple[str, list[str], list[str]]:
