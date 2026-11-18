@@ -12,7 +12,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
@@ -352,15 +352,31 @@ class L1Ingress:
 
 
 @dataclass
+class L1Inline:
+    """One literal entry of an L1 `CfnSecurityGroup`'s `securityGroupIngress`."""
+
+    span: Span
+    rule: Rule
+    description: str | None
+    quote: str | None
+    style: str  # Python: the `…IngressProperty` callee, or "dict"; TypeScript: ""
+
+    @property
+    def is_open(self) -> bool:
+        return self.rule.is_world
+
+
+@dataclass
 class SgSource:
     calls: list[IngressCall]  # CIDR rules added on the group's variable
     peers: list[PeerPorts]  # rules whose source is another group (never edited)
     l1: list[L1Ingress]
+    inline: list[L1Inline] = field(default_factory=list)  # L1 group: its own ingress prop
+    inline_span: Span | None = None
 
     def rules(self) -> list[Rule]:
-        return sorted(
-            {norm(r) for r in [*(k.rule for k in self.calls), *(x.rule for x in self.l1)]}
-        )
+        found: list[IngressCall | L1Ingress | L1Inline] = [*self.calls, *self.l1, *self.inline]
+        return sorted({norm(k.rule) for k in found})
 
 
 def _peer(text: str) -> tuple[str, str] | None:
@@ -423,11 +439,16 @@ def _raw(c: Construct, span: Span) -> str:
 def sg_source(c: Construct) -> SgSource:
     """Every literal way the construct's file adds ingress to it."""
     out = SgSource([], [], [])
+    if c.cls == "CfnSecurityGroup":
+        out.inline, out.inline_span = _l1_inline(c)
     if c.var is None:
         return out
     var = re.escape(c.var)
     if len(re.findall(r"(?<![\w.])" + var + r"\s*(?::[^=\n]+)?=(?!=)", c.masked)) != 1:
         raise unsupported(f"`{c.var}`, assigned more than once in {c.file.name},")
+    if c.cls == "CfnSecurityGroup":  # an L1 has no addIngressRule or connections
+        out.l1 = _l1_ingress(c)
+        return out
     for m in re.finditer(r"(?<![\w.])" + var + r"\s*\.\s*" + _CALL + r"\s*\(", c.masked):
         method = re.sub(r"\s+", "", m.group(1))
         o = m.end() - 1
@@ -476,11 +497,87 @@ def sg_source(c: Construct) -> SgSource:
 _L1_KEYS = {"groupid", "cidrip", "cidripv6", "ipprotocol", "fromport", "toport", "description"}
 
 
+def _l1_rule(c: Construct, v: dict[str, Span], what: str) -> tuple[Rule, tuple[str, str] | None]:
+    """The CIDR rule (and description literal) of an L1 ingress's literal props."""
+    cidr = [str_lit(c.text, v[x]) for x in ("cidrip", "cidripv6") if x in v]
+    proto = str_lit(c.text, v["ipprotocol"]) if "ipprotocol" in v else None
+    ports = [_raw(c, v[x]) if x in v else "-1" for x in ("fromport", "toport")]
+    if len(cidr) != 1 or cidr[0] is None or proto is None:
+        raise unsupported(f"the source or protocol of {what}")
+    if not all(re.fullmatch(r"-?\d+", p) for p in ports):
+        raise unsupported(f"the ports of {what}")
+    try:
+        rule = Rule(cidr[0][0], int(ports[0]), int(ports[1]), norm_proto(proto[0]))
+    except ValueError as exc:
+        raise unsupported(f"the source of {what}") from exc
+    return rule, str_lit(c.text, v["description"]) if "description" in v else None
+
+
+# --- L1 constructs: props are CloudFormation properties, written as literals
+
+_KEY = re.compile(r"""(?:(\w+)|(['"])(\w+)\2)\s*([:=])(?!=)\s*""")
+
+
+def _kv(c: Construct, span: Span, what: str) -> dict[str, Span]:
+    """Entries of a literal struct at `span` (a TS object, a Python dict, or a Python
+    `…Property(k=v)` call), keyed by name lowercased without underscores."""
+    s, e = span
+    m = c.masked
+    call = re.match(r"[\w.]+\s*\(", m[s:e]) if c.lang == "py" else None
+    if m[s] == "{" and close_of(m, s) == e - 1:
+        o, sep = s, ":"
+    elif call and close_of(m, s + call.end() - 1) == e - 1:
+        o, sep = s + call.end() - 1, "="
+    else:
+        raise unsupported(what)
+    out: dict[str, Span] = {}
+    for a, b in items(m, o, e - 1):
+        k = _KEY.match(c.text, a)  # the text: masking blanks quoted keys
+        if k is None or k.group(4) != sep or k.end() >= b or (c.lang == "py" and sep == ":"
+                                                              and k.group(1)):  # fmt: skip
+            raise unsupported(f"an entry of {what}")
+        out[(k.group(1) or k.group(3)).replace("_", "").lower()] = (k.end(), b)
+    return out
+
+
+def _l1_prop(c: Construct, ts: str, py: str) -> Span | None:
+    """The value of one prop of an L1 construct, or None when it isn't set."""
+    entries, _ = props(c, f"the {c.cls}")
+    key = ts if c.lang == "ts" else py
+    if key in entries and entries[key] is None:
+        raise unsupported(f"{key} of {c.construct_id}")
+    return entries.get(key)
+
+
+def _list(c: Construct, span: Span, what: str) -> list[Span]:
+    s, e = span
+    if c.masked[s] != "[" or close_of(c.masked, s) != e - 1:
+        raise unsupported(what)
+    return items(c.masked, s, e - 1)
+
+
+def _l1_inline(c: Construct) -> tuple[list[L1Inline], Span | None]:
+    span = _l1_prop(c, "securityGroupIngress", "security_group_ingress")
+    if span is None:
+        return [], None
+    out = []
+    for x in _list(c, span, f"securityGroupIngress of {c.construct_id}"):
+        what = f"an ingress entry of {c.construct_id} (line {c.text.count(chr(10), 0, x[0]) + 1})"
+        v = _kv(c, x, what)
+        if set(v) - (_L1_KEYS - {"groupid"}):
+            raise unsupported(what)
+        rule, desc = _l1_rule(c, v, what)
+        callee = re.match(r"[\w.]+", c.masked[x[0] : x[1]])
+        style = "" if c.lang == "ts" else callee.group(0) if callee else "dict"
+        out.append(L1Inline(x, rule, desc[0] if desc else None, desc[1] if desc else None, style))
+    return out, span
+
+
 def _l1_ingress(c: Construct) -> list[L1Ingress]:
     assert c.var is not None
     targets = {
         f"{c.var}.{a}"
-        for a in ("securityGroupId", "attrGroupId", "security_group_id", "attr_group_id")
+        for a in ("securityGroupId", "attrGroupId", "security_group_id", "attr_group_id", "ref")
     }
     out = []
     for m in _call_re("CfnSecurityGroupIngress", c.lang).finditer(c.masked):
@@ -502,18 +599,7 @@ def _l1_ingress(c: Construct) -> list[L1Ingress]:
             v[name] = span
         if lit is None or "groupid" not in v or _raw(c, v["groupid"]) not in targets:
             raise unsupported(f"the id or groupId of {what}")
-        cidr = [str_lit(c.text, v[x]) for x in ("cidrip", "cidripv6") if x in v]
-        proto = str_lit(c.text, v["ipprotocol"]) if "ipprotocol" in v else None
-        ports = [_raw(c, v[x]) if x in v else "-1" for x in ("fromport", "toport")]
-        if len(cidr) != 1 or cidr[0] is None or proto is None:
-            raise unsupported(f"the source or protocol of {what}")
-        if not all(re.fullmatch(r"-?\d+", p) for p in ports):
-            raise unsupported(f"the ports of {what}")
-        try:
-            rule = Rule(cidr[0][0], int(ports[0]), int(ports[1]), norm_proto(proto[0]))
-        except ValueError as exc:
-            raise unsupported(f"the source of {what}") from exc
-        desc = str_lit(c.text, v["description"]) if "description" in v else None
+        rule, desc = _l1_rule(c, v, what)
         ls, le = line_start(c.text, m.start()), line_end(c.text, cl + 1)
         before = c.masked[ls : m.start()]
         a = _ASSIGN[c.lang].fullmatch(before) if before.strip() else None
@@ -551,7 +637,7 @@ def _port_expr(c: Construct, q: str, r: Rule) -> str:
 
 
 def _description(src: SgSource, r: Rule) -> tuple[str, str | None]:
-    found: list[IngressCall | L1Ingress] = [*src.calls, *src.l1]
+    found: list[IngressCall | L1Ingress | L1Inline] = [*src.calls, *src.l1, *src.inline]
     for k in found:
         o = k.rule
         if (
@@ -567,6 +653,8 @@ def render_sg(c: Construct, src: SgSource, added: list[Rule]) -> str:
     """New source text: open ingress calls and open `CfnSecurityGroupIngress` statements
     removed, the synthesized rules as `addIngressRule` calls where the first one was, in that
     statement's indent and style. Group-peer rules are never touched."""
+    if c.cls == "CfnSecurityGroup":
+        return _render_l1_sg(c, src, added)
     text, masked = c.text, c.masked
     method = "addIngressRule" if c.lang == "ts" else "add_ingress_rule"
     spans: list[tuple[int, int, str, str, str]] = []  # (from, to, semi, peer_q, port_q)
@@ -598,6 +686,62 @@ def render_sg(c: Construct, src: SgSource, added: list[Rule]) -> str:
             port = _port_expr(c, port_q, r)
             lines.append(f"{indent}{c.var}.{method}({peer}, {port}, {q}{desc}{q}){semi}\n")
         edits.append((ls, le, "".join(lines)))
+    for s, e, new in sorted(edits, key=lambda x: -x[0]):
+        text = text[:s] + new + text[e:]
+    return text
+
+
+def _quoted(s: str, quote: str) -> str:
+    q = '"' if quote in s and quote == "'" else "'" if quote in s else quote
+    return f"{q}{s}{q}"
+
+
+def _ingress_entry(c: Construct, src: SgSource, r: Rule, style: str) -> str:
+    desc, quote = _description(src, r)
+    q = quote or ("'" if c.lang == "ts" else '"')
+    lo, hi = (-1, -1) if r.proto == "-1" else (r.from_port, r.to_port)
+    v6 = r.net.version == 6
+    vals = [_quoted(r.cidr, q), _quoted(r.proto, q), str(lo), str(hi), _quoted(desc, q)]
+    if c.lang == "ts":
+        keys = ["cidrIpv6" if v6 else "cidrIp", "ipProtocol", "fromPort", "toPort", "description"]
+        return "{ " + ", ".join(f"{k}: {v}" for k, v in zip(keys, vals, strict=True)) + " }"
+    keys = ["cidr_ipv6" if v6 else "cidr_ip", "ip_protocol", "from_port", "to_port", "description"]
+    if style == "dict":
+        return "{" + ", ".join(f'"{k}": {v}' for k, v in zip(keys, vals, strict=True)) + "}"
+    callee = style or f"{c.qualifier}CfnSecurityGroup.IngressProperty"
+    return f"{callee}(" + ", ".join(f"{k}={v}" for k, v in zip(keys, vals, strict=True)) + ")"
+
+
+def _set_prop(c: Construct, text: str, ts: str, py: str, val: str) -> str:
+    """`text` (the construct's file) with a new prop `ts`/`py` = `val` in the construct call."""
+    _, brackets = props(c, f"the {c.cls}")
+    item = f"{ts}: {val}" if c.lang == "ts" else f"{py}={val}"
+    if brackets is None:
+        item, brackets = "{ " + item + " }", (c.open, c.close)
+    return append_item(text, c.masked, brackets, item)
+
+
+def _render_l1_sg(c: Construct, src: SgSource, added: list[Rule]) -> str:
+    """An L1 group: open entries of its `securityGroupIngress` replaced by the synthesized
+    rules in the same list, and open `CfnSecurityGroupIngress` statements removed."""
+    edits: list[tuple[int, int, str]] = []
+    for x in src.l1:
+        if x.is_open and not x.removable:
+            raise unsupported(f"CfnSecurityGroupIngress {x.construct_id}, which isn't removable,")
+        if x.is_open:
+            edits.append((x.start, x.end, ""))
+    style = src.inline[0].style if src.inline else ""
+    entries = [c.text[k.span[0] : k.span[1]] for k in src.inline if not k.is_open]
+    entries += [_ingress_entry(c, src, r, style) for r in added]
+    text = c.text
+    if src.inline_span is not None:
+        s, e = src.inline_span
+        edits.append((s, e, _render_list(c, src.inline_span, entries)))
+    elif entries:
+        text = _set_prop(c, text, "securityGroupIngress", "security_group_ingress",
+                         "[" + ", ".join(entries) + "]")  # fmt: skip
+        delta = len(text) - len(c.text)
+        edits = [(s + delta, e + delta, n) if s > c.close else (s, e, n) for s, e, n in edits]
     for s, e, new in sorted(edits, key=lambda x: -x[0]):
         text = text[:s] + new + text[e:]
     return text
@@ -643,7 +787,56 @@ def _bpa_expr(c: Construct) -> str:
     return "BlockPublicAccess.BLOCK_ALL"
 
 
+_BPA_FLAGS = ("blockpublicacls", "blockpublicpolicy", "ignorepublicacls", "restrictpublicbuckets")
+_L1_BPA = ("publicAccessBlockConfiguration", "public_access_block_configuration")
+
+
+def _l1_bpa(c: Construct) -> tuple[Span | None, bool]:
+    """(the L1 bucket's publicAccessBlockConfiguration, whether all four flags are true)."""
+    span = _l1_prop(c, *_L1_BPA)
+    if span is None:
+        return None, False
+    flags = {k: c.masked[s:e].strip() for k, (s, e) in _kv(c, span, _L1_BPA[0]).items()}
+    if set(flags) - set(_BPA_FLAGS) or set(flags.values()) - {"true", "false", "True", "False"}:
+        raise unsupported(f"{_L1_BPA[0]} of {c.construct_id}")
+    return span, all(flags.get(k) in ("true", "True") for k in _BPA_FLAGS)
+
+
+def _drifted() -> StageStop:
+    return StageStop(
+        "fix",
+        "the code already blocks all public access, so the live bucket has drifted",
+        ["deploy the app through your pipeline; the fix is already in the code"],
+        why="PosturaNet fixes code, and this code is already fixed; the live bucket isn't",
+    )
+
+
+def _render_l1_s3(c: Construct) -> tuple[str, str]:
+    span, ok = _l1_bpa(c)
+    if ok:
+        raise _drifted()
+    if c.lang == "ts":
+        flags = (
+            "blockPublicAcls",
+            "blockPublicPolicy",
+            "ignorePublicAcls",
+            "restrictPublicBuckets",
+        )
+        val = "{ " + ", ".join(f"{k}: true" for k in flags) + " }"
+    else:
+        flags = ("block_public_acls", "block_public_policy", "ignore_public_acls",
+                 "restrict_public_buckets")  # fmt: skip
+        val = f"{c.qualifier}CfnBucket.PublicAccessBlockConfigurationProperty("
+        val += ", ".join(f"{k}=True" for k in flags) + ")"
+    key = _L1_BPA[0] if c.lang == "ts" else _L1_BPA[1]
+    if span is not None:
+        return c.text[: span[0]] + val + c.text[span[1] :], f"{key}: all four flags → true"
+    return _set_prop(c, c.text, *_L1_BPA, val), f"{key}: all four flags true (added)"
+
+
 def blocks_all(c: Construct) -> bool:
+    if c.cls == "CfnBucket":
+        return _l1_bpa(c)[1]
     key, _ = _keys(c)
     span = props(c, "the Bucket")[0].get(key)
     return span is not None and bool(
@@ -656,6 +849,8 @@ def blocks_all(c: Construct) -> bool:
 
 def render_s3(c: Construct) -> tuple[str, str]:
     """(new text, what changed) setting the bucket's Block Public Access to BLOCK_ALL."""
+    if c.cls == "CfnBucket":
+        return _render_l1_s3(c)
     key, public = _keys(c)
     entries, brackets = props(c, "the Bucket")
     if public in entries:
@@ -677,12 +872,7 @@ def render_s3(c: Construct) -> tuple[str, str]:
             raise unsupported(key)
         old = re.sub(r"\s+", "", c.masked[span[0] : span[1]])
         if blocks_all(c):
-            raise StageStop(
-                "fix",
-                "the code already sets BLOCK_ALL, so the live bucket has drifted",
-                ["deploy the app through your pipeline; the fix is already in the code"],
-                why="PosturaNet fixes code, and this code is already fixed; the live bucket isn't",
-            )
+            raise _drifted()
         if not _BPA_ANY.fullmatch(old):
             raise unsupported(key)
         old_text = re.sub(r"\s+", " ", c.text[span[0] : span[1]])
@@ -704,7 +894,10 @@ class SourceStatement:
 
 
 def statements(c: Construct) -> list[SourceStatement]:
-    """`PolicyStatement`s written inside the construct call, in order."""
+    """`PolicyStatement`s written inside the construct call, in order (for an L1
+    `CfnManagedPolicy`, the statements of its literal `policyDocument`)."""
+    if c.cls == "CfnManagedPolicy":
+        return _l1_statements(c)
     out = []
     key = "actions"
     for m in _call_re("PolicyStatement", c.lang).finditer(c.masked, c.open, c.close):
@@ -734,19 +927,46 @@ def statements(c: Construct) -> list[SourceStatement]:
     return out
 
 
-def render_actions(c: Construct, st: SourceStatement, actions: list[str]) -> str:
-    assert st.span is not None
-    s, e = st.span
-    lits = [f"{st.quote}{a}{st.quote}" for a in actions]
-    spans = items(c.masked, s, e - 1)
+def _l1_statements(c: Construct) -> list[SourceStatement]:
+    span = _l1_prop(c, "policyDocument", "policy_document")
+    if span is None:
+        raise unsupported(f"the policyDocument of {c.construct_id}")
+    doc = _kv(c, span, "the policyDocument (a literal object)")
+    if "statement" not in doc:
+        raise unsupported("the policyDocument Statement")
+    out = []
+    for x in _list(c, doc["statement"], "the policyDocument Statement"):
+        st = _kv(c, x, "a policy statement")
+        if "action" not in st:
+            out.append(SourceStatement(None, None, "'"))
+            continue
+        s, e = st["action"]
+        spans = _list(c, (s, e), "Action") if c.masked[s] == "[" else [(s, e)]
+        lits = [str_lit(c.text, y) for y in spans]
+        if any(y is None for y in lits):
+            raise unsupported("a policy statement Action")
+        vals = [y for y in lits if y is not None]
+        out.append(SourceStatement([v for v, _ in vals], (s, e), vals[0][1] if vals else "'"))
+    return out
+
+
+def _render_list(c: Construct, span: Span, entries: list[str]) -> str:
+    """A list literal of `entries` to replace the one at `span`, in its layout."""
+    s, e = span
+    spans = items(c.masked, s, e - 1) if c.masked[s] == "[" else []
     if "\n" not in c.masked[s:e] or not spans:
-        return "[" + ", ".join(lits) + "]"
+        return "[" + ", ".join(entries) + "]"
     indent = c.text[line_start(c.text, spans[0][0]) : spans[0][0]]
     close_ind = c.text[line_start(c.text, e - 1) : e - 1]
     if indent.strip() or close_ind.strip():
-        return "[" + ", ".join(lits) + "]"
+        return "[" + ", ".join(entries) + "]"
     trailing = "," if c.masked[spans[-1][1] : e - 1].strip().startswith(",") else ""
-    return "[\n" + ",\n".join(indent + x for x in lits) + trailing + "\n" + close_ind + "]"
+    return "[\n" + ",\n".join(indent + x for x in entries) + trailing + "\n" + close_ind + "]"
+
+
+def render_actions(c: Construct, st: SourceStatement, actions: list[str]) -> str:
+    assert st.span is not None
+    return _render_list(c, st.span, [f"{st.quote}{a}{st.quote}" for a in actions])
 
 
 def render_iam(c: Construct, sts: list[SourceStatement], after: dict[int, list[str]]) -> str:
@@ -781,6 +1001,8 @@ def overrides(c: Construct) -> dict[str, str]:
     if c.var is None:
         return {}
     child = r"\(?\s*" + re.escape(c.var) + r"\s*\.\s*node\s*\.\s*(?:defaultChild|default_child)"
+    if c.cls.startswith("Cfn"):
+        child = r"(?<![\w.])" + re.escape(c.var) + r"\s*$"
     out: dict[str, str] = {}
     for m in _OVERRIDE.finditer(c.masked):
         head = c.masked[line_start(c.masked, m.start()) : m.start()]
@@ -815,16 +1037,17 @@ def render_attr(c: Construct, props: list[tuple[str, object]], cfn_cls: str) -> 
         raise unsupported(f"the statement that creates {c.construct_id}")
     ls = line_start(text, c.start)
     indent = text[ls : ls + len(text[ls:]) - len(text[ls:].lstrip(" \t"))]
+    l1 = c.cls.startswith("Cfn")  # an L1 is its own CloudFormation resource
     if c.lang == "ts":
         semi = ";" if tail.endswith(";") else ""
+        head = c.var if l1 else f"({c.var}.node.defaultChild as {c.qualifier}{cfn_cls})"
         lines = [
-            f"{indent}({c.var}.node.defaultChild as {c.qualifier}{cfn_cls})"
-            f".addPropertyOverride('{p}', {_value(v, 'ts')}){semi}\n"
+            f"{indent}{head}.addPropertyOverride('{p}', {_value(v, 'ts')}){semi}\n"
             for p, v in props
         ]
     else:
+        head = c.var if l1 else f"{c.var}.node.default_child"
         lines = [
-            f'{indent}{c.var}.node.default_child.add_property_override("{p}", {_value(v, "py")})\n'
-            for p, v in props
+            f'{indent}{head}.add_property_override("{p}", {_value(v, "py")})\n' for p, v in props
         ]
     return text[:le] + "".join(lines) + text[le:]

@@ -76,7 +76,8 @@ _ANY_V4 = re.compile(
     r"(?:bastionSg|bastion_sg)\s*\.\s*connections\.(?:allowFromAnyIpv4|allow_from_any_ipv4)"
     r"\(\s*(?:ec2\.)?Port\.tcp\((\d+)\)"
 )
-_ACTIONS = re.compile(r"actions\s*[:=]\s*\[([^\]]*)\]")
+_ACTIONS = re.compile(r"['\"]?(?:actions|Action)['\"]?\s*[:=]\s*\[([^\]]*)\]")
+_L1_ENTRY = re.compile(r"cidrIp:\s*'([^']+)',\s*ipProtocol:\s*'tcp',\s*fromPort:\s*(\d+)")
 
 
 def _rebuild(family: str, program: str, res: Resources, logical: str) -> None:
@@ -87,14 +88,16 @@ def _rebuild(family: str, program: str, res: Resources, logical: str) -> None:
              "ToPort": int(port), "IpProtocol": "tcp"}
             for kind, cidr, port in _SG_CALL.findall(program)
         ] + [{"CidrIp": "0.0.0.0/0", "FromPort": int(p), "ToPort": int(p), "IpProtocol": "tcp"}
-             for p in _ANY_V4.findall(program)]  # fmt: skip
+             for p in _ANY_V4.findall(program)] + [
+            {"CidrIp": cidr, "FromPort": int(p), "ToPort": int(p), "IpProtocol": "tcp"}
+            for cidr, p in _L1_ENTRY.findall(program)]  # fmt: skip
         for lid in [k for k, v in res.items() if v["Type"] == "AWS::EC2::SecurityGroupIngress"]:
             path = res[lid]["Metadata"]["aws:cdk:path"]
             l1 = path.rsplit("/", 1)[-1]
             if "CidrIp" in res[lid]["Properties"] and f"'{l1}'" not in program:
                 del res[lid]  # an L1 CfnSecurityGroupIngress the edit removed
     elif family == "s3":
-        if "BLOCK_ALL" in program:
+        if "BLOCK_ALL" in program or "restrictPublicBuckets: true" in program:
             props["PublicAccessBlockConfiguration"] = dict.fromkeys(
                 ("BlockPublicAcls", "BlockPublicPolicy", "IgnorePublicAcls",
                  "RestrictPublicBuckets"), True,
@@ -188,6 +191,14 @@ def _l1(res: Resources) -> None:
     res["BastionSg1A2B3C4D"]["Metadata"]["aws:cdk:path"] = "network/BastionSg"
 
 
+def _l1_bucket(res: Resources) -> None:
+    res["Assets1C2D3E4F"]["Metadata"]["aws:cdk:path"] = "storage/Assets"
+
+
+def _l1_policy(res: Resources) -> None:
+    res["AppPolicy5A6B7C8D"]["Metadata"]["aws:cdk:path"] = "iam/AppPolicy"
+
+
 def _extra_statement(res: Resources) -> None:
     res["AppPolicy5A6B7C8D"]["Properties"]["PolicyDocument"]["Statement"].append(
         {"Effect": "Allow", "Action": "s3:GetObject", "Resource": "*"}
@@ -239,6 +250,54 @@ PEER_LIVE = [
 L1_TS = (
     "const bastionSg = new ec2.SecurityGroup(this, 'BastionSg', {",
     "const bastionSg = new ec2.CfnSecurityGroup(this, 'BastionSg', {",
+)
+L1_SG = (
+    "    const bastionSg = new ec2.SecurityGroup(this, 'BastionSg', {\n"
+    "      vpc,\n"
+    "      description: 'bastion',\n"
+    "    });\n"
+    "    bastionSg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(22), 'SSH from anywhere');\n"
+    "    // monitoring stays as it is\n"
+    "    bastionSg.addIngressRule(ec2.Peer.ipv4('10.0.0.0/16'), ec2.Port.tcp(9100), "
+    "'node exporter');\n",
+    "    new ec2.CfnSecurityGroup(this, 'BastionSg', {\n"
+    "      groupDescription: 'bastion',\n"
+    "      vpcId: vpc.vpcId,\n"
+    "      securityGroupIngress: [\n"
+    "        { cidrIp: '0.0.0.0/0', ipProtocol: 'tcp', fromPort: 22, toPort: 22 },\n"
+    "        { cidrIp: '10.0.0.0/16', ipProtocol: 'tcp', fromPort: 9100, toPort: 9100 },\n"
+    "      ],\n"
+    "    });\n",
+)
+L1_BUCKET = (
+    "new s3.Bucket(this, 'Assets', {\n"
+    "      bucketName: 'acme-assets',\n"
+    "      versioned: true,\n"
+    "      removalPolicy: cdk.RemovalPolicy.RETAIN,\n",
+    "new s3.CfnBucket(this, 'Assets', {\n"
+    "      bucketName: 'acme-assets',\n"
+    "      versioningConfiguration: { status: 'Enabled' },\n",
+)
+L1_POLICY = (
+    "new iam.ManagedPolicy(this, 'AppPolicy', {\n"
+    "      managedPolicyName: 'app',\n"
+    "      statements: [\n"
+    "        new iam.PolicyStatement({\n"
+    "          sid: 'App',\n"
+    "          actions: [\n",
+    "new iam.CfnManagedPolicy(this, 'AppPolicy', {\n"
+    "      managedPolicyName: 'app',\n"
+    "      policyDocument: {\n"
+    "        Version: '2012-10-17',\n"
+    "        Statement: [{\n"
+    "          Sid: 'App',\n"
+    "          Effect: 'Allow',\n"
+    "          Resource: '*',\n"
+    "          Action: [\n",
+)
+L1_POLICY_TAIL = (
+    "          ],\n          resources: ['*'],\n        }),\n      ],\n",
+    "          ],\n        }],\n      },\n",
 )
 
 CASES: list[CdkCase] = [
@@ -293,8 +352,18 @@ CASES: list[CdkCase] = [
             "`new ec2.SecurityGroup(this, idFor('bastion'), …)`: no literal names the "
             "construct.", "stop", 3, "BastionSg",
             edits=[("this, 'BastionSg', {", "this, idFor('bastion'), {")]),
-    CdkCase("cdk-sg-l1", "sg", "ts", "L1 `CfnSecurityGroup`",
-            "An L1 construct; its props aren't `addIngressRule` calls.", "stop", 3, "L1",
+    CdkCase("cdk-sg-l1-fix", "sg", "ts", "L1 `CfnSecurityGroup` with literal ingress",
+            "`securityGroupIngress` entries are literals that match the template; the open "
+            "entry is replaced in the list.", "fix", edits=[L1_SG], template=_l1),
+    CdkCase("cdk-s3-l1-fix", "s3", "ts", "L1 `CfnBucket` with no public access block",
+            "A `publicAccessBlockConfiguration` with all four flags is added to the props.",
+            "fix", edits=[L1_BUCKET], template=_l1_bucket),
+    CdkCase("cdk-iam-l1-fix", "iam", "ts", "L1 `CfnManagedPolicy` with a literal document",
+            "The `policyDocument` statement's `Action` array is shrunk in place.", "fix",
+            edits=[L1_POLICY, L1_POLICY_TAIL], template=_l1_policy),
+    CdkCase("cdk-sg-l1", "sg", "ts", "L1 `CfnSecurityGroup` whose props don't explain the rules",
+            "The template has two ingress rules; the L1's props have no `securityGroupIngress` "
+            "(the calls on it don't exist on an L1).", "stop", 3, "securityGroupIngress entr",
             edits=[L1_TS], template=_l1),
     CdkCase("cdk-sg-no-metadata", "sg", "ts", "Template has no `aws:cdk:path`",
             "Path metadata was turned off (`--path-metadata false`), so nothing ties the "
@@ -474,9 +543,10 @@ def report(results: dict[str, list[Result]]) -> list[str]:
         "",
         "The same three fix types on CDK apps in TypeScript and Python, plus the traps that "
         "must stop the run (a computed peer, id or action, rules or statements the construct's "
-        "literals don't explain, a duplicate id, an L1 construct, no path metadata, a failed "
-        "synth, a stack that differs from the app). `cdk synth` is a bench stand-in that "
-        "rewrites the target from the edited program with its own regexes. PosturaNet only.",
+        "literals don't explain, a duplicate id, an L1 whose props don't match, no path "
+        "metadata, a failed synth, a stack that differs from the app). `cdk synth` is a bench "
+        "stand-in that rewrites the target from the edited program with its own regexes. "
+        "PosturaNet only.",
         "",
         *summary("Contender", results),
         "",
