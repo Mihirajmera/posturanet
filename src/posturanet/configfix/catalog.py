@@ -24,7 +24,10 @@ class Change(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     path: str  # dotted: nested block names, then the attribute
-    cfn: str | None = None  # CloudFormation property path under Properties, same value
+    # CloudFormation property path under Properties; `List[key]` at the end means the Value
+    # of the {Key, Value} item with that Key (load balancer attributes)
+    cfn: str | None = None
+    cfn_value: Literal_ | None = None  # the CloudFormation value, when it isn't `value`
     op: Op
     value: Literal_
     allowed: list[str] = Field(default_factory=list)  # one_of only
@@ -108,7 +111,15 @@ class ConfigFix(BaseModel):
         return self.model_copy(
             update={
                 "resource_type": self.cfn_type,
-                "changes": [c.model_copy(update={"path": c.cfn}) for c in self.changes],
+                "changes": [
+                    c.model_copy(
+                        update={
+                            "path": c.cfn,
+                            "value": c.value if c.cfn_value is None else c.cfn_value,
+                        }
+                    )
+                    for c in self.changes
+                ],
                 "when": [w.model_copy(update={"path": w.cfn}) for w in self.when],
             }
         )
