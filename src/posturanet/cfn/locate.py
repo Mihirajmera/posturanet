@@ -262,6 +262,27 @@ def resolve_template_ref(
     res = resolve(repo, config, stack, logical, rtype)
     if isinstance(res, str):
         raise StageStop("locate", res, ["fix this resource by hand"], unknown=True)
+    pid = deployed_id(repo, config, state_path, aws, stack, logical)
+    resource = finding.resource.model_copy(
+        update={
+            "id": pid,
+            "arn": pid if pid.startswith("arn:") else None,
+            "type": res.type,
+            "address": res.address,
+        }
+    )
+    return finding.model_copy(update={"resource": resource})
+
+
+def deployed_id(
+    repo: Path,
+    config: Config,
+    state_path: Path | None,
+    aws: ClientFactory | None,
+    stack: str,
+    logical: str,
+) -> str:
+    """The physical id of `stack/logical`, from the stack-resources export or AWS (read-only)."""
     loaded = _export(repo, config, state_path)
     if loaded is not None:
         rows, label = loaded
@@ -296,16 +317,7 @@ def resolve_template_ref(
             ],
             unknown=True,
         )
-    pid = physical[0]
-    resource = finding.resource.model_copy(
-        update={
-            "id": pid,
-            "arn": pid if pid.startswith("arn:") else None,
-            "type": res.type,
-            "address": res.address,
-        }
-    )
-    return finding.model_copy(update={"resource": resource})
+    return physical[0]
 
 
 def resolve(

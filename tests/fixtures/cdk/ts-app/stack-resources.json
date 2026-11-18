@@ -28,6 +28,13 @@
       "PhysicalResourceId": "arn:aws:iam::123456789012:policy/app",
       "ResourceType": "AWS::IAM::ManagedPolicy",
       "ResourceStatus": "CREATE_COMPLETE"
+    },
+    {
+      "StackName": "storage",
+      "LogicalResourceId": "Events1A2B3C4D",
+      "PhysicalResourceId": "events",
+      "ResourceType": "AWS::DynamoDB::Table",
+      "ResourceStatus": "CREATE_COMPLETE"
     }
   ]
 }

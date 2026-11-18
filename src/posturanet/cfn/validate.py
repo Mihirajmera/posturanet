@@ -537,16 +537,7 @@ def s3_checks(control: str) -> Checks:
     return specific
 
 
-def validate_attr(
-    res: CfnResource,
-    diff: Diff,
-    fix: ConfigFix,
-    config: Config,
-    aws: ClientFactory | None,
-    *,
-    offline: bool,
-    changeset: ChangeSetClient | None = None,
-) -> ValidationReport:
+def attr_checks(fix: ConfigFix) -> Checks:
     def specific(edited: CfnResource) -> list[Check]:
         unmet = attr_unmet(edited, fix)
         return [
@@ -560,7 +551,20 @@ def validate_attr(
             )
         ]
 
-    return _validate(res, diff, config, aws, offline, specific, changeset)
+    return specific
+
+
+def validate_attr(
+    res: CfnResource,
+    diff: Diff,
+    fix: ConfigFix,
+    config: Config,
+    aws: ClientFactory | None,
+    *,
+    offline: bool,
+    changeset: ChangeSetClient | None = None,
+) -> ValidationReport:
+    return _validate(res, diff, config, aws, offline, attr_checks(fix), changeset)
 
 
 def validate_s3(
