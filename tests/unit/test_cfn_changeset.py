@@ -245,3 +245,95 @@ def test_config_needs_its_own_role(tmp_path: Path) -> None:
     with pytest.raises(UsageError, match="must differ"):
         load_config(tmp_path)
     assert load_config(tmp_path.parent)[0].cloudformation.changeset_preview.enabled is False
+
+
+# --- groups with standalone SecurityGroupIngress resources
+
+SPLIT = """Resources:
+  Sg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: bastion
+  SshIn:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties: {GroupId: !Ref Sg, IpProtocol: tcp, FromPort: 22, ToPort: 22, CidrIp: 0.0.0.0/0}
+  MetricsIn:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties: {GroupId: !GetAtt Sg.GroupId, IpProtocol: tcp, FromPort: 9100, ToPort: 9100,
+                 CidrIp: 10.0.0.0/16}
+  OtherSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: other
+"""
+
+
+def _rc(logical: str, action: str = "Modify", replacement: str = "False") -> dict[str, Any]:
+    return {
+        "Type": "Resource",
+        "ResourceChange": {
+            "Action": action,
+            "LogicalResourceId": logical,
+            "Replacement": replacement,
+        },
+    }
+
+
+def _split(tmp_path: Path) -> Any:
+    from posturanet import cfn
+    from posturanet.models.config import Config
+
+    (tmp_path / "t.yaml").write_text(SPLIT, "utf-8")
+    res = cfn.resolve(tmp_path, Config(), "s", "Sg")
+    assert isinstance(res, cfn.CfnResource)
+    return res
+
+
+@pytest.mark.parametrize(
+    ("changes", "detail"),
+    [
+        # CloudFormation replaces an ingress resource to change its CIDR.
+        ([_rc("SshIn", replacement="True")], "only 1 of Sg's ingress resource(s)"),
+        ([_rc("Sg"), _rc("SshIn", "Remove")], "plus 1 of its own ingress resource(s)"),
+        ([_rc("SshIn", "Remove"), _rc("SshNew", "Add")], "only 2 of Sg's"),
+    ],
+)
+def test_own_ingress_resources_may_change(
+    tmp_path: Path, changes: list[dict[str, Any]], detail: str
+) -> None:
+    from posturanet.cfn.validate import _judge, _own_ingress
+    from posturanet.models import CheckResult
+
+    res = _split(tmp_path)
+    # The edit replaced SshIn's rule with a new resource SshNew.
+    edited = SPLIT.replace(
+        "  MetricsIn:",
+        "  SshNew:\n    Type: AWS::EC2::SecurityGroupIngress\n"
+        "    Properties: {GroupId: !Ref Sg, IpProtocol: tcp, FromPort: 22, ToPort: 22,"
+        " CidrIp: 192.0.2.10/32}\n  MetricsIn:",
+    )
+    own = _own_ingress(res, edited)
+    assert own == {"SshIn", "MetricsIn", "SshNew"}
+    result, text = _judge(res, {"Status": "CREATE_COMPLETE", "Changes": changes}, own)
+    assert result is CheckResult.PASS, text
+    assert detail in text
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        [_rc("Sg"), _rc("OtherSg")],  # another group
+        [_rc("SshIn"), _rc("Unrelated", "Add")],  # a resource that isn't Sg's
+        [_rc("Sg", replacement="True"), _rc("SshIn")],  # the group itself replaced
+        [_rc("SshIn", "Dynamic")],  # an action that isn't add, modify or remove
+        [],
+    ],
+)
+def test_other_changes_still_stop(tmp_path: Path, changes: list[dict[str, Any]]) -> None:
+    from posturanet.cfn.validate import _judge, _own_ingress
+    from posturanet.models import CheckResult
+
+    res = _split(tmp_path)
+    own = _own_ingress(res, SPLIT)
+    result, _ = _judge(res, {"Status": "CREATE_COMPLETE", "Changes": changes}, own)
+    assert result is CheckResult.FAIL

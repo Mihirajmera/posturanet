@@ -124,6 +124,7 @@ condition key (the reads may need their own statement without it). Customers can
 | Not opted in (default) | SKIPPED, today's `CHANGESET_NOTE` | **false** |
 | Opted in, dry run / offline | SKIPPED | false |
 | Exactly one change: `Modify` on the target logical id, `Replacement: False` | PASS | true |
+| A security group target: that change (or none), plus `Add`/`Modify`/`Remove` (any replacement) of the group's own `SecurityGroupIngress` resources | PASS | true |
 | `Replacement: True` or `Conditional` | FAIL ("CloudFormation would replace X") | true |
 | Any other resource changes, or `Add` / `Remove` | FAIL ("change set touches N resources") | true |
 | `FAILED` "didn't contain changes" | FAIL ("the edit changes nothing deployed") | true |
