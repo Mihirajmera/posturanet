@@ -189,21 +189,39 @@ def _run_cfn_dispatch(
     iac: Literal["cloudformation", "cdk", "pulumi"],
 ) -> tuple[RunRecord, Proposal | None]:
     """CloudFormation, SAM, CDK and Pulumi: the same three evidence-backed fix types."""
-    tool = {"cdk": "CDK apps", "pulumi": "Pulumi programs"}.get(iac)
-    if tool and finding.resource.address:
+    if iac == "pulumi" and finding.resource.address:
         raise StageStop(
             "ingest",
-            f"IaC scanner findings on {tool} are not supported yet",
+            "IaC scanner findings on Pulumi programs are not supported yet",
             ["pass the Security Hub finding, or `CONTROL:resource-id`, instead"],
             unknown=True,
         )
+    if iac == "cdk":
+        # IaC scanner finding on a synthesized template: stack from the assembly's manifest.
+        finding = cdk.resolve_template_ref(finding, repo, config, ctx.state_path, ctx.aws)
+        record.finding = finding
+        if finding.resource.address and not cdk.split_address(finding.resource.address):
+            raise StageStop(
+                "ingest",
+                f"{finding.resource.address} is a Terraform address, but this repo is a CDK app",
+                ["pass the Security Hub finding, or `CONTROL:resource-id`, instead"],
+                unknown=True,
+            )
     evidence_backed = (FixType.SG_INGRESS, FixType.S3_PUBLIC, FixType.IAM_LEAST_PRIVILEGE)
-    if split_template_ref(finding.resource.address) and finding.fix_type in evidence_backed:
+    if (
+        iac == "cloudformation"
+        and split_template_ref(finding.resource.address)
+        and finding.fix_type in evidence_backed
+    ):
         # IaC scanner finding on a template: map it to its stack and the deployed resource.
         finding = cfn.resolve_template_ref(finding, repo, config, ctx.state_path, ctx.aws)
         record.finding = finding
     address = finding.resource.address
-    if address and not (cfn.split_address(address) or split_template_ref(address)):
+    if (
+        iac == "cloudformation"
+        and address
+        and not (cfn.split_address(address) or split_template_ref(address))
+    ):
         raise StageStop(
             "ingest",
             f"{address} is a Terraform address, but this repo is CloudFormation",
@@ -215,15 +233,15 @@ def _run_cfn_dispatch(
     if finding.fix_type is FixType.IAM_LEAST_PRIVILEGE:
         return _run_iam(finding, repo, config, ctx, record, iac=iac)
     if finding.fix_type is FixType.CONFIG_ATTRIBUTE:
-        if tool:
+        if iac == "pulumi":
             raise StageStop(
                 "ingest",
-                f"{finding.control_id} is an attribute fix; those don't edit {tool} yet",
+                f"{finding.control_id} is an attribute fix; those don't edit Pulumi programs yet",
                 ["set the value by hand"],
                 unknown=True,
             )
         record.stages.append(_ingest_stage(finding))
-        return _run_config(finding, repo, config, ctx, record, iac="cloudformation")
+        return _run_config(finding, repo, config, ctx, record, iac=iac)
     return _run_sg(finding, repo, config, ctx, record, iac=iac)
 
 
@@ -606,7 +624,7 @@ def _run_config(
     ctx: Context,
     record: RunRecord,
     *,
-    iac: Literal["terraform", "cloudformation"] = "terraform",
+    iac: Literal["terraform", "cloudformation", "cdk"] = "terraform",
 ) -> tuple[RunRecord, Proposal | None]:
     """Attribute fixes (FR-48): no evidence or contract; the change removes no access."""
     dry = ctx.mode == "dry-run"
@@ -620,18 +638,28 @@ def _run_config(
 
     # --- locate
     res: cfn.CfnResource | None = None
-    if iac == "cloudformation":
+    attr_cdk: cdk.CdkTarget | None = None
+    if iac in ("cloudformation", "cdk"):
         rows = [r for r in (row.for_cfn() for row in rows) if r is not None]
         if not rows:
             raise StageStop(
                 "fix",
                 f"{finding.control_id} has no CloudFormation property mapping yet",
-                ["set the property in the template by hand"],
+                ["set the property in the template by hand"]
+                if iac == "cloudformation"
+                else ["set the construct prop by hand"],
                 unknown=True,
             )
         types = list(dict.fromkeys(r.resource_type for r in rows))
-        loc, res = cfn.locate(finding, repo, config, ctx.state_path, ctx.aws, types)
-        rtype = res.type
+        if iac == "cdk":
+            loc, attr_cdk = cdk.locate(
+                finding, repo, config, ctx.state_path, ctx.aws, types, ctx.cdk, dry=dry,
+                any_l2=True,
+            )  # fmt: skip
+            rtype = attr_cdk.res.type
+        else:
+            loc, res = cfn.locate(finding, repo, config, ctx.state_path, ctx.aws, types)
+            rtype = res.type
     else:
         s3_fetch = boto3_s3_fetch(ctx.aws) if ctx.aws is not None else None
         loc, match = locate_match(
@@ -681,7 +709,10 @@ def _run_config(
             f"{loc.address} uses count or for_each; the edit would change every instance",
             ["fix this resource by hand for now"],
         )
-    if res is not None:
+    if attr_cdk is not None:
+        diff, already = cdk.attr_diff(repo, attr_cdk, fix)
+        original = attr_cdk.original
+    elif res is not None:
         diff, already = cfn.attr_diff(repo, res, fix)
         original = res.template.on_disk(res.template.text)
     else:
@@ -698,7 +729,9 @@ def _run_config(
     )
 
     # --- validate
-    if res is not None:
+    if attr_cdk is not None:
+        report = cdk.validate_attr(attr_cdk, diff, fix, config, ctx.aws, ctx.cdk, offline=dry)
+    elif res is not None:
         report = cfn.validate_attr(
             res, diff, fix, config, ctx.aws, offline=dry, changeset=ctx.changeset
         )

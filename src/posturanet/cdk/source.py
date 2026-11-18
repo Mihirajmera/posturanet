@@ -10,6 +10,7 @@ edited. Every other shape stops with UNKNOWN; the synthesized template is the cr
 from __future__ import annotations
 
 import ipaddress
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -756,3 +757,74 @@ def render_iam(c: Construct, sts: list[SourceStatement], after: dict[int, list[s
             raise unsupported(f"statement {i + 1} actions")
         text = text[: st.span[0]] + render_actions(c, st, after[i]) + text[st.span[1] :]
     return text
+
+
+# --- attribute fixes: CloudFormation property overrides on the L2 construct's default child
+
+_OVERRIDE = re.compile(r"\.\s*(?:addPropertyOverride|add_property_override)\s*\(")
+
+
+def _value(v: object, lang: Lang) -> str:
+    if isinstance(v, bool):
+        return ("true" if v else "false") if lang == "ts" else str(v)
+    if isinstance(v, int):
+        return str(v)
+    if isinstance(v, list):
+        return "[" + ", ".join(_value(x, lang) for x in v) + "]"
+    s = str(v)
+    return f"'{s}'" if lang == "ts" and "'" not in s and "\\" not in s else json.dumps(s)
+
+
+def overrides(c: Construct) -> dict[str, str]:
+    """Property path -> value text of every literal property override in the construct's file
+    on its variable (`var.node.defaultChild` / `default_child`)."""
+    if c.var is None:
+        return {}
+    child = r"\(?\s*" + re.escape(c.var) + r"\s*\.\s*node\s*\.\s*(?:defaultChild|default_child)"
+    out: dict[str, str] = {}
+    for m in _OVERRIDE.finditer(c.masked):
+        head = c.masked[line_start(c.masked, m.start()) : m.start()]
+        if not re.search(child, head):
+            continue
+        o = m.end() - 1
+        args = items(c.masked, o, close_of(c.masked, o))
+        path = str_lit(c.text, args[0]) if len(args) == 2 else None
+        if path is None:
+            raise unsupported(
+                f"a property override on `{c.var}` (line {c.text.count(chr(10), 0, o) + 1})"
+            )
+        out[path[0]] = c.text[args[1][0] : args[1][1]].strip()
+    return out
+
+
+def render_attr(c: Construct, props: list[tuple[str, object]], cfn_cls: str) -> str:
+    """New source text with one property override per (CloudFormation path, value), as
+    statements right after the construct's own statement."""
+    if c.var is None:
+        raise unsupported(
+            f"the {c.construct_id} construct isn't assigned to a variable, so its properties "
+            "can't be overridden; that"
+        )
+    clash = sorted(set(overrides(c)) & {p for p, _ in props})
+    if clash:
+        raise unsupported(f"an existing property override of {clash[0]}, which")
+    text, masked = c.text, c.masked
+    le = line_end(text, c.close + 1)
+    tail = masked[c.close + 1 : le].strip()
+    if tail not in ("", ";"):
+        raise unsupported(f"the statement that creates {c.construct_id}")
+    ls = line_start(text, c.start)
+    indent = text[ls : ls + len(text[ls:]) - len(text[ls:].lstrip(" \t"))]
+    if c.lang == "ts":
+        semi = ";" if tail.endswith(";") else ""
+        lines = [
+            f"{indent}({c.var}.node.defaultChild as {c.qualifier}{cfn_cls})"
+            f".addPropertyOverride('{p}', {_value(v, 'ts')}){semi}\n"
+            for p, v in props
+        ]
+    else:
+        lines = [
+            f'{indent}{c.var}.node.default_child.add_property_override("{p}", {_value(v, "py")})\n'
+            for p, v in props
+        ]
+    return text[:le] + "".join(lines) + text[le:]

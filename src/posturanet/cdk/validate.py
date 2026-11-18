@@ -20,10 +20,18 @@ from posturanet.aws.session import ClientFactory
 from posturanet.cdk import source
 from posturanet.cdk.app import CdkRunner, CdkTarget, SubprocessCdk, in_template, stack_template
 from posturanet.cdk.source import Construct
-from posturanet.cfn.edit import owned_ingress, parse_policy, parse_sg
+from posturanet.cfn.edit import _literal, _prop, attr_applies, owned_ingress, parse_policy, parse_sg
 from posturanet.cfn.locate import CfnResource
 from posturanet.cfn.template import Template, value
-from posturanet.cfn.validate import Checks, drift, iam_checks, s3_checks, sg_checks
+from posturanet.cfn.validate import (
+    Checks,
+    attr_checks,
+    drift,
+    iam_checks,
+    s3_checks,
+    sg_checks,
+)
+from posturanet.configfix.catalog import ConfigFix
 from posturanet.errors import StageStop
 from posturanet.iamfix.shrink import ServiceUse, StatementChange
 from posturanet.models import (
@@ -139,6 +147,41 @@ def sg_diff(repo: Path, t: CdkTarget, synth: Synthesis) -> Diff:
     new = source.render_sg(t.construct, src, synth.added)
     diff = rules_diff(_rel(t, repo), t.construct.text, new, t.construct.crlf, synth, t.address)
     return diff.model_copy(update={"generator": "template:sg_ingress@1:cdk"})
+
+
+def attr_diff(repo: Path, t: CdkTarget, fix: ConfigFix) -> tuple[Diff, list[str]]:
+    """(diff, changes already met) for an attribute fix with CloudFormation paths: one
+    property override per unmet change, judged on the synthesized resource."""
+    ok, why = attr_applies(t.res, fix)
+    if not ok:
+        raise StageStop(
+            "fix", f"the {fix.control} fix doesn't apply here: {why}", [_HAND], unknown=True
+        )
+    props: list[tuple[str, object]] = []
+    changed, already = [], []
+    for ch in fix.changes:
+        present, v = _prop(t.res, ch.path)
+        cur = _literal(t.res, ch, v) if present else None
+        if present and ch.satisfied_by(cur):
+            already.append(ch.describe())
+            continue
+        val: object = ch.value
+        if ch.op == "includes":  # keep what the template already lists
+            have = cur if isinstance(cur, list) else []
+            val = [*have, *(x for x in ch.value if x not in have)]  # type: ignore[union-attr]
+        props.append((ch.path, val))
+        changed.append(ch.describe())
+    if not changed:
+        raise StageStop(
+            "fix",
+            f"the synthesized template already meets {fix.control}, so the live resource has "
+            "drifted",
+            ["deploy the app through your pipeline; the fix is already in the code"],
+            why="PosturaNet fixes code, and this code is already fixed; the live resource isn't",
+        )
+    new = source.render_attr(t.construct, props, "Cfn" + t.res.type.rsplit("::", 1)[-1])
+    summary = f"{t.construct.construct_id} " + "; ".join(changed)
+    return _diff(repo, t, new, summary, "template:config_attribute@1:cdk"), already
 
 
 def s3_diff(repo: Path, t: CdkTarget) -> Diff:
@@ -379,3 +422,35 @@ def validate_iam(
 
     specific = iam_checks(control, changes, usage, extra)
     return _validate(t, diff, config, aws, runner, offline, check, specific)
+
+
+def validate_attr(
+    t: CdkTarget,
+    diff: Diff,
+    fix: ConfigFix,
+    config: Config,
+    aws: ClientFactory | None,
+    runner: CdkRunner | None,
+    *,
+    offline: bool,
+) -> ValidationReport:
+    want = {ch.path for ch in fix.changes}
+
+    def check(c: Construct) -> Check:
+        missing = sorted(want - set(source.overrides(c)) - set(_already(t, fix)))
+        return _source_check(
+            not missing,
+            "edited source overrides the fix's properties",
+            f"edited source has no override of {', '.join(missing)}",
+        )
+
+    return _validate(t, diff, config, aws, runner, offline, check, attr_checks(fix))
+
+
+def _already(t: CdkTarget, fix: ConfigFix) -> list[str]:
+    out = []
+    for ch in fix.changes:
+        present, v = _prop(t.res, ch.path)
+        if present and ch.satisfied_by(_literal(t.res, ch, v)):
+            out.append(ch.path)
+    return out

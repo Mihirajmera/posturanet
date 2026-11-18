@@ -26,15 +26,17 @@ from posturanet.aws.session import ClientFactory
 from posturanet.cdk import source
 from posturanet.cdk.source import Construct
 from posturanet.cfn.edit import BUCKET_TYPE, POLICY_TYPE, SG_TYPE
-from posturanet.cfn.locate import CfnResource, stack_row
+from posturanet.cfn.locate import CfnResource, deployed_id, stack_row
 from posturanet.cfn.template import Template, TemplateError, get, key_node, line_of, load, value
 from posturanet.errors import StageStop
+from posturanet.ingest.iac import split_template_ref
 from posturanet.locate.codeowners import find_codeowners, owners_for
 from posturanet.models import Confidence, Config, Finding, Location
 
 PREFIX = "cdk."
 # L2 construct class for each resource type PosturaNet fixes.
 CLASS_FOR = {SG_TYPE: "SecurityGroup", BUCKET_TYPE: "Bucket", POLICY_TYPE: "ManagedPolicy"}
+ANY_L2 = r"(?!Cfn)[A-Z]\w*"  # attribute fixes: any L2 class; template_scope catches a wrong pick
 _SKIP = {"node_modules", "cdk.out", ".git", ".venv", "venv"}
 # Credentials and endpoints the CDK CLI could use to call AWS; region settings stay.
 _STRIP = ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_PROFILE",
@@ -231,7 +233,14 @@ def in_template(t: Template, stack: str, logical: str) -> CfnResource | str:
 
 
 def resolve(
-    repo: Path, config: Config, d: Path, label: str, stack: str, logical: str
+    repo: Path,
+    config: Config,
+    d: Path,
+    label: str,
+    stack: str,
+    logical: str,
+    *,
+    any_l2: bool = False,
 ) -> CdkTarget | str:
     """The construct behind `stack/logical`, or why it can't be found with confidence."""
     t = stack_template(d, label, stack)
@@ -245,12 +254,13 @@ def resolve(
     if not isinstance(path, str):
         return f"{logical} has no aws:cdk:path metadata (path metadata is turned off in the app)"
     parts = path.split("/")
-    cls = CLASS_FOR.get(res.type)
+    cls = CLASS_FOR.get(res.type) or (ANY_L2 if any_l2 else None)
     if cls is None:
         return f"{logical} is a {res.type}; PosturaNet edits CDK code for {', '.join(CLASS_FOR)}"
+    name = "L2" if cls == ANY_L2 else cls
     if len(parts) < 3 or parts[-1] != "Resource":
         return (
-            f"{path} is not an L2 {cls} construct (L1 Cfn* constructs and resources other "
+            f"{path} is not an L2 {name} construct (L1 Cfn* constructs and resources other "
             "constructs generate aren't edited yet)"
         )
     app = app_dir(repo, config)
@@ -260,12 +270,12 @@ def resolve(
         return f"can't read the app source to find '{parts[-2]}': {exc.reason}"
     if not hits:
         return (
-            f"no {cls} construct with the literal id '{parts[-2]}' in the app source "
+            f"no {name} construct with the literal id '{parts[-2]}' in the app source "
             f"(construct path {path}); the id may be computed"
         )
     if len(hits) > 1:
         where = ", ".join(f"{_rel(h.file, repo)}:{h.line}" for h in hits)
-        return f"{len(hits)} {cls} constructs use the id '{parts[-2]}' ({where}); can't tell which"
+        return f"{len(hits)} {name} constructs use the id '{parts[-2]}' ({where}); can't tell which"
     return CdkTarget(res, path, hits[0], app)
 
 
@@ -283,6 +293,7 @@ def locate(
     runner: CdkRunner | None,
     *,
     dry: bool,
+    any_l2: bool = False,
 ) -> tuple[Location, CdkTarget]:
     ids = [i for i in dict.fromkeys([finding.resource.id, finding.resource.arn]) if i]
     row, label = stack_row(ids, repo, config, state_path, aws)
@@ -295,7 +306,7 @@ def locate(
             ["`posturanet fixes list` shows every control PosturaNet fixes"],
         )
     with assembly(repo, config, runner, dry=dry) as (d, where):
-        target = resolve(repo, config, d, where, stack, logical)
+        target = resolve(repo, config, d, where, stack, logical, any_l2=any_l2)
     if isinstance(target, str):
         raise StageStop(
             "locate",
@@ -332,3 +343,53 @@ def locate(
         reasoning=reasoning,
     )
     return loc, target
+
+
+def resolve_template_ref(
+    finding: Finding,
+    repo: Path,
+    config: Config,
+    state_path: Path | None,
+    aws: ClientFactory | None,
+) -> Finding:
+    """A scanner (Checkov, Trivy) names `<template>#LogicalId` in the app's cloud assembly; find
+    the stack from the assembly's manifest and the deployed resource's id."""
+    ref = split_template_ref(finding.resource.address)
+    if ref is None:
+        return finding
+    path, logical = ref
+    roots = [repo / config.cdk.assembly] if config.cdk.assembly else []
+    roots.append(app_dir(repo, config) / "cdk.out")
+    target = (repo / path).resolve()
+    found = sorted(
+        {(name, p) for root in roots for name, p in stacks(root) if p.resolve() == target}
+    )
+    if len(found) != 1:
+        raise StageStop(
+            "locate",
+            f"{path} is not a stack template in this CDK app's cloud assembly"
+            if not found
+            else f"{path} is the template of {len(found)} stacks",
+            [
+                "scan the cloud assembly PosturaNet reads (cdk.assembly, or the app's cdk.out) "
+                "from the repo root so paths match",
+            ],
+            unknown=True,
+        )
+    stack, tpl = found[0]
+    try:
+        res = in_template(load(tpl), stack, logical)
+    except (OSError, TemplateError) as exc:
+        raise StageStop("locate", f"{path}: {exc}", unknown=True) from exc
+    if isinstance(res, str):
+        raise StageStop("locate", res, ["fix this resource by hand"], unknown=True)
+    pid = deployed_id(repo, config, state_path, aws, stack, logical)
+    resource = finding.resource.model_copy(
+        update={
+            "id": pid,
+            "arn": pid if pid.startswith("arn:") else None,
+            "type": res.type,
+            "address": address(stack, logical),
+        }
+    )
+    return finding.model_copy(update={"resource": resource})
