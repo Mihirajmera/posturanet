@@ -318,7 +318,33 @@ def _aws(case: CfnCase) -> Any:
         def describe_security_groups(self, **kw: Any) -> dict[str, Any]:
             return {"SecurityGroups": [{"GroupId": kw["GroupIds"][0], "IpPermissions": live}]}
 
+        # The live bucket and policy match the deployed template.
+        def get_public_access_block(self, **kw: Any) -> dict[str, Any]:
+            props = _deployed(body, "AWS::S3::Bucket")
+            if "PublicAccessBlockConfiguration" not in props:
+                raise _NoPab
+            return {"PublicAccessBlockConfiguration": props["PublicAccessBlockConfiguration"]}
+
+        def get_policy(self, **kw: Any) -> dict[str, Any]:
+            return {"Policy": {"DefaultVersionId": "v1"}}
+
+        def get_policy_version(self, **kw: Any) -> dict[str, Any]:
+            doc = _deployed(body, "AWS::IAM::ManagedPolicy")["PolicyDocument"]
+            return {"PolicyVersion": {"Document": doc}}
+
     return lambda service: ReadOnlyClient(Fake(), service)
+
+
+class _NoPab(Exception):
+    response = {"Error": {"Code": "NoSuchPublicAccessBlockConfiguration"}}  # noqa: RUF012
+
+
+def _deployed(body: str, rtype: str) -> dict[str, Any]:
+    resources = value(get(parse(body, Path("deployed.yaml")).root, "Resources"))
+    props: dict[str, Any] = next(
+        r.get("Properties", {}) for r in resources.values() if r["Type"] == rtype
+    )
+    return props
 
 
 def _score(case: CfnCase, new: str | None, file: str, note: str) -> Result:
