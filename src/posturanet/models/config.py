@@ -58,6 +58,15 @@ class CdkConfig(_Strict):
     binary: str = "cdk"
 
 
+class PulumiConfig(_Strict):
+    # The Pulumi project directory (holds Pulumi.yaml), relative to the repo root; found when
+    # there is exactly one.
+    program: str | None = None
+    # A `pulumi stack export` of the deployed stack. Required: PosturaNet never runs the
+    # Pulumi CLI. State can hold secrets; keep the export out of git.
+    stack_export: str | None = None
+
+
 class FlowLogsConfig(_Strict):
     mode: Literal["logs_insights"] = "logs_insights"
     log_group: str | None = None
@@ -122,12 +131,14 @@ class OutcomeShareConfig(_Strict):
 class Config(_Strict):
     version: Literal[1] = 1
     aws: AwsConfig = Field(default_factory=AwsConfig)
-    # auto: CDK when the repo has a cdk.json and no .tf files; else CloudFormation when a
-    # stack-resources export is given, or the repo has templates and no .tf files.
-    iac: Literal["auto", "terraform", "cloudformation", "cdk"] = "auto"
+    # auto: CDK when the repo has a cdk.json and no .tf files; else Pulumi when it has a
+    # Pulumi.yaml and no .tf files; else CloudFormation when a stack-resources export is
+    # given, or the repo has templates and no .tf files.
+    iac: Literal["auto", "terraform", "cloudformation", "cdk", "pulumi"] = "auto"
     terraform: TerraformConfig = Field(default_factory=TerraformConfig)
     cloudformation: CloudFormationConfig = Field(default_factory=CloudFormationConfig)
     cdk: CdkConfig = Field(default_factory=CdkConfig)
+    pulumi: PulumiConfig = Field(default_factory=PulumiConfig)
     evidence: EvidenceConfig = Field(default_factory=EvidenceConfig)
     contracts: ContractsConfig = Field(default_factory=ContractsConfig)
     synthesis: SynthesisConfig = Field(default_factory=SynthesisConfig)

@@ -139,6 +139,17 @@ the live group differs from the repo). Fixes are scored on the edited template. 
 reports **wrongly reported safe** (a validated fix that breaks a need, leaves the exposure, or
 exists where no safe fix does); `python -m bench` exits 1 if it isn't 0.
 
+## Pulumi family
+
+[`pulumi.py`](pulumi.py) runs the same three fixes on the TypeScript and Python programs in
+`tests/fixtures/pulumi/`, mapped through their synthetic `pulumi stack export`. No AWS doubles
+are needed: nothing in the Pulumi path calls AWS. Per fix type: a fix in each language, and
+traps that must stop: a computed value in the field the fix edits, a resource inside a
+component, a name used twice, an ingress rule written but not deployed, a fix that needs a new
+resource, a program that differs from the export, and drift between the export's inputs and
+outputs. Fixes are scored on the edited program's literals. `python -m bench` exits 1 if this
+family reports anything **wrongly safe**.
+
 ## Limits
 
 - Security groups: ingress only, single-port rules, IPv4, SSH/RDP/Postgres.

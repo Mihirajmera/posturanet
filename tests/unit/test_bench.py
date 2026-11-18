@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
-from bench import cfn, iam, s3  # noqa: E402
+from bench import cfn, iam, pulumi, s3  # noqa: E402
 
 S3_EXPECTED = {
     "s3-private-acls-off": "CORRECT",
@@ -72,3 +72,19 @@ def test_cfn_cases_fix_or_stop_for_the_stated_reason() -> None:
     shapes = {(c.family, c.id.rsplit("-", 1)[-1]) for c in cfn.CASES}
     for fam in ("sg", "s3", "iam"):
         assert {(fam, s) for s in ("yaml", "json", "form", "generated", "ambiguous")} <= shapes
+
+
+def test_pulumi_cases_fix_or_stop_for_the_stated_reason() -> None:
+    """Pulumi: TypeScript and Python programs fix; every trap stops with its own reason."""
+    results = {c.id: pulumi.run_case(c) for c in pulumi.CASES}
+    for case in pulumi.CASES:
+        result, exit_code = results[case.id]
+        assert result.verdict == ("CORRECT" if case.expect == "fix" else "STOPPED"), case.id
+        assert exit_code == case.exit_code, (case.id, result.note)
+        assert case.says in result.note, (case.id, result.note)
+    assert pulumi.wrongly_safe({k: [r] for k, (r, _) in results.items()}) == []
+    for fam in ("sg", "s3", "iam"):
+        assert {c.lang for c in pulumi.CASES if c.family == fam and c.expect == "fix"} == {
+            "ts",
+            "py",
+        }
