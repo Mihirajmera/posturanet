@@ -579,7 +579,7 @@ The same three fix types on CDK apps in TypeScript and Python, plus the traps th
 
 | Contender | Correct | Stopped | Outage | Still Exposed | Unneeded stops |
 |---|---|---|---|---|---|
-| PosturaNet | 2 | 18 | 0 | 0 | 4 |
+| PosturaNet | 6 | 14 | 0 | 0 | 0 |
 
 **Wrongly reported safe: 0**
 
@@ -605,7 +605,7 @@ A `Bucket` with literal props; `blockPublicAccess` is added. Ground truth: a saf
 
 | Contender | Verdict | Detail |
 |---|---|---|
-| PosturaNet | Stopped | validate fail: drift ERROR · reading the live bucket failed: 'Fake' object has no attribute 'get_public_access_block'; drift error: reading the live bucket failed: 'Fake' object has no attribute 'get_public_access_block' |
+| PosturaNet | Correct | allows Block Public Access: all on |
 
 #### `cdk-s3-py`: Public bucket nobody uses publicly (Python)
 
@@ -613,7 +613,7 @@ A `Bucket` with literal props; `blockPublicAccess` is added. Ground truth: a saf
 
 | Contender | Verdict | Detail |
 |---|---|---|
-| PosturaNet | Stopped | validate fail: drift ERROR · reading the live bucket failed: 'Fake' object has no attribute 'get_public_access_block'; drift error: reading the live bucket failed: 'Fake' object has no attribute 'get_public_access_block' |
+| PosturaNet | Correct | allows Block Public Access: all on |
 
 #### `cdk-iam-ts`: ec2:* and logs:* used for a few calls (TypeScript)
 
@@ -621,7 +621,7 @@ One `PolicyStatement` with a literal `actions` array. Ground truth: a safe fix e
 
 | Contender | Verdict | Detail |
 |---|---|---|
-| PosturaNet | Stopped | validate fail: drift ERROR · reading the live policy failed: 'Fake' object has no attribute 'get_policy'; drift error: reading the live policy failed: 'Fake' object has no attribute 'get_policy' |
+| PosturaNet | Correct | allows ec2:DescribeInstances, ec2:DescribeVolumes, logs:CreateLogStream |
 
 #### `cdk-iam-py`: ec2:* and logs:* used for a few calls (Python)
 
@@ -629,7 +629,7 @@ One `PolicyStatement` with a literal `actions` array. Ground truth: a safe fix e
 
 | Contender | Verdict | Detail |
 |---|---|---|
-| PosturaNet | Stopped | validate fail: drift ERROR · reading the live policy failed: 'Fake' object has no attribute 'get_policy'; drift error: reading the live policy failed: 'Fake' object has no attribute 'get_policy' |
+| PosturaNet | Correct | allows ec2:DescribeInstances, ec2:DescribeVolumes, logs:CreateLogStream |
 
 #### `cdk-sg-computed-peer`: SSH peer is `Peer.ipv4(adminCidr)`
 

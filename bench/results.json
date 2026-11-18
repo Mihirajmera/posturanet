@@ -38,26 +38,34 @@
     ],
     "cdk-iam-py": [
       {
-        "allowed": [],
+        "allowed": [
+          "ec2:DescribeInstances",
+          "ec2:DescribeVolumes",
+          "logs:CreateLogStream"
+        ],
         "broken": [],
         "expect": "fix",
         "exposed": [],
-        "note": "validate fail: drift ERROR \u00b7 reading the live policy failed: 'Fake' object has no attribute 'get_policy'; drift error: reading the live policy failed: 'Fake' object has no attribute 'get_policy'",
-        "status": "STOPPED",
+        "note": "risk medium \u00b7 disruption none expected: every used action stays allowed",
+        "status": "FIXED",
         "tool": "PosturaNet",
-        "verdict": "STOPPED"
+        "verdict": "CORRECT"
       }
     ],
     "cdk-iam-ts": [
       {
-        "allowed": [],
+        "allowed": [
+          "ec2:DescribeInstances",
+          "ec2:DescribeVolumes",
+          "logs:CreateLogStream"
+        ],
         "broken": [],
         "expect": "fix",
         "exposed": [],
-        "note": "validate fail: drift ERROR \u00b7 reading the live policy failed: 'Fake' object has no attribute 'get_policy'; drift error: reading the live policy failed: 'Fake' object has no attribute 'get_policy'",
-        "status": "STOPPED",
+        "note": "risk medium \u00b7 disruption none expected: every used action stays allowed",
+        "status": "FIXED",
         "tool": "PosturaNet",
-        "verdict": "STOPPED"
+        "verdict": "CORRECT"
       }
     ],
     "cdk-s3-drift": [
@@ -86,26 +94,30 @@
     ],
     "cdk-s3-py": [
       {
-        "allowed": [],
+        "allowed": [
+          "Block Public Access: all on"
+        ],
         "broken": [],
         "expect": "fix",
         "exposed": [],
-        "note": "validate fail: drift ERROR \u00b7 reading the live bucket failed: 'Fake' object has no attribute 'get_public_access_block'; drift error: reading the live bucket failed: 'Fake' object has no attribute 'get_public_access_block'",
-        "status": "STOPPED",
+        "note": "risk medium \u00b7 disruption none expected: no public use in the logs",
+        "status": "FIXED",
         "tool": "PosturaNet",
-        "verdict": "STOPPED"
+        "verdict": "CORRECT"
       }
     ],
     "cdk-s3-ts": [
       {
-        "allowed": [],
+        "allowed": [
+          "Block Public Access: all on"
+        ],
         "broken": [],
         "expect": "fix",
         "exposed": [],
-        "note": "validate fail: drift ERROR \u00b7 reading the live bucket failed: 'Fake' object has no attribute 'get_public_access_block'; drift error: reading the live bucket failed: 'Fake' object has no attribute 'get_public_access_block'",
-        "status": "STOPPED",
+        "note": "risk medium \u00b7 disruption none expected: no public use in the logs",
+        "status": "FIXED",
         "tool": "PosturaNet",
-        "verdict": "STOPPED"
+        "verdict": "CORRECT"
       }
     ],
     "cdk-sg-computed-id": [
