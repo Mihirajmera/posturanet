@@ -13,7 +13,7 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 - The fix edits the program, not the template, and only literals: `addIngressRule` peers, `blockPublicAccess: BlockPublicAccess.BLOCK_ALL`, `PolicyStatement` `actions`. Before editing, PosturaNet checks the literals explain the synthesized template exactly (every ingress rule, every statement), so rules from `connections.allowFrom` or statements from `addStatements` stop instead of being missed.
 - Validation re-reads the edited source and, outside a dry run, runs `cdk synth --no-lookups` with AWS credentials removed from its environment (no AWS calls), then the CloudFormation checks on the new template: only the target changed, the rules match, the contract holds, the control passes, and the target matches the deployed template (`cloudformation:GetTemplate`). `cdk diff` is not run and the PR says so. No new AWS permissions.
 - New config: `iac: cdk` (auto-detected from `cdk.json`), `cdk.app`, `cdk.assembly` (a `cdk.out` CI already synthesized; needed for dry runs) and `cdk.binary`.
-- Not yet: other CDK languages.
+- Not yet: CDK apps in Java, C# or Go. PRD FR-10b records why: each needs its own source reader and renderer, and a shallow port would edit wrongly. Their findings stop with UNKNOWN at locate.
 
 ### Added (opt-in CloudFormation change-set preview)
 - `cloudformation.changeset_preview` (off by default, needs its own `role_arn`): outside a dry run, PosturaNet creates an UPDATE change set of the edited template, makes the `changeset` check required, and passes it only when CloudFormation would modify just the target, in place. The change set is always deleted and never executed.
