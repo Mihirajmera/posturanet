@@ -53,6 +53,8 @@ SAM_FUNCTION_TYPE = "AWS::Serverless::Function"
 # Resources an IAM finding can name: the managed policy, or the principal holding inline policies.
 IAM_TYPES = [POLICY_TYPE, "AWS::IAM::Role", "AWS::IAM::User", "AWS::IAM::Group"]
 PAB = "PublicAccessBlockConfiguration"
+# Ingress sources other than CIDRs: a security group or a managed prefix list.
+PEER_SOURCES = ("SourceSecurityGroupId", "SourceSecurityGroupName", "SourcePrefixListId")
 # Terraform flag name -> CloudFormation property name.
 PAB_FLAGS = {
     "block_public_acls": "BlockPublicAcls",
@@ -146,6 +148,8 @@ class IngressEntry:
     is_open: bool
     description: str | None
     resource: str | None = None  # logical id of a standalone SecurityGroupIngress
+    # non-CIDR sources as written: (property, value, from, to, proto); for the live drift check
+    peers: list[tuple[str, Any, int, int, str]] = field(default_factory=list)
     sources: list[str] = field(default_factory=list)  # parameters/conditions it reads
 
 
@@ -220,7 +224,7 @@ def _entry(node: Node | None, what: str, scope: Scope, resource: str | None = No
     except Unresolved as exc:
         raise unresolved_stop(what, exc) from exc
     if node is not None and v is NO_VALUE:  # `!If [Cond, {...}, !Ref AWS::NoValue]`, Cond false
-        return IngressEntry(node, [], False, None, resource, sources)
+        return IngressEntry(node, [], False, None, resource, sources=sources)
     if node is None or not isinstance(v, dict) or not (isinstance(node, MappingNode) or sources):
         raise _unsupported(what, unknown=True)
     proto = norm_proto(v.get("IpProtocol", ""))
@@ -233,6 +237,7 @@ def _entry(node: Node | None, what: str, scope: Scope, resource: str | None = No
         any(c in WORLD for c in cidrs),
         desc if isinstance(desc, str) else None,
         resource,
+        [(k, v[k], lo, hi, proto) for k in PEER_SOURCES if k in v],
         sources,
     )
 

@@ -714,3 +714,84 @@ def test_live_reads_are_read_only_and_in_the_policy() -> None:
     assert iam_action("s3", "get_public_access_block") == "s3:GetBucketPublicAccessBlock"
     actions = iam_policy()["Statement"][0]["Action"]
     assert "s3:GetBucketPublicAccessBlock" in actions and "iam:Get*" in actions
+
+
+# --- live drift: security-group and prefix-list sources
+
+PEERED = """Resources:
+  Sg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: app
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0}
+        - {IpProtocol: tcp, FromPort: 8080, ToPort: 8080, SourceSecurityGroupId: !Ref Lb}
+        - {IpProtocol: tcp, FromPort: 22, ToPort: 22, SourcePrefixListId: pl-0a1b2c3d}
+  SelfIn:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties: {GroupId: !Ref Sg, IpProtocol: "-1", SourceSecurityGroupId: !GetAtt Sg.GroupId}
+  Lb:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: lb
+"""
+
+LIVE_PEERED = [
+    {"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443, "IpRanges": [{"CidrIp": "0.0.0.0/0"}]},
+    {"IpProtocol": "tcp", "FromPort": 8080, "ToPort": 8080,
+     "UserIdGroupPairs": [{"GroupId": "sg-0bb00001", "UserId": "123456789012"}]},
+    {"IpProtocol": "tcp", "FromPort": 22, "ToPort": 22,
+     "PrefixListIds": [{"PrefixListId": "pl-0a1b2c3d"}]},
+    {"IpProtocol": "-1", "UserIdGroupPairs": [{"GroupId": "sg-0aa00001"}]},
+]  # fmt: skip
+
+
+def _peered(tmp_path: Path, text: str, perms: list[dict[str, Any]]) -> Any:
+    from posturanet.cfn.validate import drift
+
+    (tmp_path / "t.yaml").write_text(text, "utf-8")
+    res = cfn.resolve(tmp_path, Config(), "s", "Sg")
+    assert isinstance(res, cfn.CfnResource)
+    physical = {"Sg": "sg-0aa00001", "Lb": "sg-0bb00001"}
+
+    class Fake:
+        def get_template(self, **kw: Any) -> dict[str, Any]:
+            return {"TemplateBody": text}
+
+        def describe_stack_resources(self, **kw: Any) -> dict[str, Any]:
+            lid = kw["LogicalResourceId"]
+            return {"StackResources": [
+                {"LogicalResourceId": lid, "PhysicalResourceId": physical[lid]}
+            ]}  # fmt: skip
+
+        def describe_security_groups(self, **kw: Any) -> dict[str, Any]:
+            assert kw == {"GroupIds": ["sg-0aa00001"]}
+            return {"SecurityGroups": [{"GroupId": "sg-0aa00001", "IpPermissions": perms}]}
+
+    return drift(res, lambda service: ReadOnlyClient(Fake(), service), False)
+
+
+def test_drift_compares_group_and_prefix_list_sources(tmp_path: Path) -> None:
+    check = _peered(tmp_path, PEERED, LIVE_PEERED)
+    assert check.result is CheckResult.PASS, check.detail
+    assert "not compared" not in check.detail
+
+    widened = [*LIVE_PEERED, {"IpProtocol": "tcp", "FromPort": 5432, "ToPort": 5432,
+                              "UserIdGroupPairs": [{"GroupId": "sg-0cc00001"}]}]  # fmt: skip
+    check = _peered(tmp_path, PEERED, widened)
+    assert check.result is CheckResult.FAIL
+    assert "(1 rule(s) only live, 0 only in the template)" in check.detail
+
+    check = _peered(tmp_path, PEERED, LIVE_PEERED[:2])  # prefix list and self rule removed live
+    assert check.result is CheckResult.FAIL
+    assert "(0 rule(s) only live, 2 only in the template)" in check.detail
+
+
+def test_unresolvable_sources_are_named_not_guessed(tmp_path: Path) -> None:
+    text = PEERED.replace("SourcePrefixListId: pl-0a1b2c3d", "SourcePrefixListId: !ImportValue pl")
+    check = _peered(tmp_path, text, LIVE_PEERED)
+    assert check.result is CheckResult.PASS, check.detail
+    assert "group and prefix-list sources not compared (SourcePrefixListId" in check.detail
+    # CIDR rules are still compared.
+    check = _peered(tmp_path, text, LIVE_PEERED[1:])
+    assert check.result is CheckResult.FAIL

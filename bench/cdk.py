@@ -229,6 +229,13 @@ OPEN_LIVE = [
     {"IpProtocol": "tcp", "FromPort": p, "ToPort": p, "IpRanges": [{"CidrIp": c}]}
     for p, c in [(22, "0.0.0.0/0"), (9100, "10.0.0.0/16"), (3389, "0.0.0.0/0")]
 ]
+# The live group as deployed from `_peer_group`: the web group (sg-0b22c4d6) is a source on 22.
+PEER_LIVE = [
+    {"IpProtocol": "tcp", "FromPort": 22, "ToPort": 22, "IpRanges": [{"CidrIp": "0.0.0.0/0"}],
+     "UserIdGroupPairs": [{"GroupId": "sg-0b22c4d6"}]},
+    {"IpProtocol": "tcp", "FromPort": 9100, "ToPort": 9100,
+     "IpRanges": [{"CidrIp": "10.0.0.0/16"}]},
+]  # fmt: skip
 L1_TS = (
     "const bastionSg = new ec2.SecurityGroup(this, 'BastionSg', {",
     "const bastionSg = new ec2.CfnSecurityGroup(this, 'BastionSg', {",
@@ -251,7 +258,7 @@ CASES: list[CdkCase] = [
             "`webSg.connections.allowTo(bastionSg, Port.tcp(22))` synthesizes a standalone "
             "ingress with a group source; it is kept as is and the open CIDR rule is fixed.",
             "fix", edits=[(WEB_LINE, WEB_LINE + ALLOW_TO)],
-            template=_peer_group),
+            template=_peer_group, live=PEER_LIVE),
     CdkCase("cdk-sg-allow-from-any", "sg", "ts", "SSH opened with `connections.allowFromAnyIpv4`",
             "The open rule comes from `connections`, with literal ports; it is replaced by "
             "`addIngressRule` calls.", "fix",
