@@ -16,6 +16,7 @@ from typing import Any
 from ruamel.yaml.nodes import MappingNode, Node, ScalarNode, SequenceNode
 
 from posturanet.cfn.locate import CfnResource
+from posturanet.cfn.params import NO_VALUE, Scope, Unresolved, param_stop, unresolved_stop
 from posturanet.cfn.template import (
     Template,
     TemplateError,
@@ -139,11 +140,12 @@ def insert_pairs(text: str, mapping: MappingNode, pairs: list[tuple[str, Any]], 
 
 @dataclass
 class IngressEntry:
-    node: MappingNode  # the inline entry, or the standalone resource's Properties
+    node: Node  # the inline entry, or the standalone resource's Properties
     rules: list[Rule]
     is_open: bool
     description: str | None
     resource: str | None = None  # logical id of a standalone SecurityGroupIngress
+    sources: list[str] = field(default_factory=list)  # parameters/conditions it reads
 
 
 @dataclass
@@ -201,13 +203,25 @@ def owned_ingress(resources: dict[str, Any], sg_id: str, *, strict: bool = False
     return out
 
 
-def _entry(node: Node | None, what: str, resource: str | None = None) -> IngressEntry:
-    v = value(node)
-    if not isinstance(node, MappingNode) or not isinstance(v, dict):
+_RULE_KEYS = ("IpProtocol", "FromPort", "ToPort", "CidrIp", "CidrIpv6")
+
+
+def _entry(node: Node | None, what: str, scope: Scope, resource: str | None = None) -> IngressEntry:
+    try:
+        v, sources = scope.pick(value(node))
+        for k in _RULE_KEYS if isinstance(v, dict) else ():
+            if k in v:
+                r, src = scope.resolve(v[k])
+                sources += src
+                v[k] = r
+                if r is NO_VALUE:
+                    del v[k]
+    except Unresolved as exc:
+        raise unresolved_stop(what, exc) from exc
+    if node is not None and v is NO_VALUE:  # `!If [Cond, {...}, !Ref AWS::NoValue]`, Cond false
+        return IngressEntry(node, [], False, None, resource, sources)
+    if node is None or not isinstance(v, dict) or not (isinstance(node, MappingNode) or sources):
         raise _unsupported(what, unknown=True)
-    for k in ("IpProtocol", "FromPort", "ToPort", "CidrIp", "CidrIpv6"):
-        if is_intrinsic(v.get(k)):
-            raise _unsupported(f"{what} {k}", unknown=True)
     proto = norm_proto(v.get("IpProtocol", ""))
     lo, hi = int(v.get("FromPort", -1)), int(v.get("ToPort", -1))
     cidrs = [str(v[k]) for k in ("CidrIp", "CidrIpv6") if k in v]
@@ -218,6 +232,7 @@ def _entry(node: Node | None, what: str, resource: str | None = None) -> Ingress
         any(c in WORLD for c in cidrs),
         desc if isinstance(desc, str) else None,
         resource,
+        sources,
     )
 
 
@@ -231,10 +246,16 @@ def parse_sg(res: CfnResource) -> CfnSecurityGroup:
     if seq is not None and not isinstance(seq, SequenceNode):
         raise _unsupported(f"{res.logical_id} SecurityGroupIngress")
     items = seq.value if seq is not None else []
-    entries = [_entry(item, f"an ingress entry of {res.logical_id}") for item in items]
+    scope = res.scope
+    entries = [_entry(item, f"an ingress entry of {res.logical_id}", scope) for item in items]
     plain = value(get(t.root, "Resources"))
     for lid in owned_ingress(plain, res.logical_id, strict=True):
-        entries.append(_entry(get(t.resources[lid], "Properties"), lid, lid))
+        node, cond = t.resources[lid], value(get(t.resources[lid], "Condition"))
+        on = scope.condition(str(cond)) if cond is not None else True
+        if on is None:
+            raise unresolved_stop(lid, Unresolved(f"condition {cond} can't be resolved"))
+        if on:  # a false Condition means the stack doesn't create it
+            entries.append(_entry(get(node, "Properties"), lid, scope, lid))
     return CfnSecurityGroup(res, seq, entries)
 
 
@@ -268,6 +289,10 @@ def render_sg(sg: CfnSecurityGroup, synth: Synthesis) -> str:
     open_entries = [e for e in sg.entries if e.is_open]
     if not open_entries:
         return sg.text
+    for e in open_entries:
+        if e.sources:
+            what = e.resource or f"an open ingress entry of {sg.res.logical_id}"
+            raise param_stop(what, e.sources)
     new_items = [_rule_pairs(r, _description(sg, r)) for r in synth.added]
     host = open_entries[0]
     edits: list[Edit] = []
@@ -320,7 +345,7 @@ def _standalone_edits(
     sg: CfnSecurityGroup, host: IngressEntry, new_items: list[list[tuple[str, Any]]]
 ) -> list[Edit]:
     """The host resource carries the first new rule; copies of it, renamed, carry the rest."""
-    assert host.resource is not None
+    assert host.resource is not None and isinstance(host.node, MappingNode)
     t, text, rs = sg.res.template, sg.text, _resources(sg)
     key = key_node(rs, host.resource)
     assert key is not None
@@ -374,7 +399,9 @@ def _inline_edits(
         dash, key_ind = m.group(1), " " * len(prefix)
         lines: list[str] = []
         for pairs in new_items if idx == 0 else []:
-            if e.node.flow_style:  # `- {IpProtocol: tcp, …}`: keep one line per entry
+            if (
+                isinstance(e.node, MappingNode) and e.node.flow_style
+            ):  # `- {IpProtocol: tcp, …}`: keep one line per entry
                 flow = ", ".join(f"{k}: {scalar_text(v, as_json=False)}" for k, v in pairs)
                 lines.append(f"{dash}- {{{flow}}}")
                 continue
@@ -437,16 +464,25 @@ def s3_block_public_access(res: CfnResource) -> tuple[str, list[str], list[str]]
         edit = insert_pairs(text, props, [(PAB, [(n, True) for n in names])], step)
         return apply(text, [edit]), names, []
     if not isinstance(pab, MappingNode):
-        raise _unsupported(f"{res.logical_id} {PAB}")
+        flags, sources = _resolved(res, value(pab), PAB)
+        if isinstance(flags, dict) and all(_true(flags.get(n)) for n in names):
+            return text, [], names
+        if not sources:
+            raise _unsupported(f"{res.logical_id} {PAB}")
+        raise param_stop(f"{res.logical_id} {PAB}", sources)
     edits: list[Edit] = []
     changed, already, missing = [], [], []
     for n in names:
         node = get(pab, n)
-        v = value(node)
-        if node is None:
+        v, sources = _resolved(res, value(node), f"{PAB}.{n}")
+        if node is None or v is NO_VALUE:
+            if sources:  # `!If [Cond, true, !Ref AWS::NoValue]`
+                raise param_stop(f"{res.logical_id} {PAB}.{n}", sources)
             missing.append(n)
-        elif v is True or v == "true":
+        elif _true(v):
             already.append(n)
+        elif sources and (v is False or v == "false"):
+            raise param_stop(f"{res.logical_id} {PAB}.{n}", sources)
         elif isinstance(node, ScalarNode) and (v is False or v == "false"):
             edits.append((start(node), end(node), "true"))
             changed.append(n)
@@ -458,14 +494,31 @@ def s3_block_public_access(res: CfnResource) -> tuple[str, list[str], list[str]]
     return apply(text, edits), changed, already
 
 
+def _true(v: Any) -> bool:
+    return v is True or v == "true"
+
+
+def _resolved(res: CfnResource, v: Any, what: str) -> tuple[Any, list[str]]:
+    try:
+        return res.scope.resolve(v)
+    except Unresolved as exc:
+        raise unresolved_stop(f"{res.logical_id} {what}", exc) from exc
+
+
 def s3_flags(res: CfnResource) -> dict[str, Any]:
-    """Terraform-named flags as set in the template (None when unset, '<unknown>' when not
-    literal), for the S3 gate and re-check."""
-    pab = value(get(res.properties, PAB))
+    """Terraform-named flags as set in the template, with known parameters read (None when
+    unset, '<unknown>' when not known), for the S3 gate and re-check."""
+    try:
+        pab, _ = res.scope.resolve(value(get(res.properties, PAB)))
+    except Unresolved:
+        pab = None
+        unknown = True
+    else:
+        unknown = False
     out: dict[str, Any] = {}
     for tf_name, cfn_name in PAB_FLAGS.items():
         v = pab.get(cfn_name) if isinstance(pab, dict) else None
-        out[tf_name] = "<unknown>" if is_intrinsic(v) or is_intrinsic(pab) else v
+        out[tf_name] = "<unknown>" if unknown else v
     return out
 
 
@@ -479,6 +532,7 @@ class CfnPolicy:
     action_nodes: dict[int, Node]
     doc: MappingNode | None = None
     name: str | None = None  # inline PolicyName (SAM: the generated one); None = whole resource
+    sources: dict[int, list[str]] = field(default_factory=dict)  # parameterised Action lists
 
     @property
     def address(self) -> str:
@@ -609,7 +663,9 @@ def documents(res: CfnResource) -> tuple[list[CfnPolicy], list[str]]:
             )
         key = key_node(get(res.template.root, "Resources"), lid)  # type: ignore[arg-type]
         line = line_of(key) if key is not None else res.line
-        other = CfnResource(res.stack, lid, STANDALONE_POLICY_TYPE, res.template, node, line)
+        other = CfnResource(
+            res.stack, lid, STANDALONE_POLICY_TYPE, res.template, node, line, res.scope
+        )
         found.append(parse_policy(other))
     return found, []
 
@@ -665,6 +721,7 @@ def parse_policy(res: CfnResource, name: str | None = None) -> CfnPolicy:
         raise _iam_unknown(f"{where} Statement is not a literal list")
     statements: list[Statement] = []
     action_nodes: dict[int, Node] = {}
+    sources: dict[int, list[str]] = {}
     text = res.template.text
     for idx, s in enumerate(nodes):
         v = value(s)
@@ -676,8 +733,14 @@ def parse_policy(res: CfnResource, name: str | None = None) -> CfnPolicy:
         action = get(s, "Action")
         actions = None
         if action is not None:
-            actions = _strs(value(action), f"{what} Action")
+            try:
+                raw, src = res.scope.resolve(value(action))
+            except Unresolved as exc:
+                raise unresolved_stop(f"{what} Action", exc) from exc
+            actions = _strs(raw, f"{what} Action")
             action_nodes[idx] = action
+            if src:
+                sources[idx] = src
         res_v = v.get("Resource")
         resources = (
             ["<NotResource>"]
@@ -700,7 +763,7 @@ def parse_policy(res: CfnResource, name: str | None = None) -> CfnPolicy:
                 container=(start(s), end(s)),
             )
         )
-    return CfnPolicy(res, statements, action_nodes, doc, name)
+    return CfnPolicy(res, statements, action_nodes, doc, name, sources)
 
 
 def render_actions(t: Template, node: Node, actions: list[str], step: str) -> str:
@@ -730,6 +793,8 @@ def iam_edit(policy: CfnPolicy, after: dict[int, list[str]]) -> str:
     for i, node in policy.action_nodes.items():
         if i not in after:
             continue
+        if i in policy.sources:
+            raise param_stop(f"{policy.where} statement {i + 1} Action", policy.sources[i])
         new, s = render_actions(t, node, after[i], step), start(node)
         if new.startswith("\n"):  # a block list after `Action:` leaves no trailing space
             s = len(t.text[:s].rstrip(" "))
@@ -855,7 +920,7 @@ def attr_edit(res: CfnResource, fix: ConfigFix) -> tuple[str, list[str], list[st
         except TemplateError as exc:
             raise StageStop("fix", f"the edited template doesn't parse: {exc}") from exc
         cur = CfnResource(
-            res.stack, res.logical_id, res.type, t, t.resources[res.logical_id], res.line
+            res.stack, res.logical_id, res.type, t, t.resources[res.logical_id], res.line, res.scope
         )
         e = _attr_edit(cur, c)
         if e is None:

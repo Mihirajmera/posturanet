@@ -144,8 +144,8 @@ def value(node: Node | None) -> Any:
     if not tag.startswith("!"):
         return out
     name = tag[1:]
-    if name == "Ref":
-        return {"Ref": out}
+    if name in ("Ref", "Condition"):
+        return {name: out}
     if name == "GetAtt" and isinstance(out, str):
         return {"Fn::GetAtt": out.split(".", 1)}
     return {f"Fn::{name}": out}
