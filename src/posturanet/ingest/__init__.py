@@ -2,10 +2,10 @@
 
 A finding file is ASFF (Security Hub), OCSF (Security Hub `get-findings-v2`, Prowler
 `json-ocsf`, Security Lake), a Terraform scanner report (Checkov `-o json`, Trivy
-`config -f json`), or Security Hub remediation plans (FR-4c); the format is detected
-from the content. A file may hold many findings: when exactly one of them is a
-failed finding PosturaNet can fix, that one is used; otherwise `posturanet findings` lists or
-splits them.
+`config -f json`), Security Hub remediation plans (FR-4c), or a Wiz, Orca or Prisma Cloud
+JSON export (FR-4d); the format is detected from the content. A file may hold many findings:
+when exactly one of them is a failed finding PosturaNet can fix, that one is used; otherwise
+`posturanet findings` lists or splits them.
 """
 
 from __future__ import annotations
@@ -18,13 +18,14 @@ from pathlib import Path
 from typing import Any, Literal
 
 from posturanet.errors import StageStop, UsageError
-from posturanet.ingest import asff, iac, ocsf, plans
+from posturanet.ingest import asff, iac, ocsf, plans, vendors
 from posturanet.ingest.asff import parse_asff_file
 from posturanet.ingest.controls import issue_family
 from posturanet.ingest.manual import finding_from_resource_id
+from posturanet.ingest.vendors import Rules
 from posturanet.models import Finding, FixType
 
-Format = Literal["asff", "ocsf", "checkov", "trivy", "plan"]
+Format = Literal["asff", "ocsf", "checkov", "trivy", "plan", "wiz", "orca", "prisma"]
 
 
 @dataclass(frozen=True)
@@ -69,21 +70,32 @@ def issue_of(f: Finding) -> tuple[str, str, str]:
     return issue_family(f.control_id), account, parts[-1].rsplit("/", 1)[-1]
 
 
-def read_findings(path: Path) -> FindingsFile:
+def read_findings(path: Path, rules: Rules | None = None) -> FindingsFile:
+    """`rules`: the customer's vendor rule -> control mappings (`detectors.<vendor>.rules`)."""
     if not path.is_file():
         raise UsageError(f"finding file not found: {path}")
     raw = path.read_bytes()
     try:
         doc = json.loads(raw)
     except json.JSONDecodeError as exc:
+        if _looks_like_csv(raw):
+            raise UsageError(
+                f"{path} looks like a CSV export. PosturaNet reads Wiz, Orca and Prisma Cloud "
+                "findings as JSON from their APIs only: none of them documents its CSV columns, "
+                "and PosturaNet doesn't guess them"
+            ) from exc
         raise UsageError(f"{path} is not valid JSON: {exc.msg} (line {exc.lineno})") from exc
     sha = hashlib.sha256(raw).hexdigest()
     fmt, items = _items(doc)
-    entries = [_entry(i, item, fmt, sha) for i, item in enumerate(items)]
+    entries = [_entry(i, item, fmt, sha, rules) for i, item in enumerate(items)]
     return FindingsFile(path=path, format=fmt, raw_sha256=sha, entries=entries)
 
 
-def parse_item(item: dict[str, Any], fmt: Format, *, raw_sha256: str) -> Finding:
+def parse_item(
+    item: dict[str, Any], fmt: Format, *, raw_sha256: str, rules: Rules | None = None
+) -> Finding:
+    if fmt == "wiz" or fmt == "orca" or fmt == "prisma":
+        return vendors.parse_item(item, fmt, raw_sha256=raw_sha256, rules=rules)
     if fmt == "ocsf":
         return ocsf.parse_ocsf_item(item, raw_sha256=raw_sha256)
     if fmt == "checkov":
@@ -103,20 +115,25 @@ def document_for(item: dict[str, Any], fmt: Format) -> Any:
         return iac.trivy_document(item)
     if fmt == "ocsf":
         return item
+    if fmt == "wiz" or fmt == "orca" or fmt == "prisma":
+        return vendors.document_for(item, fmt)
     if fmt == "plan":
         return plans.plan_document(item)
     return {"Findings": [item]}
 
 
-def ingest(target: str) -> Finding:
-    """`target` is a finding file (ASFF, OCSF, Checkov or Trivy JSON), or a resource id
-    such as `sg-0a91f3c2`."""
+def ingest(target: str, rules: Rules | None = None) -> Finding:
+    """`target` is a finding file (ASFF, OCSF, Checkov, Trivy, Wiz, Orca or Prisma Cloud
+    JSON), or a resource id such as `sg-0a91f3c2`."""
     path = Path(target)
     if not (path.suffix.lower() == ".json" or path.is_file()):
         return finding_from_resource_id(target)
-    found = read_findings(path)
+    found = read_findings(path, rules)
     if len(found.entries) == 1:
-        return parse_item(found.entries[0].item, found.format, raw_sha256=found.raw_sha256)
+        e = found.entries[0]
+        if e.finding is not None and e.reason:  # an unmapped vendor rule
+            raise StageStop("ingest", e.reason, [f"see `posturanet findings list {path} --all`"])
+        return parse_item(e.item, found.format, raw_sha256=found.raw_sha256, rules=rules)
     if not found.entries:
         raise UsageError(f"{path} holds no failed findings: nothing to fix")
     fixable = found.fixable
@@ -132,6 +149,9 @@ def ingest(target: str) -> Finding:
 def _items(doc: Any) -> tuple[Format, list[dict[str, Any]]]:
     if plans.looks_like_plans(doc):
         return "plan", plans.plan_items(doc)
+    vendor = vendors.detect(doc)
+    if vendor is not None:
+        return vendor
     doc = ocsf.unwrap(doc)  # get-findings-v2 output and EventBridge events hold OCSF
     if isinstance(doc, dict) and "Findings" in doc:
         return "asff", asff.findings_in(doc)
@@ -145,16 +165,28 @@ def _items(doc: Any) -> tuple[Format, list[dict[str, Any]]]:
     return "asff", asff.findings_in(doc)
 
 
-def _entry(index: int, item: dict[str, Any], fmt: Format, sha: str) -> Entry:
+def _entry(index: int, item: dict[str, Any], fmt: Format, sha: str, rules: Rules | None) -> Entry:
     try:
-        finding = parse_item(item, fmt, raw_sha256=sha)
-        return Entry(index, item, finding, None, finding.control_id)
+        finding = parse_item(item, fmt, raw_sha256=sha, rules=rules)
+        reason = None
+        if (fmt == "wiz" or fmt == "orca" or fmt == "prisma") and finding.control_id == (
+            rule := vendors.rule_id_of(item, fmt)
+        ):
+            reason = vendors.unmapped_reason(fmt, rule)  # G4: unmapped still ends in an outcome
+        return Entry(index, item, finding, reason, finding.control_id)
     except StageStop as exc:
         control = None
         if fmt == "ocsf":
             with contextlib.suppress(StageStop):
                 control = ocsf.control_id_of(item)
+        elif fmt == "wiz" or fmt == "orca" or fmt == "prisma":
+            control = vendors.rule_id_of(item, fmt) or None
         return Entry(index, item, None, exc.reason, control)
+
+
+def _looks_like_csv(raw: bytes) -> bool:
+    head = raw.removeprefix(b"\xef\xbb\xbf").split(b"\n", 1)[0]
+    return b"," in head and not head.lstrip().startswith((b"{", b"["))
 
 
 __all__ = [

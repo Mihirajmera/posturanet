@@ -108,6 +108,20 @@ class DeliveryConfig(_Strict):
     max_open_prs: int = Field(default=5, ge=1)
 
 
+class DetectorConfig(_Strict):
+    # vendor rule id -> PosturaNet control (FR-4d). PosturaNet ships no such table.
+    rules: dict[str, str] = Field(default_factory=dict)
+
+
+class DetectorsConfig(_Strict):
+    wiz: DetectorConfig = Field(default_factory=DetectorConfig)
+    orca: DetectorConfig = Field(default_factory=DetectorConfig)
+    prisma: DetectorConfig = Field(default_factory=DetectorConfig)
+
+    def rules(self) -> dict[str, dict[str, str]]:
+        return {"wiz": self.wiz.rules, "orca": self.orca.rules, "prisma": self.prisma.rules}
+
+
 class OutcomeShareConfig(_Strict):
     # Opt-in (FR-45a, golden rule 6). No default endpoint: the receiving service isn't built.
     enabled: bool = False
@@ -130,6 +144,7 @@ class Config(_Strict):
     synthesis: SynthesisConfig = Field(default_factory=SynthesisConfig)
     validation: ValidationConfig = Field(default_factory=ValidationConfig)
     delivery: DeliveryConfig = Field(default_factory=DeliveryConfig)
+    detectors: DetectorsConfig = Field(default_factory=DetectorsConfig)
     outcome_share: OutcomeShareConfig = Field(default_factory=OutcomeShareConfig)
 
     @model_validator(mode="after")

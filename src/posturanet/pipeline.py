@@ -154,7 +154,7 @@ def _run(
     target: str, repo: Path, config: Config, ctx: Context, record: RunRecord
 ) -> tuple[RunRecord, Proposal | None]:
     # --- ingest
-    finding = ingest(target)
+    finding = ingest(target, config.detectors.rules())
     record.finding = finding
     if cdk.is_cdk(repo, config):
         return _run_cfn_dispatch(finding, repo, config, ctx, record, iac="cdk")

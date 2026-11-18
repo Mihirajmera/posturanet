@@ -9,7 +9,7 @@ If this file conflicts with an older document anywhere else in the repo, **this 
 ## Part 1: Building PosturaNet
 
 ### 1.1 What this project is (30 seconds)
-- **PosturaNet** (always spelled "PosturaNet", never "Postura") is the **remediation layer** for cloud security: it sits after every detector (Security Hub, Prowler, Checkov, Trivy) and every AI coding agent, on AWS with Terraform, CloudFormation, CDK and Pulumi (§1.4). Every failed finding must end in an outcome: a fix PR, a runbook, an accepted exception, or a stated reason (PRD §1, G4).
+- **PosturaNet** (always spelled "PosturaNet", never "Postura") is the **remediation layer** for cloud security: it sits after every detector (Security Hub, Prowler, Checkov, Trivy, Wiz, Orca, Prisma Cloud) and every AI coding agent, on AWS with Terraform, CloudFormation, CDK and Pulumi (§1.4). Every failed finding must end in an outcome: a fix PR, a runbook, an accepted exception, or a stated reason (PRD §1, G4).
 - Finding in → owner and code located → **usage evidence** (flow logs / CloudTrail) → **behavior contract** → **computed minimal fix** (Z3) → validated **GitHub PR** → post-merge **verification** → signed **audit evidence** (paid).
 - Runs in the **customer's CI or laptop**, with a **read-only** AWS role and the **customer's LLM**. It **never writes to production**. Humans merge.
 - Source-available core under FSL-1.1-ALv2 (free to use, no competing products; each version becomes Apache 2.0 after two years) in `posturanet/`. Paid features live in a separate `posturanet-pro` package, unlocked by a signed license key.
