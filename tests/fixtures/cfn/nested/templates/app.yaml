@@ -1,0 +1,17 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Synthetic parent stack for PosturaNet tests (RFC 1918 / RFC 5737 only).
+
+Parameters:
+  Env:
+    Type: String
+    Default: prod
+    AllowedValues: [prod, dev]
+
+Resources:
+  NetworkStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: nested/network.yaml
+      Parameters:
+        Env: !Ref Env
+        MonitoringCidr: 10.0.0.0/16

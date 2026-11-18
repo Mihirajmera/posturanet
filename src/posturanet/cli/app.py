@@ -53,6 +53,10 @@ findings_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(findings_app, name="findings")
+outcomes_app = typer.Typer(
+    help="The opt-in outcome share: what it would send.", no_args_is_help=True
+)
+app.add_typer(outcomes_app, name="outcomes")
 
 
 class OutputFormat(StrEnum):
@@ -966,7 +970,40 @@ def verify(
         record = run_verify(pr, repo, config, ctx)
     except PosturaNetError as exc:
         raise _fail(exc) from exc
+    share = config.outcome_share
+    if share.enabled and share.endpoint:  # FR-45a: opt-in, best-effort, exit code unchanged
+        from posturanet.outcome_share import share as send_share
+
+        warning = send_share(record, share.endpoint)
+        if warning:
+            typer.echo(f"warning: {warning}", err=True)
     _emit(record, output_format, ascii_mode)
+
+
+@outcomes_app.command("preview", epilog=_examples(
+    ("posturanet verify owner/repo#123 --repo infra/ --format json > run.json", "save a verify run"),  # noqa: E501 (copyable example)
+    ("posturanet outcomes preview run.json", "exactly what outcome_share.enabled would send"),
+))  # fmt: skip
+def outcomes_preview(
+    runs: Annotated[
+        list[Path], typer.Argument(help="Verify run records (`posturanet verify --format json`).")
+    ],
+) -> None:
+    """Print the outcome-share records these verify runs would send. Sends nothing."""
+    from pydantic import ValidationError
+
+    from posturanet.outcome_share import record_for
+
+    for path in runs:
+        try:
+            run = RunRecord.model_validate_json(path.read_text(encoding="utf-8"))
+        except (OSError, ValidationError) as exc:
+            raise _fail(UsageError(f"{path}: not a PosturaNet run record: {exc}")) from exc
+        rec, why = record_for(run)
+        if rec is None:
+            typer.echo(f"{path.name}: nothing would be sent: {why}", err=True)
+        else:
+            console.write(rec.model_dump_json() + "\n")
 
 
 @app.command(epilog=_examples(
