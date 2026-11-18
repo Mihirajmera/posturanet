@@ -14,7 +14,8 @@ Two inputs:
 - `check_source`: the HCL in the working tree. Offline and fast, for editor and agent hooks;
   only literal values can be judged, everything else is UNKNOWN. CloudFormation contracts are
   judged from the template; CDK contracts from the synthesized template (`cdk.assembly`, or
-  `cdk synth --no-lookups` with no AWS credentials).
+  `cdk synth --no-lookups` with no AWS credentials); Pulumi contracts from the program's
+  literals, mapped through `pulumi.stack_export`.
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ from pydantic import BaseModel, ValidationError
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
-from posturanet import cdk, cfn
+from posturanet import cdk, cfn, pulumi
 from posturanet.cfn import template as cfn_template
 from posturanet.configfix.hcl_attrs import ABSENT, BLOCK, Unsupported, lookup, resource_block
 from posturanet.errors import StageStop
@@ -375,9 +376,17 @@ def check_source(repo: Path, config: Config, files: list[Path] | None = None) ->
         results += _unreadable_templates(repo, files or [])
     with ExitStack() as stack:
         assembly: list[tuple[Path, str] | str] = []  # synthesized once, on first use
+        export: list[pulumi.stack.Export | str] = []  # read once, on first use
         for loaded in contracts:
             c = loaded.contract
-            if cdk.split_address(c.resource):
+            if pulumi.split_address(c.resource):
+                if not export:
+                    try:
+                        export.append(pulumi.load_export(repo, config, None))
+                    except StageStop as exc:
+                        export.append(exc.reason)
+                res = _source_pulumi(loaded, repo, config, wanted, export[0])
+            elif cdk.split_address(c.resource):
                 if not assembly:
                     try:
                         found = stack.enter_context(cdk.assembly(repo, config, None, dry=False))
@@ -590,6 +599,56 @@ def _source_cdk(
     if not _in_scope(repo, file_rel, wanted):
         return None
     return _judge_template(result, loaded, target.res)
+
+
+def _source_pulumi(
+    loaded: _Loaded,
+    repo: Path,
+    config: Config,
+    wanted: set[Path] | None,
+    export: pulumi.stack.Export | str,
+) -> ContractResult | None:
+    """A contract on a Pulumi resource, judged from the literals in the program (as the
+    working tree has them); the stack export only maps the address to the code."""
+    c = loaded.contract
+    result = ContractResult(c.resource, loaded.rel, "PASS", subject=_subject(c))
+    try:
+        target = (
+            export
+            if isinstance(export, str)
+            else pulumi.resolve_address(repo, config, c.resource, export)
+        )
+    except StageStop as exc:
+        target = exc.reason
+    if isinstance(target, str):
+        # an edit to any program file may be what broke the mapping: UNKNOWN, never a silent PASS
+        return (
+            _finish(result, loaded, [], [target], [])
+            if _touches_program(repo, config, wanted)
+            else None
+        )
+    file_rel = target.construct.file.resolve().relative_to(repo.resolve()).as_posix()
+    result.source_file, result.source_line = file_rel, target.construct.line
+    if wanted is not None and not {p.construct.file.resolve() for p in target.parts()} & wanted:
+        return None
+    judged = _judge_template(result, loaded, target.res)
+    if isinstance(c, S3Contract) and pulumi.stack.bucket_policies(target):
+        judged.reasons.append(
+            "the program has aws.s3.BucketPolicy resources; PosturaNet doesn't judge their "
+            "statements on Pulumi programs yet"
+        )
+        judged.status = "BLOCK" if judged.status == "BLOCK" else "UNKNOWN"
+    return judged
+
+
+def _touches_program(repo: Path, config: Config, wanted: set[Path] | None) -> bool:
+    if wanted is None:
+        return True
+    try:
+        files = pulumi.stack.program(repo, config).files()
+    except StageStop:
+        return True
+    return any(f.resolve() in wanted for f in files)
 
 
 def _judge_template(

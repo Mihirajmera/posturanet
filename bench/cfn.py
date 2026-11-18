@@ -318,7 +318,33 @@ def _aws(case: CfnCase) -> Any:
         def describe_security_groups(self, **kw: Any) -> dict[str, Any]:
             return {"SecurityGroups": [{"GroupId": kw["GroupIds"][0], "IpPermissions": live}]}
 
+        # The live bucket and policy match the deployed template.
+        def get_public_access_block(self, **kw: Any) -> dict[str, Any]:
+            props = _deployed(body, "AWS::S3::Bucket")
+            if "PublicAccessBlockConfiguration" not in props:
+                raise _NoPab
+            return {"PublicAccessBlockConfiguration": props["PublicAccessBlockConfiguration"]}
+
+        def get_policy(self, **kw: Any) -> dict[str, Any]:
+            return {"Policy": {"DefaultVersionId": "v1"}}
+
+        def get_policy_version(self, **kw: Any) -> dict[str, Any]:
+            doc = _deployed(body, "AWS::IAM::ManagedPolicy")["PolicyDocument"]
+            return {"PolicyVersion": {"Document": doc}}
+
     return lambda service: ReadOnlyClient(Fake(), service)
+
+
+class _NoPab(Exception):
+    response = {"Error": {"Code": "NoSuchPublicAccessBlockConfiguration"}}  # noqa: RUF012
+
+
+def _deployed(body: str, rtype: str) -> dict[str, Any]:
+    resources = value(get(parse(body, Path("deployed.yaml")).root, "Resources"))
+    props: dict[str, Any] = next(
+        r.get("Properties", {}) for r in resources.values() if r["Type"] == rtype
+    )
+    return props
 
 
 def _score(case: CfnCase, new: str | None, file: str, note: str) -> Result:
@@ -328,8 +354,13 @@ def _score(case: CfnCase, new: str | None, file: str, note: str) -> Result:
     t = parse(new, Path(file))
     node = t.resources[logical]
     res = cfn.CfnResource(stack, logical, value(get(node, "Type")), t, node, 1)
-    out = Result("PosturaNet", "FIXED", case.expect, note=note)
-    if case.family == "sg":
+    return score(case.family, case.expect, res, note)
+
+
+def score(family: Family, expect: Expect, res: cfn.CfnResource, note: str) -> Result:
+    """A validated fix, scored on the edited resource against the family's ground truth."""
+    out = Result("PosturaNet", "FIXED", expect, note=note)
+    if family == "sg":
         rules = cfn.parse_sg(res).rules()
 
         def admitted(ip: str, port: int) -> bool:
@@ -339,7 +370,7 @@ def _score(case: CfnCase, new: str | None, file: str, note: str) -> Result:
         out.allowed = [r.label() for r in rules]
         out.broken = [f"{ip}:{p}" for ip, p in SG_LEGIT if not admitted(ip, p)]
         out.exposed = [f"{ip}:{p}" for ip, p in SG_HOSTILE if admitted(ip, p)]
-    elif case.family == "s3":
+    elif family == "s3":
         flags = cfn.s3_flags(res)
         out.exposed = [k for k, v in flags.items() if v is not True]
         out.allowed = ["Block Public Access: " + ("all on" if not out.exposed else "partial")]

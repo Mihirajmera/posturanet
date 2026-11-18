@@ -150,6 +150,17 @@ drift. `cdk synth` is a bench stand-in (`MiniSynth`) that copies the app's cloud
 rewrites the target from the edited program with its own regexes, not PosturaNet's parser.
 Fixes are scored on that synthesized resource, and wrongly reported safe must be 0 here too.
 
+## Pulumi family
+
+[`pulumi.py`](pulumi.py) runs the same three fixes on the TypeScript and Python programs in
+`tests/fixtures/pulumi/`, mapped through their synthetic `pulumi stack export`. No AWS doubles
+are needed: nothing in the Pulumi path calls AWS. Per fix type: a fix in each language, and
+traps that must stop: a computed value in the field the fix edits, a resource inside a
+component, a name used twice, an ingress rule written but not deployed, a fix that needs a new
+resource, a program that differs from the export, and drift between the export's inputs and
+outputs. Fixes are scored on the edited program's literals. `python -m bench` exits 1 if this
+family reports anything **wrongly safe**.
+
 ## Limits
 
 - CDK: no real `cdk synth` yet (aws-cdk isn't installed in CI); `MiniSynth` reads only the

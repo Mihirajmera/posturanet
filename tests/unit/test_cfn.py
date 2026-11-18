@@ -19,6 +19,7 @@ from posturanet.errors import StageStop
 from posturanet.evidence import FileSource
 from posturanet.gate import check_source
 from posturanet.ingest import ingest
+from posturanet.models import CheckResult
 from posturanet.models.config import Config, load_config
 from posturanet.pipeline import Context, run_fix, run_fix_full
 
@@ -70,7 +71,30 @@ def _fake_aws(body: str, ingress: list[dict[str, Any]] | None = None) -> Any:
             perms = LIVE_BASTION if ingress is None else ingress
             return {"SecurityGroups": [{"GroupId": "sg-0a91f3c2", "IpPermissions": perms}]}
 
+        def get_public_access_block(self, **kw: Any) -> dict[str, Any]:
+            raise NoPab()  # the deployed bucket has no Block Public Access configuration
+
+        def get_policy(self, **kw: Any) -> dict[str, Any]:
+            return {"Policy": {"DefaultVersionId": "v1"}}
+
+        def get_policy_version(self, **kw: Any) -> dict[str, Any]:
+            return {"PolicyVersion": {"Document": _deployed_policy(body)}}
+
     return lambda service: ReadOnlyClient(Fake(), service)
+
+
+class NoPab(Exception):
+    response = {"Error": {"Code": "NoSuchPublicAccessBlockConfiguration"}}  # noqa: RUF012
+
+
+def _deployed_policy(body: Any) -> Any:
+    """The PolicyDocument of the deployed template's managed policy, as IAM would return it."""
+    doc = body if isinstance(body, dict) else value(parse(body, Path("deployed.yaml")).root)
+    return next(
+        r["Properties"]["PolicyDocument"]
+        for r in doc["Resources"].values()
+        if r["Type"] == "AWS::IAM::ManagedPolicy"
+    )
 
 
 def _ctx(evidence: Path, **kw: Any) -> Context:
@@ -588,3 +612,105 @@ def test_mcp_check_change_on_template_files(repo: Path) -> None:
     (repo / "notes.json").write_text('{"a": 1}', "utf-8")
     result = check_change(repo=str(repo), files=["notes.json"])
     assert result["status"] == "PASS" and result["results"] == []
+
+
+# --- live drift: S3 Block Public Access and managed policies
+
+
+def _live(repo: Path, template: str, **methods: Any) -> Any:
+    """Fake clients: the deployed template is the repo's, the live reads are `methods`."""
+    body = (repo / template).read_text("utf-8")
+    fake = type("Fake", (), {k: staticmethod(v) for k, v in methods.items()})
+    fake.get_template = staticmethod(lambda **kw: {"TemplateBody": body})  # type: ignore[attr-defined]
+    fake.describe_stack_resources = staticmethod(  # type: ignore[attr-defined]
+        lambda **kw: json.loads((CFN / "stack-resources.json").read_text("utf-8"))
+    )
+    return lambda service: ReadOnlyClient(fake(), service)
+
+
+def test_drift_compares_the_live_bucket(repo: Path) -> None:
+    from posturanet.cfn.validate import drift
+
+    res = _res(repo, "storage", "AssetsBucket")
+
+    def none(**kw: Any) -> Any:
+        assert kw == {"Bucket": "acme-assets"}
+        raise NoPab()
+
+    check = drift(res, _live(repo, "templates/storage.yaml", get_public_access_block=none), False)
+    assert check.result is CheckResult.PASS, check.detail
+    assert "live bucket acme-assets Block Public Access matches" in check.detail
+
+    def blocked(**kw: Any) -> Any:  # someone turned two flags on in the console
+        conf = {"BlockPublicAcls": True, "IgnorePublicAcls": True}
+        return {"PublicAccessBlockConfiguration": conf}
+
+    check = drift(
+        res, _live(repo, "templates/storage.yaml", get_public_access_block=blocked), False
+    )
+    assert check.result is CheckResult.FAIL
+    assert "(BlockPublicAcls, IgnorePublicAcls)" in check.detail
+
+    def denied(**kw: Any) -> Any:
+        raise RuntimeError("AccessDenied")
+
+    check = drift(res, _live(repo, "templates/storage.yaml", get_public_access_block=denied), False)
+    assert check.result is CheckResult.ERROR and "AccessDenied" in check.detail
+
+
+def test_drift_compares_the_live_policy_actions(repo: Path) -> None:
+    from urllib.parse import quote
+
+    from posturanet.cfn.validate import drift
+
+    res = _res(repo, "iam", "AppPolicy")
+    doc = value(parse((repo / "templates/iam.json").read_text("utf-8"), Path("t.json")).root)
+    planned = doc["Resources"]["AppPolicy"]["Properties"]["PolicyDocument"]
+    calls: list[dict[str, Any]] = []
+
+    def policy(**kw: Any) -> Any:
+        assert kw == {"PolicyArn": "arn:aws:iam::123456789012:policy/app"}
+        return {"Policy": {"DefaultVersionId": "v3"}}
+
+    def version(document: Any) -> Any:
+        def get(**kw: Any) -> Any:
+            calls.append(kw)
+            return {"PolicyVersion": {"Document": document}}
+
+        return get
+
+    # The API's URL-encoded form, with actions in another order and case: still a match.
+    same = json.loads(json.dumps(planned))
+    for st in same["Statement"]:
+        st["Action"] = (
+            sorted(st["Action"], reverse=True)
+            if isinstance(st["Action"], list)
+            else st["Action"].upper()
+        )
+    aws = _live(repo, "templates/iam.json", get_policy=policy,
+                get_policy_version=version(quote(json.dumps(same))))  # fmt: skip
+    check = drift(res, aws, False)
+    assert check.result is CheckResult.PASS, check.detail
+    assert calls == [{"PolicyArn": "arn:aws:iam::123456789012:policy/app", "VersionId": "v3"}]
+
+    widened = json.loads(json.dumps(planned))
+    widened["Statement"].append({"Effect": "Allow", "Action": "s3:*", "Resource": "*"})
+    aws = _live(repo, "templates/iam.json", get_policy=policy,
+                get_policy_version=version(widened))  # fmt: skip
+    check = drift(res, aws, False)
+    assert check.result is CheckResult.FAIL and "has other actions than AppPolicy" in check.detail
+
+
+def test_live_reads_are_read_only_and_in_the_policy() -> None:
+    from posturanet.aws.readonly import iam_action, iam_policy, is_allowed
+
+    for service, method in [
+        ("s3", "get_public_access_block"),
+        ("iam", "get_policy"),
+        ("iam", "get_policy_version"),
+    ]:
+        action = iam_action(service, method)
+        assert is_allowed(action), action
+    assert iam_action("s3", "get_public_access_block") == "s3:GetBucketPublicAccessBlock"
+    actions = iam_policy()["Statement"][0]["Action"]
+    assert "s3:GetBucketPublicAccessBlock" in actions and "iam:Get*" in actions
