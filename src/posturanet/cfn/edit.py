@@ -783,14 +783,15 @@ def attr_applies(res: CfnResource, fix: ConfigFix) -> tuple[bool, str]:
     return True, ""
 
 
+def attr_value(res: CfnResource, c: Change) -> Any:
+    """The property `c` changes, as a value `c.satisfied_by` can judge; None when absent."""
+    present, v = _prop(res, c.path)
+    return _literal(res, c, v) if present else None
+
+
 def attr_unmet(res: CfnResource, fix: ConfigFix) -> list[str]:
     """The changes the resource doesn't meet yet."""
-    unmet = []
-    for c in fix.changes:
-        present, v = _prop(res, c.path)
-        if not present or not c.satisfied_by(_literal(res, c, v)):
-            unmet.append(c.describe())
-    return unmet
+    return [c.describe() for c in fix.changes if not c.satisfied_by(attr_value(res, c))]
 
 
 def _nest(parts: list[str], v: Any) -> list[tuple[str, Any]]:

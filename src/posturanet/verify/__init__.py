@@ -476,6 +476,10 @@ def _cfn_attrs(
             cfn.parse_policy(res)  # stops on anything that isn't a literal statement list
             doc = cfn_template.value(cfn_template.get(res.properties, "PolicyDocument"))
             return {"policy": json.dumps(doc)}, label
+        if spec.fix_type == "config_attribute":
+            # Keyed by the change's own CloudFormation path; _not_applied reads them back.
+            changes = [Change.model_validate(c) for c in spec.changes]
+            return {c.path: cfn.attr_value(res, c) for c in changes}, label
         return dict(cfn.s3_flags(res)), label
     except StageStop as stop:
         raise StageStop("applied", stop.reason, stop.next_steps, unknown=True) from stop
@@ -531,7 +535,7 @@ def _not_applied(spec: VerifySpec, attrs: dict[str, object]) -> str:
         return f"{len(missing)} new action(s) not in the policy yet" if missing else ""
     for raw in spec.changes:
         change = Change.model_validate(raw)
-        value = get_path(attrs, change.path)
+        value = attrs[change.path] if change.path in attrs else get_path(attrs, change.path)
         if not change.satisfied_by(value):
             return f"{change.path} is {value!r}"
     return ""
