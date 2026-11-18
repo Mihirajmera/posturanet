@@ -30,7 +30,7 @@
         "broken": [],
         "expect": "stop",
         "exposed": [],
-        "note": "fix fail: statement 1 Action is not a literal value; PosturaNet won't guess it",
+        "note": "fix unknown: AppPolicy statement 1 Action: parameter ExtraAction has no known value; PosturaNet won't guess it",
         "status": "STOPPED",
         "tool": "PosturaNet",
         "verdict": "STOPPED"
@@ -126,7 +126,7 @@
         "broken": [],
         "expect": "stop",
         "exposed": [],
-        "note": "fix fail: AssetsBucket PublicAccessBlockConfiguration.BlockPublicAcls is not a literal value; PosturaNet won't guess it",
+        "note": "fix unknown: the fix must change AssetsBucket PublicAccessBlockConfiguration.BlockPublicAcls, which comes from parameter Block; PosturaNet never rewrites a parameterised value",
         "status": "STOPPED",
         "tool": "PosturaNet",
         "verdict": "STOPPED"
@@ -204,7 +204,7 @@
         "broken": [],
         "expect": "stop",
         "exposed": [],
-        "note": "fix fail: BastionSG ingress CidrIp is not a literal value; PosturaNet won't guess it",
+        "note": "fix unknown: the fix must change an open ingress entry of BastionSG, which comes from parameter AdminCidr; PosturaNet never rewrites a parameterised value",
         "status": "STOPPED",
         "tool": "PosturaNet",
         "verdict": "STOPPED"

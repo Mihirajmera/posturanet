@@ -102,6 +102,26 @@ In Claude Code, add the plugin (skill, MCP server and a hook that checks every `
 /plugin install posturanet@posturanet
 ```
 
+### 8. Share outcomes (opt-in, off by default)
+PosturaNet sends nothing about your fixes unless you turn this on. With it on, each `posturanet verify` that ends CONFIRMED or REGRESSED sends one record with five fields, so we can learn which fixes break production across customers:
+
+```json
+{"control":"EC2.19","fix_type":"sg_ingress","outcome":"held","evidence_days":3,"agent_version":"0.3.0"}
+```
+
+Never sent: resource ids, ARNs, IPs, account ids, names, code, Terraform state, contracts or finding text. A control id that isn't in the `SERVICE.N` form is not sent at all. See exactly what would go out before you turn it on:
+```bash
+posturanet verify owner/repo#123 --repo infra/ --format json > run.json
+posturanet outcomes preview run.json                             # prints the record; sends nothing
+```
+To turn it on, add to `.posturanet.yml`:
+```yaml
+outcome_share:
+  enabled: true
+  endpoint: https://…            # required; PosturaNet ships no default
+```
+The receiving service isn't live yet, so there is no endpoint to point at today. Sending is best-effort: a timeout or no network prints a warning and never changes verify's exit code.
+
 ## Try it offline (no AWS)
 From a clone of this repo:
 ```bash

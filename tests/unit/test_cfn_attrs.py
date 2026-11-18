@@ -59,8 +59,95 @@ def test_cfn_mapping_is_complete_or_absent() -> None:
         assert row.resource_type.startswith("AWS::")
         assert all(c.path[0].isupper() for c in row.changes), f.control
     # No CloudFormation property for these: they stop with UNKNOWN on templates.
-    for control in ("ELB.4", "EC2.8", "EKS.8", "S3.17", "CloudTrail.1", "IAM.7"):
+    for control in ("ELB.14", "EC2.8", "EKS.8", "S3.17", "CloudTrail.1", "IAM.7"):
         assert all(f.for_cfn() is None for f in fixes_for(control)), control
+
+
+ALB = "AWS::ElasticLoadBalancingV2::LoadBalancer"
+ALB_HEAD = f"Resources:\n  R:\n    Type: {ALB}\n    Properties:\n      Subnets: [a, b]\n"
+
+
+def test_alb_attribute_list_added_in_block_yaml(tmp_path: Path) -> None:
+    new, changed, _ = attr_edit(_res(tmp_path, ALB_HEAD), _row("ELB.6"))
+    assert new == ALB_HEAD + (
+        "      LoadBalancerAttributes:\n"
+        "        - Key: deletion_protection.enabled\n"
+        '          Value: "true"\n'
+    )
+    assert changed == ["LoadBalancerAttributes[deletion_protection.enabled] = true"]
+
+
+def test_alb_attribute_item_appended_and_value_flipped(tmp_path: Path) -> None:
+    text = ALB_HEAD + (
+        "      LoadBalancerAttributes:\n"
+        "        - Key: idle_timeout.timeout_seconds\n"
+        '          Value: "60"\n'
+        "        - Key: routing.http.drop_invalid_header_fields.enabled\n"
+        "          Value: false # keep me\n"
+    )
+    new, _, _ = attr_edit(_res(tmp_path, text), _row("ELB.4"))
+    assert new == text.replace("Value: false # keep", 'Value: "true" # keep')
+    new, _, _ = attr_edit(_res(tmp_path, text), _row("ELB.12"))
+    assert new == text + (
+        "        - Key: routing.http.desync_mitigation_mode\n          Value: defensive\n"
+    )
+    attrs = _props(new)["LoadBalancerAttributes"]
+    assert attrs[-1] == {"Key": "routing.http.desync_mitigation_mode", "Value": "defensive"}
+
+
+def test_alb_attribute_already_met_as_string(tmp_path: Path) -> None:
+    text = ALB_HEAD + (
+        '      LoadBalancerAttributes:\n        - {Key: deletion_protection.enabled, Value: "true"}\n'
+    )
+    res = _res(tmp_path, text)
+    assert attr_unmet(res, _row("ELB.6")) == []
+    new, changed, already = attr_edit(res, _row("ELB.6"))
+    assert new == text and changed == [] and len(already) == 1
+
+
+def test_alb_attribute_json(tmp_path: Path) -> None:
+    props: dict[str, Any] = {
+        "LoadBalancerAttributes": [{"Key": "idle_timeout.timeout_seconds", "Value": "60"}]
+    }
+    doc = {"Resources": {"R": {"Type": ALB, "Properties": props}}}
+    new, _, _ = attr_edit(_res(tmp_path, json.dumps(doc, indent=2), name="t.json"), _row("ELB.6"))
+    attrs = json.loads(new)["Resources"]["R"]["Properties"]["LoadBalancerAttributes"]
+    assert attrs[-1] == {"Key": "deletion_protection.enabled", "Value": "true"}
+    props.clear()
+    props["Name"] = "web"
+    new, _, _ = attr_edit(_res(tmp_path, json.dumps(doc, indent=2), name="t.json"), _row("ELB.6"))
+    attrs = json.loads(new)["Resources"]["R"]["Properties"]["LoadBalancerAttributes"]
+    assert attrs == [{"Key": "deletion_protection.enabled", "Value": "true"}]
+
+
+@pytest.mark.parametrize(
+    "attrs",
+    ["!Ref Attrs", "\n        - !If [C, {Key: deletion_protection.enabled, Value: x}, !Ref N]"],
+)
+def test_alb_attribute_intrinsic_stops(tmp_path: Path, attrs: str) -> None:
+    text = ALB_HEAD + f"      LoadBalancerAttributes: {attrs}\n"
+    with pytest.raises(StageStop):
+        attr_edit(_res(tmp_path, text), _row("ELB.6"))
+
+
+def test_network_load_balancer_is_not_touched(tmp_path: Path) -> None:
+    text = ALB_HEAD + "      Type: network\n"
+    with pytest.raises(StageStop, match="doesn't apply"):
+        attr_edit(_res(tmp_path, text), _row("ELB.4"))
+
+
+def test_ecs_service_uses_the_cloudformation_value(tmp_path: Path) -> None:
+    text = (
+        "Resources:\n  R:\n    Type: AWS::ECS::Service\n    Properties:\n"
+        "      NetworkConfiguration:\n        AwsvpcConfiguration:\n"
+        "          AssignPublicIp: ENABLED\n          Subnets: [a]\n"
+    )
+    new, changed, _ = attr_edit(_res(tmp_path, text), _row("ECS.2"))
+    assert new == text.replace("ENABLED", "DISABLED")
+    assert changed == ['NetworkConfiguration.AwsvpcConfiguration.AssignPublicIp = "DISABLED"']
+    bare = "Resources:\n  R:\n    Type: AWS::ECS::Service\n    Properties:\n      Cluster: c\n"
+    with pytest.raises(StageStop, match="doesn't apply"):
+        attr_edit(_res(tmp_path, bare), _row("ECS.2"))
 
 
 def test_merged_rows_keep_the_cfn_type() -> None:
@@ -254,8 +341,8 @@ def test_check_mode_uses_deployed_template(repo: Path) -> None:
 
 
 def test_unmapped_control_stops_unknown(repo: Path, tmp_path: Path) -> None:
-    finding = tmp_path / "elb4.json"
-    finding.write_text(RDS8.read_text("utf-8").replace("RDS.8", "ELB.4"), "utf-8")
+    finding = tmp_path / "eks8.json"
+    finding.write_text(RDS8.read_text("utf-8").replace("RDS.8", "EKS.8"), "utf-8")
     record = run_fix(str(finding), repo, load_config(repo)[0])
     assert record.result == "STOPPED" and record.exit_code == 3
     assert any("no CloudFormation property mapping" in s.summary for s in record.stages)
