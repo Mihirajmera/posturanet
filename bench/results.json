@@ -266,20 +266,14 @@
     ],
     "cdk-sg-peer-traced": [
       {
-        "allowed": [
-          "10.0.0.0/16:9100/tcp",
-          "10.0.4.12/32:22/tcp",
-          "10.0.4.37/32:22/tcp",
-          "10.0.5.9/32:22/tcp",
-          "203.0.113.7/32:22/tcp"
-        ],
+        "allowed": [],
         "broken": [],
         "expect": "fix",
         "exposed": [],
-        "note": "risk medium \u00b7 disruption none",
-        "status": "FIXED",
+        "note": "validate fail: drift FAIL \u00b7 live group sg-0a91f3c2 differs from BastionSg1A2B3C4D in the template (0 rule(s) only live, 1 only in the template); someone changed it outside CloudFormation. Reconcile it first; drift fail: live group sg-0a91f3c2 differs from BastionSg1A2B3C4D in the template (0 rule(s) only live, 1 only in the template); someone changed it outside CloudFormation. Reconcile it first",
+        "status": "STOPPED",
         "tool": "PosturaNet",
-        "verdict": "CORRECT"
+        "verdict": "STOPPED"
       }
     ],
     "cdk-sg-py": [

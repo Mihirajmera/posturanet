@@ -32,6 +32,7 @@ from posturanet.cfn.edit import (
     SG_TYPE,
     CfnPolicy,
     CfnSecurityGroup,
+    _group_target,
     attr_edit,
     attr_unmet,
     iam_edit,
@@ -355,7 +356,8 @@ def _norm(r: Rule) -> Rule:
 def _live_sg(
     res: CfnResource, aws: ClientFactory, check: Callable[[CheckResult, str], Check]
 ) -> Check:
-    """Compare the live group's CIDR ingress with the template's, before the edit."""
+    """Compare the live group's ingress with the template's, before the edit: CIDRs, and
+    security-group and prefix-list sources (template ones resolved to ids through the stack)."""
     try:
         group_id = _physical_id(res, aws)
         groups = aws("ec2").describe_security_groups(GroupIds=[group_id])["SecurityGroups"]
@@ -365,8 +367,6 @@ def _live_sg(
         )
     except Exception as exc:  # botocore ClientError; boto3 is only imported in aws/
         return check(CheckResult.ERROR, f"reading the live security group failed: {exc}")
-    # shortcut: only CIDR sources are compared (as parse_sg models them); add group/prefix-list
-    # sources when parse_sg reads SourceSecurityGroupId.
     live = {
         _norm(Rule(cidr, int(p.get("FromPort", -1)), int(p.get("ToPort", -1)), proto))
         for g in groups
@@ -375,22 +375,88 @@ def _live_sg(
         for cidr in [x["CidrIp"] for x in p.get("IpRanges", [])]
         + [x["CidrIpv6"] for x in p.get("Ipv6Ranges", [])]
     }
+    live_peers = {
+        _peer(key, ref[field], p, proto)
+        for g in groups
+        for p in g.get("IpPermissions", [])
+        for proto in [norm_proto(p.get("IpProtocol", ""))]
+        for key, field, refs in [
+            ("SourceSecurityGroupId", "GroupId", p.get("UserIdGroupPairs", [])),
+            ("SourcePrefixListId", "PrefixListId", p.get("PrefixListIds", [])),
+        ]
+        for ref in refs
+        if ref.get(field)
+    }
     try:
-        planned = {_norm(r) for r in parse_sg(res).rules()}
+        sg = parse_sg(res)
+        planned = {_norm(r) for r in sg.rules()}
+        peers, unresolved = _template_peers(res, sg, aws)
     except StageStop as exc:
         return check(CheckResult.ERROR, exc.reason)
-    if live != planned:
-        extra, missing = len(live - planned), len(planned - live)
+    except Exception as exc:  # botocore ClientError; boto3 is only imported in aws/
+        return check(CheckResult.ERROR, f"resolving the group's sources failed: {exc}")
+    if unresolved:  # compare what can be compared, and say what wasn't
+        live_peers = peers = set()
+    if live != planned or live_peers != peers:
+        extra = len(live - planned) + len(live_peers - peers)
+        missing = len(planned - live) + len(peers - live_peers)
         return check(
             CheckResult.FAIL,
             f"live group {group_id} differs from {res.logical_id} in the template "
             f"({extra} rule(s) only live, {missing} only in the template); "
             "someone changed it outside CloudFormation. Reconcile it first",
         )
+    note = (
+        f"; group and prefix-list sources not compared ({', '.join(sorted(unresolved))} "
+        "can't be resolved to an id)"
+        if unresolved
+        else ""
+    )
     return check(
         CheckResult.PASS,
-        f"{res.logical_id} matches stack {res.stack}; live group {group_id} ingress matches",
+        f"{res.logical_id} matches stack {res.stack}; live group {group_id} ingress matches" + note,
     )
+
+
+Peer = tuple[str, str, int, int, str]
+
+
+def _peer(key: str, source: str, perm: dict[str, Any], proto: str) -> Peer:
+    lo, hi = (
+        (-1, -1) if proto == "-1" else (int(perm.get("FromPort", -1)), int(perm.get("ToPort", -1)))
+    )
+    return key, source, lo, hi, proto
+
+
+def _template_peers(
+    res: CfnResource, sg: CfnSecurityGroup, aws: ClientFactory
+) -> tuple[set[Peer], list[str]]:
+    """The template's group and prefix-list sources with ids the live API reports, and the
+    ones that can't be resolved (a parameter, an import, a group name)."""
+    resources = res.template.resources
+    ids: dict[str, str] = {}
+    peers: set[Peer] = set()
+    unresolved: list[str] = []
+    for key, src, lo, hi, proto in (p for e in sg.entries for p in e.peers):
+        target = _group_target(src)
+        if isinstance(src, str) and key != "SourceSecurityGroupName":
+            source = src
+        elif target is not None and target[0] in resources and target[1] in _PEER_ATTRS:
+            logical = target[0]
+            if logical not in ids:
+                ids[logical] = _physical_id(
+                    CfnResource(res.stack, logical, "", res.template, resources[logical], 1), aws
+                )
+            source = ids[logical]
+        else:
+            unresolved.append(f"{key} {src!r}" if isinstance(src, str) else key)
+            continue
+        peers.add(_peer(key, source, {"FromPort": lo, "ToPort": hi}, proto))
+    return peers, unresolved
+
+
+# Ref (a group or prefix list's id), or GetAtt of the id attribute.
+_PEER_ATTRS = ("Ref", "GroupId", "PrefixListId", "Id")
 
 
 def _changeset(
@@ -443,7 +509,8 @@ def _changeset(
             sorted(stack.get("Capabilities", [])),
         )
         created = True
-        result, detail = _judge(res, _wait(client, res.stack, name, config.validation.timeout_s))
+        cs = _wait(client, res.stack, name, config.validation.timeout_s)
+        result, detail = _judge(res, cs, _own_ingress(res, body))
     except Exception as exc:  # botocore errors; boto3 is only imported in aws/
         result, detail = CheckResult.ERROR, f"change set failed: {exc}"
     finally:
@@ -480,8 +547,31 @@ def _wait(client: ChangeSetClient, stack: str, name: str, timeout_s: int) -> dic
     raise TimeoutError(f"change set not ready after {timeout_s}s")
 
 
-def _judge(res: CfnResource, cs: dict[str, Any]) -> tuple[CheckResult, str]:
-    """PASS only for one in-place Modify of the target resource."""
+def _own_ingress(res: CfnResource, body: str) -> set[str]:
+    """A group's own SecurityGroupIngress resources, before and after the edit: the fix may
+    modify, replace, add or remove them."""
+    if res.type != SG_TYPE:
+        return set()
+    try:
+        after = value(get(parse(body, res.template.path).root, "Resources"))
+    except TemplateError:
+        return set()
+    before = value(get(res.template.root, "Resources"))
+    return {
+        lid
+        for resources in (before, after)
+        if isinstance(resources, dict)
+        for lid in owned_ingress(resources, res.logical_id)
+    }
+
+
+def _judge(
+    res: CfnResource, cs: dict[str, Any], own: set[str] | None = None
+) -> tuple[CheckResult, str]:
+    """PASS only for an in-place Modify of the target and, for a security group, changes to its
+    own SecurityGroupIngress resources (each one rule; replacing one is how CloudFormation
+    edits it). Anything else in the change set fails."""
+    own = own or set()
     if cs.get("Status") == "FAILED":
         reason = str(cs.get("StatusReason", ""))
         if "didn't contain changes" in reason or "No updates" in reason:
@@ -496,9 +586,24 @@ def _judge(res: CfnResource, cs: dict[str, Any]) -> tuple[CheckResult, str]:
         c.get("ResourceChange", {}) for c in cs.get("Changes", []) if c.get("Type") == "Resource"
     ]
     ids = sorted(str(c.get("LogicalResourceId")) for c in changes)
-    if ids != [res.logical_id]:
+    others = [i for i in ids if i != res.logical_id and i not in own]
+    if others or not ids or ids.count(res.logical_id) > 1:
         return CheckResult.FAIL, f"the change set touches {len(ids)} resource(s): {', '.join(ids)}"
-    change = changes[0]
+    rules = [c for c in changes if c.get("LogicalResourceId") in own]
+    for c in rules:
+        if c.get("Action") not in ("Add", "Modify", "Remove"):
+            return CheckResult.FAIL, (
+                f"CloudFormation would {c.get('Action')} {c.get('LogicalResourceId')}"
+            )
+    extra = f", plus {len(rules)} of its own ingress resource(s)" if rules else ""
+    target = [c for c in changes if c.get("LogicalResourceId") == res.logical_id]
+    if not target:  # only standalone ingress resources change; the group itself doesn't
+        return (
+            CheckResult.PASS,
+            f"CloudFormation would change only {len(rules)} of {res.logical_id}'s "
+            "ingress resource(s)",
+        )
+    change = target[0]
     if change.get("Action") != "Modify":
         return CheckResult.FAIL, f"CloudFormation would {change.get('Action')} {res.logical_id}"
     replacement = change.get("Replacement", "False")
@@ -506,7 +611,7 @@ def _judge(res: CfnResource, cs: dict[str, Any]) -> tuple[CheckResult, str]:
         return CheckResult.FAIL, (
             f"CloudFormation would replace {res.logical_id} (Replacement: {replacement})"
         )
-    return CheckResult.PASS, f"CloudFormation would modify only {res.logical_id}, in place"
+    return CheckResult.PASS, f"CloudFormation would modify only {res.logical_id}, in place{extra}"
 
 
 def _cfn_lint(diff: Diff, timeout_s: int) -> Check:
