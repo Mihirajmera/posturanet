@@ -144,10 +144,11 @@ exists where no safe fix does); `python -m bench` exits 1 if it isn't 0.
 [`cdk.py`](cdk.py) runs the same three fixes on CDK apps copied from `tests/fixtures/cdk/ts-app`
 (TypeScript) and `py-app` (Python, nested Stage), with the same read-only doubles. Per fix type:
 a fixable app in each language, plus open rules from `connections.allowFromAnyIpv4` or a literal
-`CfnSecurityGroupIngress` and a traced group peer, then traps that must stop: a computed peer, id or action; rules
+`CfnSecurityGroupIngress`, a traced group peer, and L1 `CfnSecurityGroup`, `CfnBucket` and
+`CfnManagedPolicy` constructs with literal props, then traps that must stop: a computed peer, id or action; rules
 from `connections` or a security-group peer that the group's file doesn't explain; a standalone
 ingress with no construct in the file; statements from `addStatements`; a duplicate id;
-an L1 construct; no `aws:cdk:path` metadata; `publicReadAccess: true`; a failed synth; and
+an L1 whose props don't explain the template; no `aws:cdk:path` metadata; `publicReadAccess: true`; a failed synth; and
 drift. `cdk synth` is a bench stand-in (`MiniSynth`) that copies the app's cloud assembly and
 rewrites the target from the edited program with its own regexes, not PosturaNet's parser.
 Fixes are scored on that synthesized resource, and wrongly reported safe must be 0 here too.

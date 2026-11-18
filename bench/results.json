@@ -36,6 +36,22 @@
         "verdict": "STOPPED"
       }
     ],
+    "cdk-iam-l1-fix": [
+      {
+        "allowed": [
+          "ec2:DescribeInstances",
+          "ec2:DescribeVolumes",
+          "logs:CreateLogStream"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: every used action stays allowed",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
     "cdk-iam-py": [
       {
         "allowed": [
@@ -78,6 +94,20 @@
         "status": "STOPPED",
         "tool": "PosturaNet",
         "verdict": "STOPPED"
+      }
+    ],
+    "cdk-s3-l1-fix": [
+      {
+        "allowed": [
+          "Block Public Access: all on"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: no public use in the logs",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
       }
     ],
     "cdk-s3-public-read": [
@@ -144,7 +174,7 @@
         "broken": [],
         "expect": "stop",
         "exposed": [],
-        "note": "locate unknown: no SecurityGroup construct with the literal id 'BastionSg' in the app source (construct path network/BastionSg/Resource); the id may be computed",
+        "note": "locate unknown: no SecurityGroup construct with the literal id 'BastionSg' in the app source (construct path network/BastionSg/Resource); the id may be computed, or another construct made it",
         "status": "STOPPED",
         "tool": "PosturaNet",
         "verdict": "STOPPED"
@@ -192,10 +222,28 @@
         "broken": [],
         "expect": "stop",
         "exposed": [],
-        "note": "locate unknown: network/BastionSg is not an L2 SecurityGroup construct (L1 Cfn* constructs and resources other constructs generate aren't edited yet)",
+        "note": "fix unknown: network/BastionSg has 2 ingress rule(s) in the template but 0 literal securityGroupIngress entr(ies) of BastionSg in network-stack.ts",
         "status": "STOPPED",
         "tool": "PosturaNet",
         "verdict": "STOPPED"
+      }
+    ],
+    "cdk-sg-l1-fix": [
+      {
+        "allowed": [
+          "10.0.0.0/16:9100/tcp",
+          "10.0.4.12/32:22/tcp",
+          "10.0.4.37/32:22/tcp",
+          "10.0.5.9/32:22/tcp",
+          "203.0.113.7/32:22/tcp"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
       }
     ],
     "cdk-sg-l1-ingress-open": [

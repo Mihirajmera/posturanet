@@ -132,12 +132,18 @@ def trace_sg(t: CdkTarget) -> source.SgSource:
     unused = sorted({x.construct_id for x in src.l1} - l1_seen)
     if unused:
         raise _sg_stop(t, f"has no template resource for CfnSecurityGroupIngress {unused[0]}")
-    in_source = {source.norm(k.rule) for k in src.calls}
+    found: list[source.IngressCall | source.L1Inline] = [*src.calls, *src.inline]
+    in_source = {source.norm(k.rule) for k in found}
     if in_source != inline:
+        what = (
+            f"literal securityGroupIngress entr(ies) of {c.construct_id}"
+            if c.cls == "CfnSecurityGroup"
+            else f"literal ingress call(s) on `{c.var}`"
+        )
         raise _sg_stop(
             t,
-            f"has {len(inline)} ingress rule(s) in the template but {len(in_source)} literal "
-            f"ingress call(s) on `{c.var}` in {c.file.name}",
+            f"has {len(inline)} ingress rule(s) in the template but {len(in_source)} {what} "
+            f"in {c.file.name}",
         )
     return src
 

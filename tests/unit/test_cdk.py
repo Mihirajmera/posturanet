@@ -320,12 +320,12 @@ def test_unreadable_source_is_unknown_at_locate(ts: Path) -> None:
     assert "can't read the app source" in _locate_stop(ts).reason
 
 
-def test_locate_without_path_metadata_or_l1_is_unknown(ts: Path) -> None:
+def test_locate_without_path_metadata_or_matching_l1_is_unknown(ts: Path) -> None:
     tpl = ts / "cdk.out" / "network.template.json"
     doc = json.loads(tpl.read_text("utf-8"))
     doc["Resources"]["BastionSg1A2B3C4D"]["Metadata"]["aws:cdk:path"] = "network/BastionSg"
     tpl.write_text(json.dumps(doc), "utf-8")
-    assert "not an L2" in _locate_stop(ts).reason
+    assert "no CfnSecurityGroup construct" in _locate_stop(ts).reason  # the source has an L2
     del doc["Resources"]["BastionSg1A2B3C4D"]["Metadata"]
     tpl.write_text(json.dumps(doc), "utf-8")
     assert "no aws:cdk:path" in _locate_stop(ts).reason

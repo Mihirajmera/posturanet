@@ -575,11 +575,11 @@ The stack also allows s3:*; the repo doesn't. A fix from the repo would be wrong
 
 ## AWS CDK (EC2.19, S3.8, IAM.21)
 
-The same three fix types on CDK apps in TypeScript and Python, plus the traps that must stop the run (a computed peer, id or action, rules or statements the construct's literals don't explain, a duplicate id, an L1 construct, no path metadata, a failed synth, a stack that differs from the app). `cdk synth` is a bench stand-in that rewrites the target from the edited program with its own regexes. PosturaNet only.
+The same three fix types on CDK apps in TypeScript and Python, plus the traps that must stop the run (a computed peer, id or action, rules or statements the construct's literals don't explain, a duplicate id, an L1 whose props don't match, no path metadata, a failed synth, a stack that differs from the app). `cdk synth` is a bench stand-in that rewrites the target from the edited program with its own regexes. PosturaNet only.
 
 | Contender | Correct | Stopped | Outage | Still Exposed | Unneeded stops |
 |---|---|---|---|---|---|
-| PosturaNet | 9 | 15 | 0 | 0 | 0 |
+| PosturaNet | 12 | 15 | 0 | 0 | 0 |
 
 **Wrongly reported safe: 0**
 
@@ -701,15 +701,39 @@ A helper in another file makes a second `BastionSg`; PosturaNet won't pick one. 
 
 | Contender | Verdict | Detail |
 |---|---|---|
-| PosturaNet | Stopped | locate unknown: no SecurityGroup construct with the literal id 'BastionSg' in the app source (construct path network/BastionSg/Resource); the id may be computed |
+| PosturaNet | Stopped | locate unknown: no SecurityGroup construct with the literal id 'BastionSg' in the app source (construct path network/BastionSg/Resource); the id may be computed, or another construct made it |
 
-#### `cdk-sg-l1`: L1 `CfnSecurityGroup`
+#### `cdk-sg-l1-fix`: L1 `CfnSecurityGroup` with literal ingress
 
-An L1 construct; its props aren't `addIngressRule` calls. Ground truth: no safe automatic fix: stopping is right.
+`securityGroupIngress` entries are literals that match the template; the open entry is replaced in the list. Ground truth: a safe fix exists.
 
 | Contender | Verdict | Detail |
 |---|---|---|
-| PosturaNet | Stopped | locate unknown: network/BastionSg is not an L2 SecurityGroup construct (L1 Cfn* constructs and resources other constructs generate aren't edited yet) |
+| PosturaNet | Correct | allows 10.0.0.0/16:9100/tcp, 10.0.4.12/32:22/tcp, 10.0.4.37/32:22/tcp, 10.0.5.9/32:22/tcp, 203.0.113.7/32:22/tcp |
+
+#### `cdk-s3-l1-fix`: L1 `CfnBucket` with no public access block
+
+A `publicAccessBlockConfiguration` with all four flags is added to the props. Ground truth: a safe fix exists.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Correct | allows Block Public Access: all on |
+
+#### `cdk-iam-l1-fix`: L1 `CfnManagedPolicy` with a literal document
+
+The `policyDocument` statement's `Action` array is shrunk in place. Ground truth: a safe fix exists.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Correct | allows ec2:DescribeInstances, ec2:DescribeVolumes, logs:CreateLogStream |
+
+#### `cdk-sg-l1`: L1 `CfnSecurityGroup` whose props don't explain the rules
+
+The template has two ingress rules; the L1's props have no `securityGroupIngress` (the calls on it don't exist on an L1). Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | fix unknown: network/BastionSg has 2 ingress rule(s) in the template but 0 literal securityGroupIngress entr(ies) of BastionSg in network-stack.ts |
 
 #### `cdk-sg-no-metadata`: Template has no `aws:cdk:path`
 

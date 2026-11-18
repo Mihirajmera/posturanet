@@ -2,8 +2,9 @@
 
 The stack mapping is the CloudFormation one (`cloudformation:DescribeStackResources` or its
 export). The synthesized template's `aws:cdk:path` metadata names the construct; the source
-line is the one constructor call in the app whose id is that literal string. Anything else
-(no path metadata, an L1 `Cfn*` construct, a computed or repeated id) stops with UNKNOWN.
+line is the one constructor call in the app whose id is that literal string: the L2 class for
+a `…/Id/Resource` path, the L1 `Cfn*` class for `…/Id`. Anything else (no path metadata, a
+computed or repeated id, a resource another construct generated) stops with UNKNOWN.
 
 `cdk synth` runs with `--no-lookups` and with AWS credentials removed from its environment,
 so it makes no AWS calls; it does run the customer's app, as their own CI does.
@@ -254,28 +255,36 @@ def resolve(
     if not isinstance(path, str):
         return f"{logical} has no aws:cdk:path metadata (path metadata is turned off in the app)"
     parts = path.split("/")
-    cls = CLASS_FOR.get(res.type) or (ANY_L2 if any_l2 else None)
-    if cls is None:
+    if res.type not in CLASS_FOR and not any_l2:
         return f"{logical} is a {res.type}; PosturaNet edits CDK code for {', '.join(CLASS_FOR)}"
+    if len(parts) >= 3 and parts[-1] == "Resource":  # an L2's default child
+        cls, cid = CLASS_FOR.get(res.type, ANY_L2), parts[-2]
+    elif len(parts) >= 2:  # an L1 Cfn* construct, or one another construct generated
+        cls, cid = "Cfn" + res.type.rsplit("::", 1)[-1], parts[-1]
+        same = [
+            k
+            for k, r in (value(get(t.root, "Resources")) or {}).items()
+            if isinstance(r, dict) and r.get("Type") == res.type
+            and str((r.get("Metadata") or {}).get("aws:cdk:path", "")).endswith("/" + cid)
+        ]  # fmt: skip
+        if len(same) > 1:  # shortcut: only this stack is checked; synth's scope check backs it
+            return f"{len(same)} {res.type} resources in {stack} have a construct id '{cid}'"
+    else:
+        return f"{path} is not a construct path PosturaNet can map to source"
     name = "L2" if cls == ANY_L2 else cls
-    if len(parts) < 3 or parts[-1] != "Resource":
-        return (
-            f"{path} is not an L2 {name} construct (L1 Cfn* constructs and resources other "
-            "constructs generate aren't edited yet)"
-        )
     app = app_dir(repo, config)
     try:
-        hits = source.find(app, parts[-2], cls)
+        hits = source.find(app, cid, cls)
     except StageStop as exc:
-        return f"can't read the app source to find '{parts[-2]}': {exc.reason}"
+        return f"can't read the app source to find '{cid}': {exc.reason}"
     if not hits:
         return (
-            f"no {name} construct with the literal id '{parts[-2]}' in the app source "
-            f"(construct path {path}); the id may be computed"
+            f"no {name} construct with the literal id '{cid}' in the app source "
+            f"(construct path {path}); the id may be computed, or another construct made it"
         )
     if len(hits) > 1:
         where = ", ".join(f"{_rel(h.file, repo)}:{h.line}" for h in hits)
-        return f"{len(hits)} {name} constructs use the id '{parts[-2]}' ({where}); can't tell which"
+        return f"{len(hits)} {name} constructs use the id '{cid}' ({where}); can't tell which"
     return CdkTarget(res, path, hits[0], app)
 
 
