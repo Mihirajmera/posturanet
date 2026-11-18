@@ -99,6 +99,12 @@ class DeliveryConfig(_Strict):
     max_open_prs: int = Field(default=5, ge=1)
 
 
+class OutcomeShareConfig(_Strict):
+    # Opt-in (FR-45a, golden rule 6). No default endpoint: the receiving service isn't built.
+    enabled: bool = False
+    endpoint: str | None = Field(default=None, pattern=r"^https://\S+$")
+
+
 class Config(_Strict):
     version: Literal[1] = 1
     aws: AwsConfig = Field(default_factory=AwsConfig)
@@ -113,6 +119,16 @@ class Config(_Strict):
     synthesis: SynthesisConfig = Field(default_factory=SynthesisConfig)
     validation: ValidationConfig = Field(default_factory=ValidationConfig)
     delivery: DeliveryConfig = Field(default_factory=DeliveryConfig)
+    outcome_share: OutcomeShareConfig = Field(default_factory=OutcomeShareConfig)
+
+    @model_validator(mode="after")
+    def _share_endpoint(self) -> Config:
+        if self.outcome_share.enabled and not self.outcome_share.endpoint:
+            raise ValueError(
+                "outcome_share.enabled needs outcome_share.endpoint (an https:// URL); "
+                "PosturaNet ships no default endpoint"
+            )
+        return self
 
     @model_validator(mode="after")
     def _changeset_role(self) -> Config:
