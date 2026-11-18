@@ -197,7 +197,13 @@ def indent_of(text: str, pos: int) -> str:
 _PLAIN = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9_:./*\- ]*[A-Za-z0-9_./*\-])?")
 
 
+class Raw(str):
+    """Text that is already rendered; scalar_text leaves it as is."""
+
+
 def scalar_text(v: Any, *, as_json: bool) -> str:
+    if isinstance(v, Raw):
+        return str(v)
     if isinstance(v, list):  # a list of scalars, as a flow sequence
         return "[" + ", ".join(scalar_text(x, as_json=as_json) for x in v) + "]"
     if isinstance(v, bool):
