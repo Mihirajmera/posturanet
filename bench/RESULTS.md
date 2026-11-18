@@ -579,7 +579,7 @@ The same three fix types on CDK apps in TypeScript and Python, plus the traps th
 
 | Contender | Correct | Stopped | Outage | Still Exposed | Unneeded stops |
 |---|---|---|---|---|---|
-| PosturaNet | 8 | 16 | 0 | 0 | 1 |
+| PosturaNet | 9 | 15 | 0 | 0 | 0 |
 
 **Wrongly reported safe: 0**
 
@@ -637,7 +637,7 @@ One `PolicyStatement` with a literal `actions` array. Ground truth: a safe fix e
 
 | Contender | Verdict | Detail |
 |---|---|---|
-| PosturaNet | Stopped | validate fail: drift FAIL · live group sg-0a91f3c2 differs from BastionSg1A2B3C4D in the template (0 rule(s) only live, 1 only in the template); someone changed it outside CloudFormation. Reconcile it first; drift fail: live group sg-0a91f3c2 differs from BastionSg1A2B3C4D in the template (0 rule(s) only live, 1 only in the template); someone changed it outside CloudFormation. Reconcile it first |
+| PosturaNet | Correct | allows 10.0.0.0/16:9100/tcp, 10.0.4.12/32:22/tcp, 10.0.4.37/32:22/tcp, 10.0.5.9/32:22/tcp, 203.0.113.7/32:22/tcp |
 
 #### `cdk-sg-allow-from-any`: SSH opened with `connections.allowFromAnyIpv4`
 
