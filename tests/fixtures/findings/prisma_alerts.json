@@ -1,0 +1,60 @@
+{
+  "items": [
+    {
+      "id": "P-100001",
+      "status": "open",
+      "alertTime": 1792483200000,
+      "policyId": "00000000-0000-4000-8000-0000000000p1",
+      "policy": {
+        "policyId": "00000000-0000-4000-8000-0000000000p1",
+        "name": "AWS Security Group allows all traffic on SSH port (22)",
+        "policyType": "config",
+        "severity": "high",
+        "complianceMetadata": [
+          { "standardName": "AWS Foundational Security Best Practices standard", "requirementId": "EC2", "sectionId": "EC2.19" },
+          { "standardName": "CIS v3.0.0 (AWS)", "requirementId": "5", "sectionId": "5.2" }
+        ]
+      },
+      "resource": {
+        "id": "sg-0a91f3c2",
+        "name": "bastion",
+        "rrn": "rrn::securityGroup:us-east-1:123456789012:00000000:sg-0a91f3c2",
+        "accountId": "123456789012",
+        "cloudType": "AWS",
+        "region": "AWS Virginia",
+        "regionId": "us-east-1",
+        "resourceType": "SECURITY_GROUP"
+      }
+    },
+    {
+      "id": "P-100002",
+      "status": "open",
+      "alertTime": 1792569600000,
+      "policyId": "00000000-0000-4000-8000-0000000000p2",
+      "policy": {
+        "policyId": "00000000-0000-4000-8000-0000000000p2",
+        "name": "AWS EC2 instance has a public IP address 192.0.2.10",
+        "policyType": "config",
+        "severity": "medium",
+        "complianceMetadata": []
+      },
+      "resource": {
+        "id": "i-0123456789abcdef0",
+        "name": "web",
+        "accountId": "123456789012",
+        "cloudType": "AWS",
+        "regionId": "us-east-1",
+        "resourceType": "INSTANCE"
+      }
+    },
+    {
+      "id": "P-100003",
+      "status": "dismissed",
+      "alertTime": 1792569600000,
+      "policyId": "00000000-0000-4000-8000-0000000000p1",
+      "policy": { "policyId": "00000000-0000-4000-8000-0000000000p1", "name": "dismissed", "severity": "low" },
+      "resource": { "id": "sg-0b000001", "accountId": "123456789012", "regionId": "us-east-1", "resourceType": "SECURITY_GROUP" }
+    }
+  ],
+  "totalRows": 3
+}

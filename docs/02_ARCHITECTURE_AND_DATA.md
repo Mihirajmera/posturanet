@@ -70,7 +70,7 @@ posturanet/                         # FSL-1.1-ALv2 (this folder; becomes its own
     __init__.py  __main__.py
     models/       finding.py  location.py  observations.py  contract.py
                   diff.py  validation.py  safety_contract.py  outcome.py  config.py
-    ingest/       asff.py  ocsf.py  iac.py  plans.py  manual.py
+    ingest/       asff.py  ocsf.py  iac.py  plans.py  vendors.py  manual.py
     locate/       backend.py  tfstate.py  hcl_index.py  codeowners.py  drift.py
     evidence/     flowlogs.py  cloudtrail.py  last_accessed.py  s3_access.py  confidence.py  periodicity.py
     contracts/    builder.py  loader.py  store.py
@@ -162,6 +162,10 @@ delivery:
   max_open_prs: 5
   freeze_windows: [{ cron: "0 0 * * 5", duration_hours: 72 }]
   labels: [posturanet, security]
+detectors:                         # FR-4d: vendor rule id -> control; PosturaNet ships no table
+  wiz:    { rules: { "<wiz rule id>": EC2.19 } }
+  orca:   { rules: { "S3 bucket allows public access": S3.8 } }   # Orca's rule id is its AlertType
+  prisma: { rules: { "<prisma policy id>": S3.8 } }
 validation:
   required: [fmt, validate, plan_scope, invariants, recheck]
   optional: [tflint, checkov]
@@ -200,6 +204,8 @@ Checkov and Trivy findings carry `resource.address` (a Terraform address) and `r
 Security Hub writes OCSF too. `get-findings-v2` output (`{"Findings": [...]}`, which is also ASFF's key, so the items decide) and EventBridge "Findings Imported V2" events (`detail.findings`) are unwrapped first. A compliance finding's result is `compliance.status`; only `Fail` is fixable. An exposure finding (class 2004 from "Security Hub Exposure Detection") isn't fixed directly: its `finding_info.related_events` entries of type `Finding` are titled `<control> <title>`, and the stop reason names them.
 
 Remediation plans (FR-4c, `ingest/plans.py`) come from `GetRemediationsV2`. `posturanet findings pull-plans` (`aws/remediation_plans.py`) writes `{"PosturaNetRemediationPlans": "1", "Plans": [...]}`, each plan with its `Exposures` (`ListExposuresByRemediationV2`) and `ExposureFindings` (`GetFindingsV2` by `metadata.uid`). A plan becomes one `Finding`: `finding_id` = `TargetUid`, the resource from `Resource.Id` (an ARN), severity from `Priority`, and `control_id` from the exposure findings' linked controls: the attribute-fix controls sharing the most common Terraform resource type, joined with `+` (`RDS.2+RDS.8`). `configfix.catalog.fixes_for` merges such an id into one row per resource type (changes concatenated, conflicting values refuse to merge, `risk` medium if any part is), so validate and deliver run unchanged and one plan is one PR. With no attribute fixes the first evidence fix runs alone; controls left out are named in the title. Resolved plans and plans with no supported control are listed with the reason. The plan's guidance and Terraform example are stored as data and never shape the change.
+Wiz, Orca and Prisma Cloud exports (FR-4d, `ingest/vendors.py`) become a `Finding` with `source` `wiz | orca | prisma`, `finding_id` `<vendor>:<alert id>`, `schema` `<vendor>-json`, and the resource from Wiz `entitySnapshot.providerId` (an ARN, split as for OCSF; `subscriptionExternalId`, `region`), Prisma Cloud `resource.id` / `accountId` / `regionId`, or Orca `Inventory` name and `CloudAccount` name (used as the account only when it is 12 digits; Orca gives no region). The vendor rule id is Wiz `sourceRule.id`, Prisma Cloud `policyId`, Orca `AlertType`. `control_id` is the customer's mapping (`detectors.<vendor>.rules`), else the one supported control (fix or runbook) the export names under an FSBP or CIS AWS framework, read as a Security Hub control id at the start of a Wiz sub-category title or in a Prisma Cloud `requirementId`/`sectionId`; CIS section numbers such as `5.2` are not control ids and never map. Unmapped, `control_id` is the vendor rule id, `fix_type` is `unsupported`, and `Entry.reason` states the missing mapping, so the outcome is `none` with that reason. Field paths come only from public sources cited in the module: Palo Alto Networks' `Alerts.json` OpenAPI spec, and the public Cortex XSOAR Wiz and Orca integrations (the vendors' own references need a login). No vendor documents its CSV columns, so a CSV file is refused, not parsed.
+
 `fix_type` ∈ `sg_ingress | s3_public | iam_least_privilege | unsupported`, mapped from `control_id` by `ingest/controls.json` (JSON so the core needs no extra parser at import time).
 
 ### 6.2 Location

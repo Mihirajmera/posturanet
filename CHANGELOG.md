@@ -4,6 +4,12 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Added (Wiz, Orca and Prisma Cloud findings, R5)
+- `findings list|split` and `fix` read Wiz (`issuesV2` GraphQL results), Orca (serving-layer alert query) and Prisma Cloud (`/alert`, `/v2/alert`) JSON exports, detected from the content. Each parser uses only fields shown in the vendor's public API spec or published integration code, cited in `ingest/vendors.py`.
+- A vendor rule maps to a control only from the export itself (an AWS Foundational Security Best Practices or CIS AWS control id PosturaNet supports) or from the customer's `.posturanet.yml`: `detectors.<vendor>.rules: {<vendor rule id>: <control>}`. PosturaNet ships no vendor-rule table.
+- An unmapped rule still gets an outcome: `none`, with "<vendor> rule <id> has no control mapping; add it under detectors.<vendor>.rules", counted in coverage. Mapped findings merge with Security Hub, Prowler, Checkov and Trivy reports of the same issue.
+- Not yet: CSV exports. None of the three vendors documents its CSV columns, so a CSV file is refused with that reason instead of parsed by guesswork.
+
 ### Added (AWS CDK)
 - `posturanet fix` and `contract check --source` work on AWS CDK apps in TypeScript and Python, for the same three evidence-backed fixes. The finding's resource maps to its stack and logical id as for CloudFormation, then through the synthesized template's `aws:cdk:path` to the one L2 construct (`SecurityGroup`, `Bucket`, `ManagedPolicy`) in the app source whose id is that literal. No path metadata, an L1 `Cfn*` construct, or a computed or repeated id stops with UNKNOWN.
 - The fix edits the program, not the template, and only literals: `addIngressRule` peers, `blockPublicAccess: BlockPublicAccess.BLOCK_ALL`, `PolicyStatement` `actions`. Before editing, PosturaNet checks the literals explain the synthesized template exactly (every ingress rule, every statement), so rules from `connections.allowFrom` or statements from `addStatements` stop instead of being missed.

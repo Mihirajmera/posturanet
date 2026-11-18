@@ -81,7 +81,7 @@ Vendors now generate fix PRs (Wiz, Gomboc, Cloudgeni and others). Their public m
 ### Coverage targets (what "no customer leaves empty-handed" means)
 | Area | Today | Target |
 |---|---|---|
-| Detectors | Security Hub (ASFF, OCSF), Prowler, Checkov, Trivy, Security Hub remediation plans | + Wiz, Orca, Prisma Cloud rule mapping (needs one real export each from a design partner; rules are never guessed) |
+| Detectors | Security Hub (ASFF, OCSF), Prowler, Checkov, Trivy, Security Hub remediation plans; Wiz, Orca, Prisma Cloud JSON exports (R5: parsers built; mappings come from the export or the customer) | Wiz, Orca, Prisma Cloud CSV once their columns are documented or a design partner shares one; rules are never guessed |
 | IaC tools | Terraform; CloudFormation and SAM (R6); AWS CDK in TypeScript and Python (R7, merging) | + Pulumi (R8), other CDK languages |
 | Same problem, many reports | One PR per issue across scanners and related controls | Kept as new detectors and IaC tools arrive |
 | Contracts | Security groups, S3 buckets, IAM policies, for the whole state (`contract build --all`) | Every supported resource in every supported IaC tool |
@@ -106,7 +106,7 @@ Vendors now generate fix PRs (Wiz, Gomboc, Cloudgeni and others). Their public m
 | **R2: Verify + evidence** | Post-merge verification and revert PR (FR-31..FR-33), S3 public-access fix (FR-17, FR-50), IAM least privilege (FR-16, FR-51), the safety benchmark (`bench/`); signed OSCAL evidence (pro) | Built, except evidence (pro) |
 | **R3: Outcomes** | Every failed finding gets fix / runbook / exception / none, with coverage (0.3.0) | Built |
 | **R4: One issue, many detectors** | One PR per issue across scanners and related controls (FR-28); `findings list|split` over several files; PR comment and Marketplace-ready Action; `contract build --all` for SG, S3 and IAM | On `test` |
-| **R5: Detector adapters** | Wiz, Orca, Prisma Cloud rule mapping to controls (needs a real export each) | Next; blocked on design partners |
+| **R5: Detector adapters** | Wiz, Orca, Prisma Cloud JSON ingest (FR-4d, FR-4e). Parsers built; mappings come from the export or the customer, never a built-in table. CSV waits for documented columns or a real export | Parsers built |
 | **R6: CloudFormation + SAM** | Locate, fix, contract check and drift on templates; opt-in change-set preview | Merging into `test` |
 | **R7: AWS CDK** | Fix PRs to CDK program code (TypeScript, Python), mapped from `aws:cdk:path` metadata; `cdk synth` validation with the CloudFormation checks; contract check through the synthesized template | Merging into `test` |
 | **R8: Pulumi** | Fix PRs to Pulumi programs; `pulumi preview` validation | After R7 |
@@ -160,6 +160,8 @@ Vendors now generate fix PRs (Wiz, Gomboc, Cloudgeni and others). Their public m
 - **FR-4a** Accept OCSF findings: Prowler `json-ocsf` (and Prowler's ASFF output) and OCSF compliance findings. The control id comes from `compliance.control`, then Prowler's FSBP compliance mapping, then a bundled check → control map. Only FAIL findings are fixable. A file with many findings: use the one fixable finding if there is exactly one; otherwise `posturanet findings list|split`. (Pulled forward from R5.)
 - **FR-4b** Accept Terraform scanner reports: Checkov (`-o json`) and Trivy (`config -f json`). Check ids map to controls through a hand-curated table (`ingest/iac_checks.json`), each row checked against the scanner's source; unmapped checks are unsupported. The finding names a Terraform address; locate resolves it against the state (exact address, else the one instance of that type and name), and stops if the resource isn't deployed or the name is ambiguous.
 - **FR-4c** Accept Security Hub's own formats. (1) OCSF findings from `get-findings-v2` (`{"Findings": [...]}`) and EventBridge "Findings Imported V2" events; a compliance finding's result is `compliance.status` (only `Fail` is fixable); an exposure finding is not fixed directly, it names the control findings it links. (2) Remediation plans (`GetRemediationsV2`): `posturanet findings pull-plans` reads them read-only with their exposures (`ListExposuresByRemediationV2`) and exposure findings (`GetFindingsV2`). A plan names one resource but no control; the controls come from the exposure findings' related control findings. The attribute-fix controls among them that share a Terraform resource type become one combined fix (`RDS.2+RDS.8`), so one plan is one PR; an evidence fix runs alone; the rest are listed to fix separately. AWS's guidance text and Terraform example are never used to build the change (NFR-4).
+- **FR-4d** Accept Wiz, Orca and Prisma Cloud JSON exports, detected from the content: Wiz `issuesV2` GraphQL results (`{"data": {"issues": {"nodes": [...]}}}` or the bare node list), Orca serving-layer alert queries (`{"data": [...]}` with `type: Alert`), Prisma Cloud `GET /alert` and `/v2/alert` (`{"items": [...]}`). Each parser reads only fields the vendor's public API docs or published integration code show (cited in `ingest/vendors.py`): resource id or ARN, account, region, vendor rule id and name. Closed alerts (Wiz RESOLVED/REJECTED, Orca closed/dismissed, Prisma Cloud anything but `open`) are passed. CSV exports are refused with a reason: no vendor documents its CSV columns. A vendor rule maps to a control only when (a) the customer maps it in `.posturanet.yml` (`detectors.<vendor>.rules: {<rule id>: <control>}`, which wins), or (b) the export itself names a supported control id (fix or runbook) under an AWS Foundational Security Best Practices or CIS AWS framework (Wiz `securitySubCategories`, Prisma Cloud `complianceMetadata`; Orca exports carry none). Two different supported controls stop. There is no built-in vendor-rule table.
+- **FR-4e** An unmapped vendor rule still ends in an outcome (G4): `none`, with the reason "<vendor> rule <id> has no control mapping; add it under detectors.<vendor>.rules", shown by `findings list` and counted in coverage. Mapped vendor findings work with `findings list|split` and `fix`, and merge with other scanners' reports of the same issue (FR-28).
 
 ### Locate
 - **FR-5** Find Terraform state using backend config (v1: S3 backend; local state file for tests).
@@ -230,7 +232,7 @@ Vendors now generate fix PRs (Wiz, Gomboc, Cloudgeni and others). Their public m
 - **FR-45a** Opt-in outcome share (not built yet). Off by default. When the customer turns it on, each verify result sends only `{control, fix_type, outcome: held | reverted, evidence_days, agent_version}`: no resource ids, ARNs, IPs, account ids, names, code, state, contracts or finding text. A command prints exactly what would be sent. Purpose: learn which fixes break production, across customers.
 
 ### Configuration
-- **FR-46** `.posturanet.yml` in the repo root (schema in the architecture doc §5).
+- **FR-46** `.posturanet.yml` in the repo root (schema in the architecture doc §5), including `detectors.<vendor>.rules` (FR-4d).
 - **FR-47** `posturanet init` detects the backend, writes the config, and prints the read-only IAM policy.
 
 ## 8. Non-functional requirements

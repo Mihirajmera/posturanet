@@ -665,8 +665,8 @@ def fixes_show(
 FindingsFileArg = Annotated[
     list[Path],
     typer.Argument(
-        help="One or more finding files: Security Hub ASFF, OCSF (Prowler), Checkov or Trivy "
-        "JSON. A problem reported in more than one file is listed once."
+        help="One or more finding files: Security Hub ASFF, OCSF (Prowler), Checkov, Trivy, "
+        "Wiz, Orca or Prisma Cloud JSON. A problem reported in more than one file is listed once."
     ),
 ]
 
@@ -684,7 +684,8 @@ def _read_merged(paths: list[Path], exceptions: Path) -> list[_Row]:
     from posturanet.ingest import issue_of, read_findings
 
     try:
-        files = [read_findings(p) for p in paths]
+        rules = load_config(Path("."))[0].detectors.rules()  # FR-4d vendor rule mappings
+        files = [read_findings(p, rules) for p in paths]
         accepted: list[AcceptedRisk] = load_exceptions(exceptions)
     except PosturaNetError as exc:
         raise _fail(exc) from exc

@@ -99,6 +99,20 @@ class DeliveryConfig(_Strict):
     max_open_prs: int = Field(default=5, ge=1)
 
 
+class DetectorConfig(_Strict):
+    # vendor rule id -> PosturaNet control (FR-4d). PosturaNet ships no such table.
+    rules: dict[str, str] = Field(default_factory=dict)
+
+
+class DetectorsConfig(_Strict):
+    wiz: DetectorConfig = Field(default_factory=DetectorConfig)
+    orca: DetectorConfig = Field(default_factory=DetectorConfig)
+    prisma: DetectorConfig = Field(default_factory=DetectorConfig)
+
+    def rules(self) -> dict[str, dict[str, str]]:
+        return {"wiz": self.wiz.rules, "orca": self.orca.rules, "prisma": self.prisma.rules}
+
+
 class Config(_Strict):
     version: Literal[1] = 1
     aws: AwsConfig = Field(default_factory=AwsConfig)
@@ -113,6 +127,7 @@ class Config(_Strict):
     synthesis: SynthesisConfig = Field(default_factory=SynthesisConfig)
     validation: ValidationConfig = Field(default_factory=ValidationConfig)
     delivery: DeliveryConfig = Field(default_factory=DeliveryConfig)
+    detectors: DetectorsConfig = Field(default_factory=DetectorsConfig)
 
     @model_validator(mode="after")
     def _changeset_role(self) -> Config:
