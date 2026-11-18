@@ -67,9 +67,14 @@ Resources = dict[str, Any]
 
 _PEER = r"(?:ec2\.)?Peer\.(anyIpv4|any_ipv4|ipv4)\(\s*(?:['\"]([^'\"]+)['\"])?\s*\)"
 _SG_CALL = re.compile(
-    r"(?:bastionSg|bastion_sg)\s*\.\s*(?:addIngressRule|add_ingress_rule)\(\s*"
+    r"(?:bastionSg|bastion_sg)\s*\.\s*"
+    r"(?:addIngressRule|add_ingress_rule|connections\.allowFrom|connections\.allow_from)\(\s*"
     + _PEER
     + r"\s*,\s*(?:ec2\.)?Port\.tcp\((\d+)\)"
+)
+_ANY_V4 = re.compile(
+    r"(?:bastionSg|bastion_sg)\s*\.\s*connections\.(?:allowFromAnyIpv4|allow_from_any_ipv4)"
+    r"\(\s*(?:ec2\.)?Port\.tcp\((\d+)\)"
 )
 _ACTIONS = re.compile(r"actions\s*[:=]\s*\[([^\]]*)\]")
 
@@ -81,7 +86,13 @@ def _rebuild(family: str, program: str, res: Resources, logical: str) -> None:
             {"CidrIp": "0.0.0.0/0" if kind != "ipv4" else cidr, "FromPort": int(port),
              "ToPort": int(port), "IpProtocol": "tcp"}
             for kind, cidr, port in _SG_CALL.findall(program)
-        ]  # fmt: skip
+        ] + [{"CidrIp": "0.0.0.0/0", "FromPort": int(p), "ToPort": int(p), "IpProtocol": "tcp"}
+             for p in _ANY_V4.findall(program)]  # fmt: skip
+        for lid in [k for k, v in res.items() if v["Type"] == "AWS::EC2::SecurityGroupIngress"]:
+            path = res[lid]["Metadata"]["aws:cdk:path"]
+            l1 = path.rsplit("/", 1)[-1]
+            if "CidrIp" in res[lid]["Properties"] and f"'{l1}'" not in program:
+                del res[lid]  # an L1 CfnSecurityGroupIngress the edit removed
     elif family == "s3":
         if "BLOCK_ALL" in program:
             props["PublicAccessBlockConfiguration"] = dict.fromkeys(
@@ -161,6 +172,18 @@ def _peer_group(res: Resources) -> None:
     }  # fmt: skip
 
 
+def _l1_rdp(res: Resources) -> None:
+    res["BastionRdp9A8B7C6D"] = {
+        "Type": "AWS::EC2::SecurityGroupIngress",
+        "Properties": {
+            "GroupId": {"Fn::GetAtt": ["BastionSg1A2B3C4D", "GroupId"]},
+            "CidrIp": "0.0.0.0/0", "Description": "RDP from anywhere",
+            "FromPort": 3389, "ToPort": 3389, "IpProtocol": "tcp",
+        },
+        "Metadata": {"aws:cdk:path": "network/BastionRdp"},
+    }  # fmt: skip
+
+
 def _l1(res: Resources) -> None:
     res["BastionSg1A2B3C4D"]["Metadata"]["aws:cdk:path"] = "network/BastionSg"
 
@@ -189,6 +212,30 @@ export function legacyBastion(scope: Construct, vpc: ec2.IVpc): ec2.SecurityGrou
 }
 """
 SSH_TS = "ec2.Peer.anyIpv4(), ec2.Port.tcp(22)"
+SSH_LINE = "bastionSg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(22), 'SSH from anywhere');"
+WEB_LINE = "webSg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(443));\n"
+RDP_TS = (
+    "    new ec2.CfnSecurityGroupIngress(this, 'BastionRdp', {\n"
+    "      groupId: bastionSg.securityGroupId,\n"
+    "      ipProtocol: 'tcp',\n"
+    "      fromPort: 3389,\n"
+    "      toPort: 3389,\n"
+    "      cidrIp: '0.0.0.0/0',\n"
+    "      description: 'RDP from anywhere',\n"
+    "    });\n"
+)
+ALLOW_TO = "    webSg.connections.allowTo(bastionSg, ec2.Port.tcp(22), 'web');" + chr(10)
+OPEN_LIVE = [
+    {"IpProtocol": "tcp", "FromPort": p, "ToPort": p, "IpRanges": [{"CidrIp": c}]}
+    for p, c in [(22, "0.0.0.0/0"), (9100, "10.0.0.0/16"), (3389, "0.0.0.0/0")]
+]
+# The live group as deployed from `_peer_group`: the web group (sg-0b22c4d6) is a source on 22.
+PEER_LIVE = [
+    {"IpProtocol": "tcp", "FromPort": 22, "ToPort": 22, "IpRanges": [{"CidrIp": "0.0.0.0/0"}],
+     "UserIdGroupPairs": [{"GroupId": "sg-0b22c4d6"}]},
+    {"IpProtocol": "tcp", "FromPort": 9100, "ToPort": 9100,
+     "IpRanges": [{"CidrIp": "10.0.0.0/16"}]},
+]  # fmt: skip
 L1_TS = (
     "const bastionSg = new ec2.SecurityGroup(this, 'BastionSg', {",
     "const bastionSg = new ec2.CfnSecurityGroup(this, 'BastionSg', {",
@@ -207,6 +254,26 @@ CASES: list[CdkCase] = [
         ]
         for lang, name in [("ts", "TypeScript"), ("py", "Python")]
     ],
+    CdkCase("cdk-sg-peer-traced", "sg", "ts", "Another group is a peer, traced to its call",
+            "`webSg.connections.allowTo(bastionSg, Port.tcp(22))` synthesizes a standalone "
+            "ingress with a group source; it is kept as is and the open CIDR rule is fixed.",
+            "fix", edits=[(WEB_LINE, WEB_LINE + ALLOW_TO)],
+            template=_peer_group, live=PEER_LIVE),
+    CdkCase("cdk-sg-allow-from-any", "sg", "ts", "SSH opened with `connections.allowFromAnyIpv4`",
+            "The open rule comes from `connections`, with literal ports; it is replaced by "
+            "`addIngressRule` calls.", "fix",
+            edits=[(SSH_LINE, "bastionSg.connections.allowFromAnyIpv4(ec2.Port.tcp(22), "
+                              "'SSH from anywhere');")]),
+    CdkCase("cdk-sg-l1-ingress-open", "sg", "ts",
+            "RDP open through a literal `CfnSecurityGroupIngress`",
+            "A separate L1 ingress on the group, every prop a literal; it is removed and the "
+            "synthesized rules are written as `addIngressRule` calls.", "fix",
+            edits=[(WEB_LINE, WEB_LINE + RDP_TS)], template=_l1_rdp, live=OPEN_LIVE),
+    CdkCase("cdk-sg-l1-ingress-untraced", "sg", "ts",
+            "Standalone ingress with no construct in the file",
+            "The template has a `CfnSecurityGroupIngress` on the group that isn't in the group's "
+            "file; PosturaNet can't edit what it can't see.", "stop", 3,
+            "no literal ingress call or CfnSecurityGroupIngress", template=_l1_rdp, live=OPEN_LIVE),
     CdkCase("cdk-sg-computed-peer", "sg", "ts", "SSH peer is `Peer.ipv4(adminCidr)`",
             "The open rule's source is a variable; its value isn't a literal in the program.",
             "stop", 3, "not a literal",
@@ -215,10 +282,10 @@ CASES: list[CdkCase] = [
             "The template has a 5432 rule no literal `addIngressRule` call explains; editing "
             "the calls alone would miss it.", "stop", 3, "ingress rule(s) in the template",
             template=_connections),
-    CdkCase("cdk-sg-peer-group", "sg", "ts", "Another group is a peer (standalone ingress)",
+    CdkCase("cdk-sg-peer-group", "sg", "ts", "A group peer with no call in the group's file",
             "`webSg.connections.allowTo(bastionSg, …)` synthesizes an "
             "`AWS::EC2::SecurityGroupIngress` with a group source.", "stop", 3,
-            "no literal addIngressRule call explains", template=_peer_group),
+            "literal peer call(s)", template=_peer_group),
     CdkCase("cdk-sg-duplicate-id", "sg", "ts", "Two constructs have the id `BastionSg`",
             "A helper in another file makes a second `BastionSg`; PosturaNet won't pick one.",
             "stop", 3, "constructs", extra={"lib/legacy.ts": DUP_TS}),

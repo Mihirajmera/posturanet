@@ -579,7 +579,7 @@ The same three fix types on CDK apps in TypeScript and Python, plus the traps th
 
 | Contender | Correct | Stopped | Outage | Still Exposed | Unneeded stops |
 |---|---|---|---|---|---|
-| PosturaNet | 6 | 14 | 0 | 0 | 0 |
+| PosturaNet | 9 | 15 | 0 | 0 | 0 |
 
 **Wrongly reported safe: 0**
 
@@ -631,6 +631,38 @@ One `PolicyStatement` with a literal `actions` array. Ground truth: a safe fix e
 |---|---|---|
 | PosturaNet | Correct | allows ec2:DescribeInstances, ec2:DescribeVolumes, logs:CreateLogStream |
 
+#### `cdk-sg-peer-traced`: Another group is a peer, traced to its call
+
+`webSg.connections.allowTo(bastionSg, Port.tcp(22))` synthesizes a standalone ingress with a group source; it is kept as is and the open CIDR rule is fixed. Ground truth: a safe fix exists.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Correct | allows 10.0.0.0/16:9100/tcp, 10.0.4.12/32:22/tcp, 10.0.4.37/32:22/tcp, 10.0.5.9/32:22/tcp, 203.0.113.7/32:22/tcp |
+
+#### `cdk-sg-allow-from-any`: SSH opened with `connections.allowFromAnyIpv4`
+
+The open rule comes from `connections`, with literal ports; it is replaced by `addIngressRule` calls. Ground truth: a safe fix exists.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Correct | allows 10.0.0.0/16:9100/tcp, 10.0.4.12/32:22/tcp, 10.0.4.37/32:22/tcp, 10.0.5.9/32:22/tcp, 203.0.113.7/32:22/tcp |
+
+#### `cdk-sg-l1-ingress-open`: RDP open through a literal `CfnSecurityGroupIngress`
+
+A separate L1 ingress on the group, every prop a literal; it is removed and the synthesized rules are written as `addIngressRule` calls. Ground truth: a safe fix exists.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Correct | allows 10.0.0.0/16:9100/tcp, 10.0.4.12/32:22/tcp, 10.0.4.37/32:22/tcp, 10.0.5.9/32:22/tcp, 203.0.113.7/32:22/tcp |
+
+#### `cdk-sg-l1-ingress-untraced`: Standalone ingress with no construct in the file
+
+The template has a `CfnSecurityGroupIngress` on the group that isn't in the group's file; PosturaNet can't edit what it can't see. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | fix unknown: network/BastionSg/Resource gets ingress from BastionRdp9A8B7C6D in the template, which no literal ingress call or CfnSecurityGroupIngress in network-stack.ts explains |
+
 #### `cdk-sg-computed-peer`: SSH peer is `Peer.ipv4(adminCidr)`
 
 The open rule's source is a variable; its value isn't a literal in the program. Ground truth: no safe automatic fix: stopping is right.
@@ -645,15 +677,15 @@ The template has a 5432 rule no literal `addIngressRule` call explains; editing 
 
 | Contender | Verdict | Detail |
 |---|---|---|
-| PosturaNet | Stopped | fix unknown: network/BastionSg/Resource has 3 ingress rule(s) in the template but 2 literal addIngressRule call(s) on `bastionSg` in network-stack.ts |
+| PosturaNet | Stopped | fix unknown: network/BastionSg/Resource has 3 ingress rule(s) in the template but 2 literal ingress call(s) on `bastionSg` in network-stack.ts |
 
-#### `cdk-sg-peer-group`: Another group is a peer (standalone ingress)
+#### `cdk-sg-peer-group`: A group peer with no call in the group's file
 
 `webSg.connections.allowTo(bastionSg, …)` synthesizes an `AWS::EC2::SecurityGroupIngress` with a group source. Ground truth: no safe automatic fix: stopping is right.
 
 | Contender | Verdict | Detail |
 |---|---|---|
-| PosturaNet | Stopped | fix unknown: network/BastionSg/Resource gets ingress from BastionSgfromnetworkWebSgE5F6A7B8443 in the template, which no literal addIngressRule call explains |
+| PosturaNet | Stopped | fix unknown: network/BastionSg/Resource has 1 security-group peer rule(s) in the template but 0 literal peer call(s) on `bastionSg` in network-stack.ts |
 
 #### `cdk-sg-duplicate-id`: Two constructs have the id `BastionSg`
 

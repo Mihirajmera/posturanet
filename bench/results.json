@@ -120,6 +120,24 @@
         "verdict": "CORRECT"
       }
     ],
+    "cdk-sg-allow-from-any": [
+      {
+        "allowed": [
+          "10.0.0.0/16:9100/tcp",
+          "10.0.4.12/32:22/tcp",
+          "10.0.4.37/32:22/tcp",
+          "10.0.5.9/32:22/tcp",
+          "203.0.113.7/32:22/tcp"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
     "cdk-sg-computed-id": [
       {
         "allowed": [],
@@ -150,7 +168,7 @@
         "broken": [],
         "expect": "stop",
         "exposed": [],
-        "note": "fix unknown: network/BastionSg/Resource has 3 ingress rule(s) in the template but 2 literal addIngressRule call(s) on `bastionSg` in network-stack.ts",
+        "note": "fix unknown: network/BastionSg/Resource has 3 ingress rule(s) in the template but 2 literal ingress call(s) on `bastionSg` in network-stack.ts",
         "status": "STOPPED",
         "tool": "PosturaNet",
         "verdict": "STOPPED"
@@ -175,6 +193,36 @@
         "expect": "stop",
         "exposed": [],
         "note": "locate unknown: network/BastionSg is not an L2 SecurityGroup construct (L1 Cfn* constructs and resources other constructs generate aren't edited yet)",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "cdk-sg-l1-ingress-open": [
+      {
+        "allowed": [
+          "10.0.0.0/16:9100/tcp",
+          "10.0.4.12/32:22/tcp",
+          "10.0.4.37/32:22/tcp",
+          "10.0.5.9/32:22/tcp",
+          "203.0.113.7/32:22/tcp"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "cdk-sg-l1-ingress-untraced": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "fix unknown: network/BastionSg/Resource gets ingress from BastionRdp9A8B7C6D in the template, which no literal ingress call or CfnSecurityGroupIngress in network-stack.ts explains",
         "status": "STOPPED",
         "tool": "PosturaNet",
         "verdict": "STOPPED"
@@ -210,10 +258,28 @@
         "broken": [],
         "expect": "stop",
         "exposed": [],
-        "note": "fix unknown: network/BastionSg/Resource gets ingress from BastionSgfromnetworkWebSgE5F6A7B8443 in the template, which no literal addIngressRule call explains",
+        "note": "fix unknown: network/BastionSg/Resource has 1 security-group peer rule(s) in the template but 0 literal peer call(s) on `bastionSg` in network-stack.ts",
         "status": "STOPPED",
         "tool": "PosturaNet",
         "verdict": "STOPPED"
+      }
+    ],
+    "cdk-sg-peer-traced": [
+      {
+        "allowed": [
+          "10.0.0.0/16:9100/tcp",
+          "10.0.4.12/32:22/tcp",
+          "10.0.4.37/32:22/tcp",
+          "10.0.5.9/32:22/tcp",
+          "203.0.113.7/32:22/tcp"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
       }
     ],
     "cdk-sg-py": [

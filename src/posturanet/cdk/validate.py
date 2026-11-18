@@ -20,7 +20,7 @@ from posturanet.aws.session import ClientFactory
 from posturanet.cdk import source
 from posturanet.cdk.app import CdkRunner, CdkTarget, SubprocessCdk, in_template, stack_template
 from posturanet.cdk.source import Construct
-from posturanet.cfn.edit import parse_policy, parse_sg
+from posturanet.cfn.edit import owned_ingress, parse_policy, parse_sg
 from posturanet.cfn.locate import CfnResource
 from posturanet.cfn.template import Template, value
 from posturanet.cfn.validate import Checks, drift, iam_checks, s3_checks, sg_checks
@@ -36,6 +36,7 @@ from posturanet.models import (
     ValidationReport,
 )
 from posturanet.synth.hcl_render import rules_diff, unified_diff
+from posturanet.synth.sg_rules import Rule, norm_proto
 from posturanet.synth.sg_z3 import Synthesis
 from posturanet.validate.guardrails import check_paths
 
@@ -68,35 +69,75 @@ def _diff(repo: Path, t: CdkTarget, new: str, summary: str, generator: str) -> D
 # --- diffs
 
 
-def sg_diff(repo: Path, t: CdkTarget, synth: Synthesis) -> Diff:
+def _sg_stop(t: CdkTarget, what: str) -> StageStop:
+    return StageStop(
+        "fix",
+        f"{t.construct_path} {what}",
+        [
+            f"rules from other files, computed values or other constructs aren't edited; {_HAND}",
+        ],
+        unknown=True,
+    )
+
+
+def trace_sg(t: CdkTarget) -> source.SgSource:
+    """The group's literal ingress in its file, checked against the synthesized template:
+    inline CIDR rules ↔ ingress calls, standalone ingress ↔ a literal `CfnSecurityGroupIngress`
+    (by construct id) or a group-peer call (by ports). Anything left over stops UNKNOWN."""
     c = t.construct
-    calls = source.ingress_calls(c)
-    in_source = sorted({source.norm(k.rule) for k in calls})
+    src = source.sg_source(c)
     sg = parse_sg(t.res)
-    in_template_ = sorted({source.norm(r) for r in sg.rules()})
-    # Group peers (no CIDR rule) and standalone ingress come from `connections`, not literals.
-    foreign = [e.resource or "an ingress entry" for e in sg.entries if e.resource or not e.rules]
-    if foreign:
-        raise StageStop(
-            "fix",
-            f"{t.construct_path} gets ingress from {', '.join(foreign)} in the template, "
-            "which no literal addIngressRule call explains",
-            [f"rules from connections.allowFrom or security-group peers aren't edited; {_HAND}"],
-            unknown=True,
+    resources = value(t.res.template.root)["Resources"]
+    scope = t.construct_path.rsplit("/", 1)[0] + "/"  # children of the L2 construct
+    inline: set[Rule] = set()
+    peers: list[source.PeerPorts] = []
+    l1_seen: set[str] = set()
+    for e in sg.entries:
+        if e.resource is None:
+            if not e.rules:
+                raise _sg_stop(t, "has an inline ingress entry with a non-CIDR source")
+            inline |= {source.norm(r) for r in e.rules}
+            continue
+        r = resources.get(e.resource) or {}
+        props = r.get("Properties") or {}
+        path = str((r.get("Metadata") or {}).get("aws:cdk:path", ""))
+        if not e.rules and "SourceSecurityGroupId" in props and path.startswith(scope):
+            proto = norm_proto(str(props.get("IpProtocol", "")))
+            lo, hi = int(props.get("FromPort", -1)), int(props.get("ToPort", -1))
+            peers.append(source.peer_ports(proto, lo, hi))
+            continue
+        match = [x for x in src.l1 if x.construct_id == path.rsplit("/", 1)[-1]]
+        if len(match) == 1 and {source.norm(x) for x in e.rules} == {source.norm(match[0].rule)}:
+            l1_seen.add(match[0].construct_id)
+            continue
+        raise _sg_stop(
+            t,
+            f"gets ingress from {e.resource} in the template, which no literal ingress call or "
+            f"CfnSecurityGroupIngress in {c.file.name} explains",
         )
-    if in_source != in_template_:
-        raise StageStop(
-            "fix",
-            f"{t.construct_path} has {len(in_template_)} ingress rule(s) in the template but "
-            f"{len(in_source)} literal addIngressRule call(s) on `{c.var}` in {c.file.name}",
-            [
-                "rules from connections.allowFrom, other files or computed values aren't "
-                f"edited; {_HAND}",
-            ],
-            unknown=True,
+    if sorted(peers) != sorted(src.peers):
+        raise _sg_stop(
+            t,
+            f"has {len(peers)} security-group peer rule(s) in the template but "
+            f"{len(src.peers)} literal peer call(s) on `{c.var}` in {c.file.name}",
         )
-    new = source.render_sg(c, calls, synth.added)
-    diff = rules_diff(_rel(t, repo), c.text, new, c.crlf, synth, t.address)
+    unused = sorted({x.construct_id for x in src.l1} - l1_seen)
+    if unused:
+        raise _sg_stop(t, f"has no template resource for CfnSecurityGroupIngress {unused[0]}")
+    in_source = {source.norm(k.rule) for k in src.calls}
+    if in_source != inline:
+        raise _sg_stop(
+            t,
+            f"has {len(inline)} ingress rule(s) in the template but {len(in_source)} literal "
+            f"ingress call(s) on `{c.var}` in {c.file.name}",
+        )
+    return src
+
+
+def sg_diff(repo: Path, t: CdkTarget, synth: Synthesis) -> Diff:
+    src = trace_sg(t)
+    new = source.render_sg(t.construct, src, synth.added)
+    diff = rules_diff(_rel(t, repo), t.construct.text, new, t.construct.crlf, synth, t.address)
     return diff.model_copy(update={"generator": "template:sg_ingress@1:cdk"})
 
 
@@ -158,12 +199,16 @@ def _source_check(ok: bool, detail_ok: str, detail_fail: str) -> Check:
 
 
 def _scope(before: CfnResource, after: CfnResource) -> Check:
+    # an open CfnSecurityGroupIngress the edit removed; the group's other ingress must not change
+    ours = owned_ingress(value(before.template.root)["Resources"], before.logical_id)
+    removed = set(ours) - set(value(after.template.root)["Resources"])
+
     def rest(t: Template) -> Any:
         out = dict(value(t.root))
         out["Resources"] = {
             k: v
             for k, v in out["Resources"].items()
-            if k != before.logical_id and v.get("Type") != "AWS::CDK::Metadata"
+            if k != before.logical_id and k not in removed and v.get("Type") != "AWS::CDK::Metadata"
         }
         return out
 

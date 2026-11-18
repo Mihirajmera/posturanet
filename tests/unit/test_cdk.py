@@ -24,6 +24,7 @@ from posturanet.evidence import FileSource
 from posturanet.gate import check_source
 from posturanet.models.config import Config, load_config
 from posturanet.pipeline import Context, run_fix, run_fix_full
+from posturanet.synth.sg_rules import Rule
 
 FIX = Path(__file__).resolve().parents[1] / "fixtures"
 TS = FIX / "cdk" / "ts-app"
@@ -174,8 +175,56 @@ def test_computed_peer_stops_unknown(tmp_path: Path) -> None:
     )
     (c,) = source.scan(f, text, "Sg", "SecurityGroup")
     with pytest.raises(StageStop) as exc:
-        source.ingress_calls(c)
+        source.sg_source(c)
     assert exc.value.unknown and "won't guess" in exc.value.reason
+
+
+def test_sg_source_reads_connections_peers_and_l1_python(tmp_path: Path) -> None:
+    f = tmp_path / "s.py"
+    text = (
+        'sg = ec2.SecurityGroup(self, "Sg", vpc=vpc)\n'
+        "sg.connections.allow_from_any_ipv4(ec2.Port.tcp(22))\n"
+        'sg.connections.allow_from(ec2.Peer.ipv4("10.0.0.0/16"), ec2.Port.tcp(9100), "nx")\n'
+        "sg.connections.allow_from(other=web_sg, port_range=ec2.Port.tcp(5432))\n"
+        "admin_sg.connections.allow_to(sg, ec2.Port.all_traffic())\n"
+        "web_sg.connections.allow_to(db_sg, ec2.Port.tcp(5432))\n"  # another group's ingress
+        'ec2.CfnSecurityGroupIngress(self, "Rdp", group_id=sg.security_group_id,\n'
+        '    ip_protocol="tcp", from_port=3389, to_port=3389, cidr_ip="0.0.0.0/0")\n'
+    )
+    (c,) = source.scan(f, text, "Sg", "SecurityGroup")
+    src = source.sg_source(c)
+    assert [(k.rule.label(), k.is_open) for k in src.calls] == [
+        ("0.0.0.0/0:22/tcp", True), ("10.0.0.0/16:9100/tcp", False)
+    ]  # fmt: skip
+    assert sorted(src.peers) == [("-1", -1, -1), ("tcp", 5432, 5432)]
+    assert [(x.construct_id, x.rule.label(), x.removable) for x in src.l1] == [
+        ("Rdp", "0.0.0.0/0:3389/tcp", True)
+    ]
+    new = source.render_sg(c, src, [Rule("10.0.4.12/32", 22, 22, "tcp")])
+    assert "allow_from_any_ipv4" not in new and "CfnSecurityGroupIngress" not in new
+    assert 'sg.add_ingress_rule(ec2.Peer.ipv4("10.0.4.12/32"), ec2.Port.tcp(22), ' in new
+    assert "allow_from(other=web_sg" in new and "allow_to(sg" in new  # peers untouched
+
+
+@pytest.mark.parametrize(
+    ("l1", "says"),
+    [
+        ("const rdp = new ec2.CfnSecurityGroupIngress(this, 'Rdp', {groupId: sg.securityGroupId, "
+         "ipProtocol: 'tcp', fromPort: 3389, toPort: 3389, cidrIp: '0.0.0.0/0'});\n"
+         "rdp.addDependency(sg);\n", "isn't removable"),
+        ("new ec2.CfnSecurityGroupIngress(this, 'Rdp', {groupId: pick(sg), ipProtocol: 'tcp', "
+         "fromPort: 3389, toPort: 3389, cidrIp: '0.0.0.0/0'});\n", "groupId"),
+        ("new ec2.CfnSecurityGroupIngress(this, 'Rdp', {groupId: sg.securityGroupId, "
+         "ipProtocol: 'tcp', fromPort: 3389, toPort: 3389, cidrIp: cidr});\n", "source"),
+    ],
+)  # fmt: skip
+def test_l1_ingress_that_cant_be_edited_stops(tmp_path: Path, l1: str, says: str) -> None:
+    f = tmp_path / "s.ts"
+    text = "const sg = new ec2.SecurityGroup(this, 'Sg', { vpc });\n" + l1
+    (c,) = source.scan(f, text, "Sg", "SecurityGroup")
+    with pytest.raises(StageStop, match=says) as exc:
+        source.render_sg(c, source.sg_source(c), [])
+    assert exc.value.unknown
 
 
 def test_variable_assigned_twice_stops(tmp_path: Path) -> None:
@@ -183,7 +232,7 @@ def test_variable_assigned_twice_stops(tmp_path: Path) -> None:
     text = 'sg = ec2.SecurityGroup(self, "Sg", vpc=vpc)\nsg = other\n'
     (c,) = source.scan(f, text, "Sg", "SecurityGroup")
     with pytest.raises(StageStop, match="assigned more than once"):
-        source.ingress_calls(c)
+        source.sg_source(c)
 
 
 def test_s3_props_layouts(tmp_path: Path) -> None:
