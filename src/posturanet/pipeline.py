@@ -19,7 +19,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
-from posturanet import __version__, cdk, cfn, iamfix, s3fix
+from posturanet import __version__, cdk, cfn, iamfix, pulumi, s3fix
 from posturanet.aws.changeset import ChangeSetClient
 from posturanet.aws.session import ClientFactory
 from posturanet.configfix import edit_resource, fixes_for
@@ -158,6 +158,8 @@ def _run(
     record.finding = finding
     if cdk.is_cdk(repo, config):
         return _run_cfn_dispatch(finding, repo, config, ctx, record, iac="cdk")
+    if pulumi.is_pulumi(repo, config):
+        return _run_cfn_dispatch(finding, repo, config, ctx, record, iac="pulumi")
     if cfn.is_cloudformation(repo, config, ctx.state_path) or split_template_ref(
         finding.resource.address
     ):
@@ -184,13 +186,14 @@ def _run_cfn_dispatch(
     ctx: Context,
     record: RunRecord,
     *,
-    iac: Literal["cloudformation", "cdk"],
+    iac: Literal["cloudformation", "cdk", "pulumi"],
 ) -> tuple[RunRecord, Proposal | None]:
-    """CloudFormation, SAM and CDK: the same three evidence-backed fix types."""
-    if iac == "cdk" and finding.resource.address:
+    """CloudFormation, SAM, CDK and Pulumi: the same three evidence-backed fix types."""
+    tool = {"cdk": "CDK apps", "pulumi": "Pulumi programs"}.get(iac)
+    if tool and finding.resource.address:
         raise StageStop(
             "ingest",
-            "IaC scanner findings on CDK apps are not supported yet",
+            f"IaC scanner findings on {tool} are not supported yet",
             ["pass the Security Hub finding, or `CONTROL:resource-id`, instead"],
             unknown=True,
         )
@@ -212,11 +215,11 @@ def _run_cfn_dispatch(
     if finding.fix_type is FixType.IAM_LEAST_PRIVILEGE:
         return _run_iam(finding, repo, config, ctx, record, iac=iac)
     if finding.fix_type is FixType.CONFIG_ATTRIBUTE:
-        if iac == "cdk":
+        if tool:
             raise StageStop(
                 "ingest",
-                f"{finding.control_id} is an attribute fix; those don't edit CDK apps yet",
-                ["set the construct prop by hand"],
+                f"{finding.control_id} is an attribute fix; those don't edit {tool} yet",
+                ["set the value by hand"],
                 unknown=True,
             )
         record.stages.append(_ingest_stage(finding))
@@ -231,7 +234,7 @@ def _run_sg(
     ctx: Context,
     record: RunRecord,
     *,
-    iac: Literal["terraform", "cloudformation", "cdk"],
+    iac: Literal["terraform", "cloudformation", "cdk", "pulumi"],
 ) -> tuple[RunRecord, Proposal | None]:
     dry = ctx.mode == "dry-run"
     if finding.fix_type is not FixType.SG_INGRESS:
@@ -254,8 +257,12 @@ def _run_sg(
     match: StateMatch | None = None
     res: cfn.CfnResource | None = None
     target: cdk.CdkTarget | None = None
+    pul: pulumi.PulumiTarget | None = None
     if iac == "cloudformation":
         loc, res = cfn.locate(finding, repo, config, ctx.state_path, ctx.aws, [cfn.SG_TYPE])
+    elif iac == "pulumi":
+        loc, pul = pulumi.locate(finding, repo, config, ctx.state_path, [cfn.SG_TYPE])
+        res = pul.res
     elif iac == "cdk":
         loc, target = cdk.locate(
             finding, repo, config, ctx.state_path, ctx.aws, [cfn.SG_TYPE], ctx.cdk, dry=dry
@@ -283,7 +290,7 @@ def _run_sg(
         _skip_rest(record, after="locate", summary="dry run: pass --evidence-file to go further")
         record.result = "DRY RUN"
         record.result_detail = "ingest and locate complete · no AWS calls, no changes"
-        record.unknowns = [_drift_unknown(loc.address)]
+        record.unknowns = [_drift_unknown(loc.address)] if loc.drift is None else []
         if not loc.owners:
             record.unknowns.append("owner: no CODEOWNERS rule matches the file")
         record.next_steps = [
@@ -402,7 +409,9 @@ def _run_sg(
             )
         loc.drift = False
     synth = synthesize(contract, current, config.synthesis)
-    if target is not None:
+    if pul is not None:
+        diff = pulumi.sg_diff(repo, pul, synth)
+    elif target is not None:
         diff = cdk.sg_diff(repo, target, synth)
     elif isinstance(sg, cfn.CfnSecurityGroup):
         diff = cfn.sg_diff(repo, sg, synth)
@@ -412,7 +421,9 @@ def _run_sg(
     record.stages.append(StageResult(name="fix", status=StageStatus.OK, summary=diff.summary))
 
     # --- validate
-    if target is not None:
+    if pul is not None:
+        report = pulumi.validate_sg(repo, pul, diff, synth, contract, finding.control_id, config)
+    elif target is not None:
         report = cdk.validate_sg(
             target,
             diff,
@@ -493,6 +504,8 @@ def _run_sg(
     gh = ctx.github or _github(config, ctx)
     original = target.original if target is not None else sg.text
     local_originals: dict[str, str | None] = {f.path: original for f in diff.files}
+    if pul is not None:
+        local_originals = {f.path: pul.original_of(repo / f.path) for f in diff.files}
     if contract_text is not None:
         local_originals[rel_path] = original_contract
     result = deliver(
@@ -785,7 +798,7 @@ def _run_s3(
     ctx: Context,
     record: RunRecord,
     *,
-    iac: Literal["terraform", "cloudformation", "cdk"] = "terraform",
+    iac: Literal["terraform", "cloudformation", "cdk", "pulumi"] = "terraform",
 ) -> tuple[RunRecord, Proposal | None]:
     """S3 Block Public Access (FR-50): evidence that nothing uses public access, then the fix."""
     dry = ctx.mode == "dry-run"
@@ -805,13 +818,20 @@ def _run_s3(
     # --- locate
     res: cfn.CfnResource | None = None
     target_cdk: cdk.CdkTarget | None = None
+    s3_pul: pulumi.PulumiTarget | None = None
     bucket: str | None = None
-    if iac in ("cloudformation", "cdk"):
+    if iac in ("cloudformation", "cdk", "pulumi"):
         if scope == "account":
             raise StageStop(
                 "locate",
-                f"{control} is the account-level S3 Block Public Access setting; CloudFormation "
-                "has no resource type for it, so there is no template line to change",
+                f"{control} is the account-level S3 Block Public Access setting; "
+                + (
+                    "PosturaNet edits only existing literals in Pulumi programs and won't add "
+                    "an aws.s3.AccountPublicAccessBlock"
+                    if iac == "pulumi"
+                    else "CloudFormation has no resource type for it, so there is no template "
+                    "line to change"
+                ),
                 [
                     "if the account has a Terraform repo, run PosturaNet there: it adds an "
                     "`aws_s3_account_public_access_block` resource",
@@ -821,7 +841,10 @@ def _run_s3(
                 ],
                 unknown=True,
             )
-        if iac == "cdk":
+        if iac == "pulumi":
+            loc, s3_pul = pulumi.locate(finding, repo, config, ctx.state_path, [cfn.BUCKET_TYPE])
+            res = s3_pul.res
+        elif iac == "cdk":
             loc, target_cdk = cdk.locate(
                 finding, repo, config, ctx.state_path, ctx.aws, [cfn.BUCKET_TYPE], ctx.cdk, dry=dry
             )
@@ -856,7 +879,9 @@ def _run_s3(
     record.location = loc
     owners_text = ", ".join(loc.owners) if loc.owners else "no owner found"
     block = (
-        f"blockPublicAccess on {target_cdk.construct_path}"
+        f"aws.s3.BucketPublicAccessBlock {s3_pul.state.name}"
+        if s3_pul is not None
+        else f"blockPublicAccess on {target_cdk.construct_path}"
         if target_cdk is not None
         else f"PublicAccessBlockConfiguration on {res.logical_id}"
         if res is not None
@@ -995,7 +1020,9 @@ def _run_s3(
     # --- fix
     original: str | None
     already: list[str] = []
-    if target_cdk is not None:
+    if s3_pul is not None:
+        diff, original = pulumi.s3_diff(repo, s3_pul), s3_pul.original
+    elif target_cdk is not None:
         diff, original = cdk.s3_diff(repo, target_cdk), target_cdk.original
     elif res is not None:
         diff, already = cfn.s3_diff(repo, res)
@@ -1013,7 +1040,9 @@ def _run_s3(
     )
 
     # --- validate
-    if target_cdk is not None:
+    if s3_pul is not None:
+        report = pulumi.validate_s3(repo, s3_pul, diff, control, config)
+    elif target_cdk is not None:
         report = cdk.validate_s3(target_cdk, diff, control, config, ctx.aws, ctx.cdk, offline=dry)
     elif res is not None:
         report = cfn.validate_s3(
@@ -1042,7 +1071,7 @@ def _run_s3(
     unknowns = [contract.unknown_risk]
     if not loc.owners:
         unknowns.append("owner: no CODEOWNERS rule matches the file")
-    if dry:
+    if dry and loc.drift is None:
         unknowns.append(_drift_unknown(loc.address))
     if any(b.exposure.public for b in ev.buckets):
         unknowns.append(
@@ -1125,7 +1154,7 @@ def _run_iam(
     ctx: Context,
     record: RunRecord,
     *,
-    iac: Literal["terraform", "cloudformation", "cdk"] = "terraform",
+    iac: Literal["terraform", "cloudformation", "cdk", "pulumi"] = "terraform",
 ) -> tuple[RunRecord, Proposal | None]:
     """IAM least privilege (FR-51): replace wildcard actions with the actions in use."""
     dry = ctx.mode == "dry-run"
@@ -1142,7 +1171,13 @@ def _run_iam(
     doc: PolicyDoc | None = None
     policy: cfn.CfnPolicy | None = None
     iam_cdk: cdk.CdkTarget | None = None
-    if iac == "cdk":
+    iam_pul: pulumi.PulumiTarget | None = None
+    if iac == "pulumi":
+        loc, iam_pul = pulumi.locate(finding, repo, config, ctx.state_path, [cfn.POLICY_TYPE])
+        statements, form = cfn.parse_policy(iam_pul.res).statements, "pulumi"
+        doc_file, doc_original = loc.file, iam_pul.original
+        where = f"policy of {iam_pul.state.name} in {loc.file}"
+    elif iac == "cdk":
         loc, iam_cdk = cdk.locate(
             finding, repo, config, ctx.state_path, ctx.aws, [cfn.POLICY_TYPE], ctx.cdk, dry=dry
         )
@@ -1326,7 +1361,9 @@ def _run_iam(
         return record, None
 
     # --- fix
-    if iam_cdk is not None:
+    if iam_pul is not None:
+        diff = pulumi.iam_diff(repo, iam_pul, result.changes)
+    elif iam_cdk is not None:
         diff = cdk.iam_diff(repo, iam_cdk, result.changes)
     elif policy is not None:
         diff = cfn.iam_diff(repo, policy, result.changes)
@@ -1349,7 +1386,11 @@ def _run_iam(
     )
 
     # --- validate
-    if iam_cdk is not None:
+    if iam_pul is not None:
+        report = pulumi.validate_iam(
+            repo, iam_pul, diff, control, result.changes, use, extra, config
+        )
+    elif iam_cdk is not None:
         report = cdk.validate_iam(
             iam_cdk,
             diff,
@@ -1408,7 +1449,7 @@ def _run_iam(
     ]
     if not loc.owners:
         unknowns.append("owner: no CODEOWNERS rule matches the file")
-    if dry:
+    if dry and loc.drift is None:
         unknowns.append(_drift_unknown(loc.address))
     proposal = iampr.IamProposal(
         finding=finding,
@@ -1584,6 +1625,8 @@ def _preview(address: str) -> str:
     """The read-only preview behind the drift check, for the IaC that defines `address`."""
     if cdk.split_address(address):
         return "cdk synth and the deployed-template check"
+    if pulumi.split_address(address):
+        return "the same static checks (pulumi preview is not run)"
     return "the deployed-template check" if cfn.split_address(address) else "terraform plan"
 
 

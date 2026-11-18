@@ -88,6 +88,7 @@ posturanet/                         # FSL-1.1-ALv2 (this folder; becomes its own
     aws/          session.py  readonly.py  remediation_plans.py   # read-only API allowlist (NFR-2)
     cfn/          template.py  locate.py  params.py  edit.py  validate.py    # CloudFormation and SAM (§14.4)
     cdk/          app.py  source.py  validate.py                  # AWS CDK, TypeScript and Python (§14.5)
+    pulumi/       stack.py  source.py  model.py  validate.py      # Pulumi, TypeScript and Python (§14.6)
     output/       console.py  symbols.py            # design-system rendering
     cli/          app.py
     mcp/          server.py
@@ -140,6 +141,9 @@ cdk:
   app: infra/                      # dir holding cdk.json; found when there is exactly one
   assembly: cdk.out                # a cloud assembly CI synthesized from this commit; unset: cdk synth
   binary: cdk
+pulumi:
+  program: infra/                  # dir holding Pulumi.yaml; found when there is exactly one
+  stack_export: stack.json         # `pulumi stack export` of the deployed stack (required; keep out of git)
 cloudformation:
   stack_resources: stack-resources.json   # offline: `aws cloudformation describe-stack-resources` export
   templates: { network: templates/network.yaml }   # stack -> template, only when a logical id is ambiguous
@@ -532,6 +536,16 @@ Copy code in. **Don't import from `postura-backend`.** Keep a header comment `# 
 - *Validation.* `validate.py`: guardrails; `source` (required: the edited file re-read gives exactly the synthesized rules, `BLOCK_ALL`, or the kept actions); `cdk_synth` (required; SKIPPED in a dry run, so a dry run is INCOMPLETE): the edited file is written in place for the synth and always restored, then `template_scope` (only the target changes; `AWS::CDK::Metadata` ignored) and the CloudFormation per-type checks run on the newly synthesized resource; `drift` as §14.4 on the synthesized-before resource; `cdk_diff` always SKIPPED and not required (it needs the CDK CLI's own credentials and bootstrap roles).
 - *Gate.* `contract check --source` routes `cdk.` contracts to the synthesized template (synthesized once per run) and reports the construct's file and line; a failed synth is UNKNOWN.
 - *Not yet.* Other CDK languages (Java, C#, Go), L1 `Cfn*` constructs, constructs whose id is computed or repeated, rules added through `connections`, `iam.Policy` / `addToPolicy`, attribute fixes and IaC scanner findings on CDK apps.
+
+### 14.6 Pulumi (FR-10c)
+`pulumi/`. Pulumi state is not CloudFormation, so the program's literals are turned into a one-resource CloudFormation template (`model.resource`) and the CloudFormation checks (`cfn.validate.sg_checks` / `s3_checks` / `iam_checks`, `cfn.parse_sg` / `parse_policy` / `s3_flags`) run on it unchanged. `pipeline.py` picks it with `pulumi.is_pulumi` (after `cdk.is_cdk`) and runs `_run_sg` / `_run_s3` / `_run_iam` with `iac="pulumi"`.
+- *Export.* `stack.py`. `pulumi.stack_export` (else `--state`) is read as `deployment.resources`; each row's URN gives stack, qualified type and name. Rows marked `delete` or `pendingReplacement` are skipped; secret values (Pulumi's secret signature) read as COMPUTED and are never logged. Nothing runs the Pulumi CLI.
+- *Locate.* Physical id or `outputs.arn` → the one row of the wanted type (S3: the `BucketPublicAccessBlock` whose `bucket` is the finding's bucket; none → UNKNOWN, PosturaNet won't add a resource). A qualified type with `$` or a parent other than the stack → UNKNOWN (component). The source is `Pulumi.yaml`'s directory (`pulumi.program`, or the one in the repo) plus `main:`; runtime `nodejs` reads `*.ts`, `python` reads `*.py` (CDK's `source_files` skips). `source.find` reuses CDK's masking and finds `new <…module.>Class(` (TS) or `<…module.>Class(` (Python) whose first argument is the name literal; a bare `Class(` is not trusted to be AWS. For a group, the export's ingress rule resources with `securityGroupId` equal to its id are parts of the target too; every rule call in the program must be in the export and point at `<groupVar>.id` exactly when the export says it belongs (else UNKNOWN). `model.explains` then requires the literals to give exactly the export's inputs, and `model.drift` the inputs to equal the outputs (a group's outputs may list its rule resources or not, depending on refresh). Address `pulumi.<stack>.<name>`.
+- *Literals.* `source.parse`: string, integer and boolean literals, arrays, TS object literals, Python dicts and `…Args(…)` calls, and `JSON.stringify` / `json.dumps` of an object; everything else (variables, spreads, shorthand, template strings, `pulumi.Config` calls) is COMPUTED, which never compares equal. Python snake_case names read as camelCase.
+- *Edit.* `validate.py`. SG: each open entry is replaced by its kept CIDRs plus the synthesized rules it covers, one entry per rule in the entry's own shape (TS object, dict, or `…IngressArgs(` call; same quotes; one per line when the list is multi-line); an emptied list is `[]`. A `SecurityGroupRule` gets its `cidrBlocks` / `ipv6CidrBlocks` narrowed when every rule keeps its ports; a `vpc.SecurityGroupIngressRule` its single `cidrIpv4` when one rule replaces one; otherwise UNKNOWN. S3: `false` flags become `true`, missing ones are appended in the call's layout. IAM: each changed statement's `Action` array (or string) is rewritten in place, in the CDK array layout. CRLF is kept; one diff may span several files (rule resources elsewhere).
+- *Validation.* guardrails; `source` (the edited files re-read give exactly the synthesized rules, four `true` flags, or the kept actions); `program_scope` (each edited file is byte-identical outside the parts' constructor calls, which still resolve by name); the CloudFormation per-type checks on the edited literals; `drift` (required, offline: export inputs vs outputs; no refresh is run); `pulumi_preview` always SKIPPED and not required. Every check runs in a dry run too, since none needs AWS.
+- *Gate.* `contract check --source` routes `pulumi.` contracts through the export to the program and judges the working tree's literals; the export is read once per run. An unresolvable target is UNKNOWN when any program file is in the checked set. S3 contracts report UNKNOWN when the program has an `aws.s3.BucketPolicy` (not judged yet).
+- *Not yet.* Go, C#, Java and YAML programs, the AWS Native provider, components, `pulumi preview` (needs a read-only credential story for the backend and provider), bucket policies in the gate, attribute fixes and IaC scanner findings on Pulumi programs.
 
 ## 15. Testing strategy
 | Layer | Tooling | Must cover |
