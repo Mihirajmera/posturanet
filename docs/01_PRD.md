@@ -110,7 +110,7 @@ Vendors now generate fix PRs (Wiz, Gomboc, Cloudgeni and others). Their public m
 | **R6: CloudFormation + SAM** | Locate, fix, contract check and drift on templates; opt-in change-set preview | Merging into `test` |
 | **R7: AWS CDK** | Fix PRs to CDK program code (TypeScript, Python), mapped from `aws:cdk:path` metadata; `cdk synth` validation with the CloudFormation checks; contract check through the synthesized template | Merging into `test` |
 | **R8: Pulumi** | Fix PRs to Pulumi programs (TypeScript, Python, AWS Classic), mapped through a `pulumi stack export`; static validation with the CloudFormation checks (`pulumi preview` not run: it needs write-capable credentials); contract check on the program's literals | Merging into `test` |
-| **R9: Outcome share** | Opt-in anonymous outcomes (FR-45a) and the "which fixes break prod" dataset | Next |
+| **R9: Outcome share** | Opt-in anonymous outcomes (FR-45a) and the "which fixes break prod" dataset | Client on `test`; receiving service not built |
 | **R10: Team plan (Pro)** | Org-wide contract gate, event triggers (US-3), license keys, contract history, audit evidence, team view. Lives in the private `pro` branch of the postura repo | First feature not chosen yet |
 | **R11: Living contracts** | New-behavior and drift PRs, periodicity, policy packs | Later |
 
@@ -228,7 +228,7 @@ Vendors now generate fix PRs (Wiz, Gomboc, Cloudgeni and others). Their public m
 - **FR-43** An expired or invalid key disables Pro features only. Community keeps working and contracts and evidence files stay.
 - **FR-44** Show upgrade prompts at most once per run, never blocking a working free feature.
 - **FR-45** The optional heartbeat sends only `{lic_id, agent_version}` and can be disabled.
-- **FR-45a** Opt-in outcome share (not built yet). Off by default. When the customer turns it on, each verify result sends only `{control, fix_type, outcome: held | reverted, evidence_days, agent_version}`: no resource ids, ARNs, IPs, account ids, names, code, state, contracts or finding text. A command prints exactly what would be sent. Purpose: learn which fixes break production, across customers.
+- **FR-45a** Opt-in outcome share (client built; the receiving service isn't built yet, so there is no default endpoint). Off by default. When the customer turns it on, each verify result sends only `{control, fix_type, outcome: held | reverted, evidence_days, agent_version}`: no resource ids, ARNs, IPs, account ids, names, code, state, contracts or finding text. `posturanet outcomes preview` prints exactly what would be sent. `held` is a CONFIRMED verify, `reverted` a REGRESSED one; nothing is sent while a fix is still watching. Sending is best-effort and never changes an exit code. Purpose: learn which fixes break production, across customers.
 
 ### Configuration
 - **FR-46** `.posturanet.yml` in the repo root (schema in the architecture doc §5).
