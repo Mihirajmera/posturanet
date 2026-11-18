@@ -161,6 +161,7 @@ def _run(pr_ref: str, repo: Path, config: Config, ctx: VerifyContext, record: Ru
         finding_id=spec.finding_id,
         control=spec.control,
         address=spec.address,
+        fix_type=spec.fix_type,
     )
     record.outcome = outcome
     if not pr.get("merged_at"):

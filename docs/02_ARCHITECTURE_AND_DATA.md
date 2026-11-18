@@ -30,11 +30,12 @@
             │                      GitHub PR/check   evidence files │
             └─────────────────────────────┬───────────────────────────┘
                                           │ license verification is OFFLINE
-                                          ▼ (optional heartbeat: lic_id + version)
+                                          ▼ (optional heartbeat: lic_id + version;
+                                          │  opt-in outcome share, FR-45a)
                               PosturaNet license service (serverless)
 ```
 
-**Trust boundary:** everything inside the box belongs to the customer. PosturaNet hosts only the license service. No customer data crosses the boundary (NFR-3).
+**Trust boundary:** everything inside the box belongs to the customer. PosturaNet hosts only the license service. No customer data crosses the boundary (NFR-3). The one opt-in exception is the outcome share (§11): five fields, no identifiers.
 
 ## 2. Pipeline
 
@@ -171,6 +172,9 @@ llm:
 license:
   key_env: POSTURANET_LICENSE
   heartbeat: true
+outcome_share:                      # opt-in (FR-45a); off by default
+  enabled: false
+  endpoint: null                    # https:// URL; required when enabled, no default
 ```
 Validated by `models/config.py`. An unknown key is an error, not ignored.
 
@@ -426,6 +430,7 @@ Triggered by `posturanet verify <pr>` (scheduled workflow after apply) with the 
 - *Verify spec.* Every fix PR body carries `<!-- posturanet:verify=<base64 JSON> -->` (`models/outcome.py: VerifySpec`): fix type, control, finding id, resource, address, idempotency key, watch window, and either the catalog changes (attribute fixes) or the rules after the fix plus the contract's `must_allow` (SG). `verify` needs nothing else, so no outcome files are committed to the repo. PRs without the marker stop.
 - *Stages.* `pr` (merged? closed → REJECTED, open → OPENED) → `applied` (Terraform state at the address meets the spec; otherwise NOT APPLIED, exit 3) → `recheck` (the control on the applied state; Security Hub `GetFindings` when AWS is reachable: FAILED updated after apply → STILL FAILING, exit 4, no revert) → `watch` (SG only: Logs Insights inbound REJECTs to the group's ENIs matched against `must_allow`; any match → REGRESSED, exit 4) → `revert`.
 - *Window.* Counted from the merge time, or `--applied-at` when the apply ran later. Before it ends with no regression → WATCHING (exit 0). No flow-log access → STOPPED/UNKNOWN (exit 3): a network fix is never confirmed without watching. Attribute fixes skip the watch (they remove no access) and are CONFIRMED from state. S3 fixes skip it too: the evidence already showed no public use, and denied anonymous requests afterwards can't be told apart from scanners.
+- *Outcome share (FR-45a, opt-in).* `outcome_share.py: SharedOutcome` (pydantic, `extra="forbid"`, frozen) is the only thing that leaves: `{control, fix_type, outcome: held | reverted, evidence_days, agent_version}`. `record_for(run)` builds it from a verify `RunRecord`: CONFIRMED → `held`, REGRESSED/REVERTED → `reverted`, anything else → nothing. `control` must match `SERVICE.N` (`EC2.19`) and `fix_type` a known fix type, or nothing is sent. `evidence_days` is whole days of post-apply watching behind the verdict (`min(verify time, watch_until) − watch_from`), 0 for unwatched fixes. With `outcome_share.enabled`, the `verify` CLI POSTs it as JSON over HTTPS (`httpx`, 5 s timeout, no redirects) after the run; any failure is one stderr warning and the exit code is unchanged. Not an AWS call, so the read-only allowlist is untouched. `posturanet outcomes preview <run.json>...` prints the same records from saved `verify --format json` output and sends nothing. Re-running verify on a confirmed PR sends the record again; there is no client-side de-duplication (the record carries no id to de-duplicate on). The receiving service isn't built yet.
 - *Revert.* Restores each file the PR changed to its content at the merge commit's first parent, deletes files the PR added, on `posturanet/revert/<key8>`, labels `posturanet, regression, risk:high`. If any file changed on the base since the merge → stop (`git revert -m 1` by hand). Not counted against `max_open_prs`. Only with `--open-pr`.
 
 ## 12. Interfaces (contracts)
@@ -443,6 +448,7 @@ posturanet contract check --source [--file x.tf]      # offline, from HCL; same 
 posturanet hook claude-code                           # Claude Code PostToolUse hook (stdin event)
 posturanet mcp                                        # read-only MCP server (stdio)
 posturanet verify <pr-url|owner/repo#n|n> [--open-pr] [--state s.json] [--rejects-file r.json] [--applied-at ISO] [--window 72h] [--offline]
+posturanet outcomes preview <run.json>...              # what the opt-in outcome share would send; sends nothing
 posturanet evidence export --period 2026Q4 --framework soc2     # pro
 posturanet evidence verify
 posturanet license status
