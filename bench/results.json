@@ -38,34 +38,26 @@
     ],
     "cdk-iam-py": [
       {
-        "allowed": [
-          "ec2:DescribeInstances",
-          "ec2:DescribeVolumes",
-          "logs:CreateLogStream"
-        ],
+        "allowed": [],
         "broken": [],
         "expect": "fix",
         "exposed": [],
-        "note": "risk medium \u00b7 disruption none expected: every used action stays allowed",
-        "status": "FIXED",
+        "note": "validate fail: drift ERROR \u00b7 reading the live policy failed: 'Fake' object has no attribute 'get_policy'; drift error: reading the live policy failed: 'Fake' object has no attribute 'get_policy'",
+        "status": "STOPPED",
         "tool": "PosturaNet",
-        "verdict": "CORRECT"
+        "verdict": "STOPPED"
       }
     ],
     "cdk-iam-ts": [
       {
-        "allowed": [
-          "ec2:DescribeInstances",
-          "ec2:DescribeVolumes",
-          "logs:CreateLogStream"
-        ],
+        "allowed": [],
         "broken": [],
         "expect": "fix",
         "exposed": [],
-        "note": "risk medium \u00b7 disruption none expected: every used action stays allowed",
-        "status": "FIXED",
+        "note": "validate fail: drift ERROR \u00b7 reading the live policy failed: 'Fake' object has no attribute 'get_policy'; drift error: reading the live policy failed: 'Fake' object has no attribute 'get_policy'",
+        "status": "STOPPED",
         "tool": "PosturaNet",
-        "verdict": "CORRECT"
+        "verdict": "STOPPED"
       }
     ],
     "cdk-s3-drift": [
@@ -94,30 +86,26 @@
     ],
     "cdk-s3-py": [
       {
-        "allowed": [
-          "Block Public Access: all on"
-        ],
+        "allowed": [],
         "broken": [],
         "expect": "fix",
         "exposed": [],
-        "note": "risk medium \u00b7 disruption none expected: no public use in the logs",
-        "status": "FIXED",
+        "note": "validate fail: drift ERROR \u00b7 reading the live bucket failed: 'Fake' object has no attribute 'get_public_access_block'; drift error: reading the live bucket failed: 'Fake' object has no attribute 'get_public_access_block'",
+        "status": "STOPPED",
         "tool": "PosturaNet",
-        "verdict": "CORRECT"
+        "verdict": "STOPPED"
       }
     ],
     "cdk-s3-ts": [
       {
-        "allowed": [
-          "Block Public Access: all on"
-        ],
+        "allowed": [],
         "broken": [],
         "expect": "fix",
         "exposed": [],
-        "note": "risk medium \u00b7 disruption none expected: no public use in the logs",
-        "status": "FIXED",
+        "note": "validate fail: drift ERROR \u00b7 reading the live bucket failed: 'Fake' object has no attribute 'get_public_access_block'; drift error: reading the live bucket failed: 'Fake' object has no attribute 'get_public_access_block'",
+        "status": "STOPPED",
         "tool": "PosturaNet",
-        "verdict": "CORRECT"
+        "verdict": "STOPPED"
       }
     ],
     "cdk-sg-allow-from-any": [
@@ -1107,6 +1095,212 @@
         "status": "FIXED",
         "tool": "Remove wildcard",
         "verdict": "OUTAGE"
+      }
+    ]
+  },
+  "pulumi": {
+    "pulumi-iam-program-differs": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: the policy of 'app' in the program differs from the stack export",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-iam-py": [
+      {
+        "allowed": [
+          "ec2:DescribeInstances",
+          "ec2:DescribeVolumes",
+          "logs:CreateLogStream"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: every used action stays allowed",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "pulumi-iam-ts": [
+      {
+        "allowed": [
+          "ec2:DescribeInstances",
+          "ec2:DescribeVolumes",
+          "logs:CreateLogStream"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: every used action stays allowed",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "pulumi-iam-variable-policy": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: the policy of 'app' is not a literal document (an object, or JSON.stringify / json.dumps of one); PosturaNet won't guess",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-s3-computed-flag": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: blockPublicAcls of 'assets-pab' is not a literal boolean",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-s3-no-block": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: the bucket has no aws.s3.BucketPublicAccessBlock in stack-export.json; PosturaNet edits existing literals and won't add a resource",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-s3-py": [
+      {
+        "allowed": [
+          "Block Public Access: all on"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: no public use in the logs",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "pulumi-s3-ts": [
+      {
+        "allowed": [
+          "Block Public Access: all on"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: no public use in the logs",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "pulumi-sg-component": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: bastion-sg is created inside the component acme:net:Bastion; its name in the program may be computed, so PosturaNet can't trace it to one line",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-sg-computed-cidr": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: ingress entry 1 of 'bastion-sg' has a value that is not a literal",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-sg-drift": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate fail: drift: 'bastion-sg' has different ingress in its outputs than its inputs",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-sg-duplicate-name": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: 2 SecurityGroup calls use the name 'bastion-sg' (infra/network.ts:4, infra/storage.ts:10); can't tell which",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-sg-py-standalone": [
+      {
+        "allowed": [
+          "10.0.0.0/16:9100/tcp",
+          "10.0.4.12/32:22/tcp",
+          "10.0.4.37/32:22/tcp",
+          "10.0.5.9/32:22/tcp",
+          "203.0.113.7/32:22/tcp"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "pulumi-sg-ts": [
+      {
+        "allowed": [
+          "10.0.0.0/16:9100/tcp",
+          "10.0.4.12/32:22/tcp",
+          "10.0.4.37/32:22/tcp",
+          "10.0.5.9/32:22/tcp",
+          "203.0.113.7/32:22/tcp"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "pulumi-sg-undeployed-rule": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: ingress rule 'bastion-rdp' in network.ts is not in the stack export, so it may change 'bastion-sg' in ways the deployed state doesn't show",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
       }
     ]
   },

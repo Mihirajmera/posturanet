@@ -579,7 +579,7 @@ The same three fix types on CDK apps in TypeScript and Python, plus the traps th
 
 | Contender | Correct | Stopped | Outage | Still Exposed | Unneeded stops |
 |---|---|---|---|---|---|
-| PosturaNet | 9 | 15 | 0 | 0 | 0 |
+| PosturaNet | 5 | 19 | 0 | 0 | 4 |
 
 **Wrongly reported safe: 0**
 
@@ -605,7 +605,7 @@ A `Bucket` with literal props; `blockPublicAccess` is added. Ground truth: a saf
 
 | Contender | Verdict | Detail |
 |---|---|---|
-| PosturaNet | Correct | allows Block Public Access: all on |
+| PosturaNet | Stopped | validate fail: drift ERROR · reading the live bucket failed: 'Fake' object has no attribute 'get_public_access_block'; drift error: reading the live bucket failed: 'Fake' object has no attribute 'get_public_access_block' |
 
 #### `cdk-s3-py`: Public bucket nobody uses publicly (Python)
 
@@ -613,7 +613,7 @@ A `Bucket` with literal props; `blockPublicAccess` is added. Ground truth: a saf
 
 | Contender | Verdict | Detail |
 |---|---|---|
-| PosturaNet | Correct | allows Block Public Access: all on |
+| PosturaNet | Stopped | validate fail: drift ERROR · reading the live bucket failed: 'Fake' object has no attribute 'get_public_access_block'; drift error: reading the live bucket failed: 'Fake' object has no attribute 'get_public_access_block' |
 
 #### `cdk-iam-ts`: ec2:* and logs:* used for a few calls (TypeScript)
 
@@ -621,7 +621,7 @@ One `PolicyStatement` with a literal `actions` array. Ground truth: a safe fix e
 
 | Contender | Verdict | Detail |
 |---|---|---|
-| PosturaNet | Correct | allows ec2:DescribeInstances, ec2:DescribeVolumes, logs:CreateLogStream |
+| PosturaNet | Stopped | validate fail: drift ERROR · reading the live policy failed: 'Fake' object has no attribute 'get_policy'; drift error: reading the live policy failed: 'Fake' object has no attribute 'get_policy' |
 
 #### `cdk-iam-py`: ec2:* and logs:* used for a few calls (Python)
 
@@ -629,7 +629,7 @@ One `PolicyStatement` with a literal `actions` array. Ground truth: a safe fix e
 
 | Contender | Verdict | Detail |
 |---|---|---|
-| PosturaNet | Correct | allows ec2:DescribeInstances, ec2:DescribeVolumes, logs:CreateLogStream |
+| PosturaNet | Stopped | validate fail: drift ERROR · reading the live policy failed: 'Fake' object has no attribute 'get_policy'; drift error: reading the live policy failed: 'Fake' object has no attribute 'get_policy' |
 
 #### `cdk-sg-peer-traced`: Another group is a peer, traced to its call
 
@@ -774,3 +774,133 @@ The stack also allows s3:*; the app doesn't. A fix from the app would be wrong. 
 | Contender | Verdict | Detail |
 |---|---|---|
 | PosturaNet | Stopped | validate fail: drift FAIL · AppPolicy5A6B7C8D in the repo differs from stack iam; deploy or pull first; drift fail: AppPolicy5A6B7C8D in the repo differs from stack iam; deploy or pull first |
+
+## Pulumi (EC2.19, S3.8, IAM.21)
+
+The same three fix types on Pulumi programs in TypeScript and Python, mapped through a `pulumi stack export`, plus the traps that must stop the run (a computed value, a component resource, a repeated name, an undeployed rule, a program that differs from the export, drift). Validation is static; `pulumi preview` is not run. PosturaNet only.
+
+| Contender | Correct | Stopped | Outage | Still Exposed | Unneeded stops |
+|---|---|---|---|---|---|
+| PosturaNet | 6 | 9 | 0 | 0 | 0 |
+
+**Wrongly reported safe: 0**
+
+#### `pulumi-sg-ts`: Bastion SSH open, inline ingress (TypeScript)
+
+Literal `ingress` objects on the group; the open one becomes one object per observed source. Ground truth: a safe fix exists.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Correct | allows 10.0.0.0/16:9100/tcp, 10.0.4.12/32:22/tcp, 10.0.4.37/32:22/tcp, 10.0.5.9/32:22/tcp, 203.0.113.7/32:22/tcp |
+
+#### `pulumi-sg-py-standalone`: Bastion SSH open through an aws.ec2.SecurityGroupRule (Python)
+
+The open rule is its own resource; its `cidr_blocks` list is narrowed in place. Ground truth: a safe fix exists.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Correct | allows 10.0.0.0/16:9100/tcp, 10.0.4.12/32:22/tcp, 10.0.4.37/32:22/tcp, 10.0.5.9/32:22/tcp, 203.0.113.7/32:22/tcp |
+
+#### `pulumi-sg-computed-cidr`: SSH rule's CIDR is a variable
+
+`cidrBlocks: [adminCidr]`; its value isn't a literal in the program. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | locate unknown: ingress entry 1 of 'bastion-sg' has a value that is not a literal |
+
+#### `pulumi-sg-component`: Group created inside a component resource
+
+The URN's parent is a component; the name in the program may be computed. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | locate unknown: bastion-sg is created inside the component acme:net:Bastion; its name in the program may be computed, so PosturaNet can't trace it to one line |
+
+#### `pulumi-sg-duplicate-name`: Two SecurityGroup calls named bastion-sg
+
+PosturaNet won't pick one of two constructor calls. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | locate unknown: 2 SecurityGroup calls use the name 'bastion-sg' (infra/network.ts:4, infra/storage.ts:10); can't tell which |
+
+#### `pulumi-sg-undeployed-rule`: RDP rule written but not deployed
+
+A new SecurityGroupIngressRule on the group isn't in the stack export; a fix from the export would miss it. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | locate unknown: ingress rule 'bastion-rdp' in network.ts is not in the stack export, so it may change 'bastion-sg' in ways the deployed state doesn't show |
+
+#### `pulumi-sg-drift`: RDP rule added to the live group by hand
+
+The export's outputs (after a refresh) show 3389 from 198.51.100.0/24 that no input declares; editing the program would hide it. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | locate fail: drift: 'bastion-sg' has different ingress in its outputs than its inputs |
+
+#### `pulumi-s3-ts`: Public bucket, BucketPublicAccessBlock (TypeScript)
+
+One flag set to false, two missing; all four become true. Ground truth: a safe fix exists.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Correct | allows Block Public Access: all on |
+
+#### `pulumi-s3-py`: Public bucket, BucketPublicAccessBlock (Python)
+
+Keyword arguments; the missing flags are added in the call's layout. Ground truth: a safe fix exists.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Correct | allows Block Public Access: all on |
+
+#### `pulumi-s3-no-block`: Bucket with no BucketPublicAccessBlock
+
+The fix needs a new resource; PosturaNet edits existing literals only. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | locate unknown: the bucket has no aws.s3.BucketPublicAccessBlock in stack-export.json; PosturaNet edits existing literals and won't add a resource |
+
+#### `pulumi-s3-computed-flag`: blockPublicAcls comes from config
+
+One flag is `cfg.requireBoolean(...)`; PosturaNet can't tell what it is. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | locate unknown: blockPublicAcls of 'assets-pab' is not a literal boolean |
+
+#### `pulumi-iam-ts`: ec2:* and logs:* in JSON.stringify (TypeScript)
+
+The Action array is narrowed in its multi-line layout. Ground truth: a safe fix exists.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Correct | allows ec2:DescribeInstances, ec2:DescribeVolumes, logs:CreateLogStream |
+
+#### `pulumi-iam-py`: ec2:* and logs:* in json.dumps (Python)
+
+The Action list is narrowed inline. Ground truth: a safe fix exists.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Correct | allows ec2:DescribeInstances, ec2:DescribeVolumes, logs:CreateLogStream |
+
+#### `pulumi-iam-variable-policy`: Policy document is a variable
+
+`policy: appPolicy`; the document isn't written in the call. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | locate unknown: the policy of 'app' is not a literal document (an object, or JSON.stringify / json.dumps of one); PosturaNet won't guess |
+
+#### `pulumi-iam-program-differs`: Deployed policy also allows s3:*
+
+The stack runs a wider document than the program; a fix from the program would be wrong. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | locate unknown: the policy of 'app' in the program differs from the stack export |
