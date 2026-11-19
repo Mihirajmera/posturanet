@@ -1,3 +1,3 @@
 """PosturaNet: evidence-backed remediation agent for AWS + Terraform."""
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
