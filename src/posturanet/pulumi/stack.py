@@ -26,10 +26,11 @@ from posturanet.cfn.locate import CfnResource
 from posturanet.errors import StageStop
 from posturanet.locate.codeowners import find_codeowners, owners_for
 from posturanet.models import Confidence, Config, Finding, Location
-from posturanet.pulumi import model, yaml_source
-from posturanet.pulumi.source import LANGS, SUFFIX, Computed, find, props
+from posturanet.pulumi import component, model, yaml_source
+from posturanet.pulumi.source import LANGS, SUFFIX, Computed, InComponent, find, props
 
 PREFIX = "pulumi."
+STACK = "pulumi:pulumi:Stack"
 _SECRET_SIG = "4dabf18193072939515e22adb298388d"  # Pulumi's marker for a secret value
 _NAME = re.compile(r"[\w.-]+")
 _STACK = re.compile(r"[\w-]+")
@@ -159,6 +160,7 @@ class StateResource:
     inputs: dict[str, Any]
     outputs: dict[str, Any]
     parent_type: str | None
+    parent: str | None = None  # the parent's URN
 
 
 def _unsecret(v: Any) -> Any:
@@ -233,6 +235,7 @@ def load_export(repo: Path, config: Config, state_path: Path | None) -> Export:
                 _unsecret(r.get("inputs") or {}),
                 _unsecret(r.get("outputs") or {}),
                 parent[1] if parent else None,
+                str(r.get("parent")) if parent else None,
             )
         )
     return out
@@ -337,15 +340,12 @@ class PulumiTarget:
         return model.read(self.state.type, self.parts(), texts or {})
 
 
-def _construct(prog: Program, r: StateResource, repo: Path) -> Construct | str:
+def _construct(prog: Program, r: StateResource, repo: Path, exp: Export) -> Construct | str:
     cls = CLASSES.get(r.type)
     if cls is None:
         return f"{r.name} is a {r.type}; PosturaNet edits Pulumi code for {', '.join(CLASSES)}"
-    if "$" in r.urn.split("::")[2] or (r.parent_type and r.parent_type != "pulumi:pulumi:Stack"):
-        return (
-            f"{r.name} is created inside the component {r.parent_type or 'resource'}; its name "
-            "in the program may be computed, so PosturaNet can't trace it to one line"
-        )
+    if "$" in r.urn.split("::")[2] or (r.parent_type and r.parent_type != STACK):
+        return _in_component(prog, r, repo, exp, cls)
     if not _NAME.fullmatch(r.name) or not _STACK.fullmatch(r.stack):
         return f"the URN {r.urn} has characters PosturaNet doesn't put in file names"
     yaml = prog.runtime == "yaml"
@@ -372,6 +372,39 @@ def _construct(prog: Program, r: StateResource, repo: Path) -> Construct | str:
     return hits[0]
 
 
+def _in_component(
+    prog: Program, r: StateResource, repo: Path, exp: Export, cls: tuple[str, str]
+) -> Construct | str:
+    """The call inside a component used exactly once (see `component.py`), or why not."""
+    comp_type = r.parent_type or "resource"
+    why = f"{r.name} is created inside the component {comp_type}"
+    parent = exp.by_urn(r.parent or "")
+    if parent is None or parent.parent_type != STACK or r.urn.split("::")[2].count("$") != 1:
+        return f"{why}, which is not directly under the stack; PosturaNet traces one level only"
+    if prog.runtime == "yaml":
+        return f"{why}; a YAML program can't define a component, so its code isn't here"
+    instances = len(exp.of_type(parent.type))
+    if instances != 1:
+        return f"{why}, which the stack export has {instances} times; an edit would change all"
+    comps = component.find(prog.files(), parent.type)
+    if len(comps) != 1:
+        return (
+            f"{why}; {len(comps)} classes or functions in the program register {parent.type}, "
+            "so PosturaNet can't tell which code made it"
+        )
+    comp = comps[0]
+    used = component.uses(prog.files(), comp)
+    if used != 1:
+        return f"{why}; {comp.name} is instantiated {used} times in the program, not once"
+    text = comp.file.read_bytes().decode("utf-8", errors="replace")
+    hit = component.pick(component.children(comp, text, cls[1], cls[0], parent.type), r.name)
+    if isinstance(hit, str):
+        return f"{why} ({comp.name}, {_rel(comp.file, repo)}:{comp.line}): {hit}"
+    if props(hit).computed:
+        return f"the arguments of '{r.name}' in {comp.name} are not a literal object"
+    return hit
+
+
 def _standalone(exp: Export, sg: StateResource) -> list[StateResource]:
     """Standalone ingress resources on the group. One whose group can't be read stops."""
     out = []
@@ -395,7 +428,7 @@ def _standalone(exp: Export, sg: StateResource) -> list[StateResource]:
 def resolve(repo: Path, config: Config, exp: Export, state: StateResource) -> PulumiTarget | str:
     """The program code behind `state`, or why it can't be found with confidence."""
     prog = program(repo, config)
-    c = _construct(prog, state, repo)
+    c = _construct(prog, state, repo, exp)
     if isinstance(c, str):
         return c
     rules = []
@@ -405,7 +438,7 @@ def resolve(repo: Path, config: Config, exp: Export, state: StateResource) -> Pu
         except StageStop as exc:
             return exc.reason
         for r in standalone:
-            rc = _construct(prog, r, repo)
+            rc = _construct(prog, r, repo, exp)
             if isinstance(rc, str):
                 return f"ingress rule {r.name}: {rc}"
             rules.append(Part(r, rc))
@@ -546,6 +579,14 @@ def locate(
     reasoning = [
         f"physical id matched in {exp.label}: {state.urn}",
         f"defined in {file_rel}:{c.line} ({lang}, name '{state.name}')",
+        *(
+            [
+                f"inside component {c.component}, defined and instantiated once in the program; "
+                "the edit is to the component's code"
+            ]
+            if isinstance(c, InComponent)
+            else []
+        ),  # fmt: skip
         *(
             f"ingress rule {p.state.name} in {_rel(p.construct.file, repo)}:{p.construct.line}"
             for p in target.rules

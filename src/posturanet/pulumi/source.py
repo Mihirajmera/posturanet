@@ -195,8 +195,9 @@ def _go_mask(text: str) -> str:
 # --- constructor calls
 
 
-def scan(path: Path, text: str, name: str, cls: str) -> list[Construct]:
-    """Every `cls` constructor call in `text` whose first argument is the literal `name`."""
+def scan(path: Path, text: str, name: str | None, cls: str) -> list[Construct]:
+    """Every `cls` constructor call in `text` whose name argument is the literal `name` (every
+    call, named or not, when `name` is None)."""
     lang: Lang = LANGS[path.suffix]
     crlf = "\r\n" in text
     text = text.replace("\r\n", "\n")
@@ -209,7 +210,9 @@ def scan(path: Path, text: str, name: str, cls: str) -> list[Construct]:
         args = items(masked, o, cl)
         at = 1 if go else 0  # Go: New…(ctx, "name", &…Args{…})
         lit = str_lit(text, args[at]) if len(args) > at else None
-        if lit is None or lit[0] != name or (go and lit[1] != '"'):
+        if lit is not None and go and lit[1] != '"':
+            lit = None  # a Go rune or raw string is not a name PosturaNet reads
+        if name is not None and (lit is None or lit[0] != name):
             continue
         assign = _GO_ASSIGN if go else cdk_source._ASSIGN[lang]
         a = assign.fullmatch(masked[cdk_source.line_start(masked, m.start()) : m.start()])
@@ -226,10 +229,17 @@ def scan(path: Path, text: str, name: str, cls: str) -> list[Construct]:
                 m.group(1),
                 a.group(1) if a else None,
                 cls,
-                name,
+                lit[0] if lit else "",  # "": a computed name (only when `name` is None)
             )  # fmt: skip
         )
     return out
+
+
+@dataclass
+class InComponent(Construct):
+    """A constructor call inside the one class (or Go function) that registers `component`."""
+
+    component: str = ""  # the component's type token
 
 
 def find(files: list[Path], name: str, cls: str, module: str) -> list[Construct]:
@@ -248,6 +258,10 @@ def rescan(c: Construct, new_text: str) -> Construct:
         from posturanet.pulumi import yaml_source
 
         return yaml_source.rescan(c, new_text)
+    if isinstance(c, InComponent):
+        from posturanet.pulumi import component
+
+        return component.rescan(c, new_text)
     hits = scan(c.file, new_text, c.construct_id, c.cls)
     if len(hits) != 1:
         raise unsupported(f"the edited {c.file.name}")
