@@ -33,19 +33,46 @@ from posturanet.pipeline import Context, run_fix  # noqa: E402
 FIX = ROOT / "tests" / "fixtures"
 Family = Literal["sg", "s3", "iam"]
 Export = dict[str, Any]
+Edit = tuple[str, str]
 
 
 def _res(doc: Export, name: str) -> dict[str, Any]:
     return next(r for r in doc["deployment"]["resources"] if r["urn"].endswith(f"::{name}"))
 
 
-def _component(doc: Export) -> None:
-    sg = _res(doc, "bastion-sg")
-    stack = sg["parent"]
-    comp = stack.replace("pulumi:pulumi:Stack::acme-infra-prod", "acme:net:Bastion::bastion")
-    doc["deployment"]["resources"].append({"urn": comp, "type": "acme:net:Bastion"})
-    sg["urn"] = sg["urn"].replace("::aws:ec2/", "::acme:net:Bastion$aws:ec2/")
-    sg["parent"] = comp
+def _parent(name: str, typ: str, comp_name: str) -> Callable[[Export], None]:
+    """Move resource `name` under a component `typ` named `comp_name` (added under the stack)."""
+
+    def move(doc: Export) -> None:
+        r = _res(doc, name)
+        stack = r["parent"]
+        comp = stack.rsplit("::", 2)[0] + f"::{typ}::{comp_name}"
+        rows = doc["deployment"]["resources"]
+        if not any(x["urn"] == comp for x in rows):
+            rows.append({"urn": comp, "type": typ, "parent": stack})
+        r["urn"] = r["urn"].replace("::aws:", f"::{typ}$aws:")
+        r["parent"] = comp
+
+    return move
+
+
+_component = _parent("bastion-sg", "acme:net:Bastion", "bastion")
+
+
+def _two_bastions(doc: Export) -> None:
+    _component(doc)
+    rows = doc["deployment"]["resources"]
+    first = next(x for x in rows if x["type"] == "acme:net:Bastion")
+    rows.append({**first, "urn": first["urn"] + "2"})
+
+
+def _nested(doc: Export) -> None:
+    _component(doc)
+    comp = next(x for x in doc["deployment"]["resources"] if x["type"] == "acme:net:Bastion")
+    outer = comp["parent"].rsplit("::", 2)[0] + "::acme:net:Zone::z"
+    doc["deployment"]["resources"].append({"urn": outer, "type": "acme:net:Zone",
+                                           "parent": comp["parent"]})  # fmt: skip
+    comp["parent"] = outer
 
 
 def _sg_drift(doc: Export) -> None:
@@ -74,7 +101,7 @@ class PulumiCase:
     title: str
     why: str
     expect: Expect
-    edits: dict[str, tuple[str, str]] = field(default_factory=dict)  # file -> (old, new)
+    edits: dict[str, Edit | list[Edit]] = field(default_factory=dict)  # file -> (old, new)
     export: Callable[[Export], None] | None = None
     exit_code: int = 0
     says: str = ""
@@ -88,6 +115,46 @@ RDP = (
     '    cidrIpv4: "0.0.0.0/0",\n});\n'
 )
 YML, GO, GOS = "Pulumi.yaml", "main.go", "storage.go"
+# The bastion group inside a TypeScript component class, named from the component's name.
+TS_COMP: list[Edit] = [
+    (
+        'const bastionSg = new aws.ec2.SecurityGroup("bastion-sg", {',
+        "class Bastion extends pulumi.ComponentResource {\n"
+        "    public readonly sg: aws.ec2.SecurityGroup;\n"
+        "    constructor(name: string, opts?: pulumi.ComponentResourceOptions) {\n"
+        '        super("acme:net:Bastion", name, {}, opts);\n'
+        "        this.sg = new aws.ec2.SecurityGroup(`${name}-sg`, {",
+    ),
+    (
+        "    ],\n});\n\nconst web",
+        "    ],\n        }, { parent: this });\n    }\n}\n"
+        'const bastionSg = new Bastion("bastion").sg;\n\nconst web',
+    ),
+]
+# The public access block inside a Python component class, with a literal name.
+PY_COMP: list[Edit] = [
+    (
+        'aws.s3.BucketPublicAccessBlock(\n    "assets-pab",',
+        "class Assets(pulumi.ComponentResource):\n"
+        "    def __init__(self, name, opts=None):\n"
+        '        super().__init__("acme:storage:Assets", name, None, opts)\n'
+        '        aws.s3.BucketPublicAccessBlock(\n    "assets-pab",',
+    ),
+    (")\n\naws.iam.Policy(", ')\n\nAssets("assets")\n\naws.iam.Policy('),
+]
+# The policy inside a Go component constructor function.
+GO_COMP: list[Edit] = [
+    (
+        '\t_, err = iam.NewPolicy(ctx, "app", &iam.PolicyArgs{',
+        '\t_, err = NewApp(ctx, "app-comp")\n\treturn err\n}\n\n'
+        "func NewApp(ctx *pulumi.Context, name string) (*pulumi.ResourceState, error) {\n"
+        "\tcomp := &pulumi.ResourceState{}\n"
+        '\tif err := ctx.RegisterComponentResource("acme:iam:App", name, comp); err != nil {\n'
+        "\t\treturn nil, err\n\t}\n"
+        '\t_, err := iam.NewPolicy(ctx, "app", &iam.PolicyArgs{',
+    ),
+    ("\t})\n\treturn err\n}\n", "\t}, pulumi.Parent(comp))\n\treturn comp, err\n}\n"),
+]
 YRDP = (
     "\n  bastion-rdp:\n    type: aws:vpc:SecurityGroupIngressRule\n    properties:\n"
     "      securityGroupId: ${bastion-sg.id}\n      ipProtocol: tcp\n      fromPort: 3389\n"
@@ -206,17 +273,56 @@ CASES: list[PulumiCase] = [
                "the call.", "stop", {GO: ('"bastion-sg", &ec2.SecurityGroupArgs{',
                                           '"bastion-sg", args, &ec2.SecurityGroupArgs{')},
                exit_code=3, says="not a literal object"),
+    PulumiCase("pulumi-sg-ts-component", "sg", "ts", "Bastion group in a component (TypeScript)",
+               "The export puts bastion-sg under acme:net:Bastion; the one class registering "
+               "that type is instantiated once, so its only SecurityGroup call is edited.", "fix",
+               {NET: TS_COMP}, export=_component),
+    PulumiCase("pulumi-s3-py-component", "s3", "py",
+               "Public access block inside a component (Python)",
+               "The call named assets-pab inside the one `Assets` class is edited.", "fix",
+               {MAIN: PY_COMP}, export=_parent("assets-pab", "acme:storage:Assets", "assets")),
+    PulumiCase("pulumi-iam-go-component", "iam", "go", "Policy inside a component function (Go)",
+               "The call named app inside the one function that registers acme:iam:App is "
+               "edited.", "fix", {GOS: GO_COMP},
+               export=_parent("app", "acme:iam:App", "app-comp")),
+    PulumiCase("pulumi-component-used-twice", "sg", "ts", "Component class instantiated twice",
+               "Both instances run the same constructor call; an edit would change both groups.",
+               "stop", {NET: [*TS_COMP, ("\nexport const", '\nnew Bastion("spare");\n\n'
+                                                            "export const")]},
+               export=_component, exit_code=3, says="instantiated 2 times"),
+    PulumiCase("pulumi-component-two-in-export", "sg", "ts", "Two Bastion components deployed",
+               "The program has one call, but the stack holds two components of the type "
+               "(another stack file, a loop): an edit would change all.", "stop",
+               {NET: TS_COMP}, export=_two_bastions, exit_code=3, says="2 times"),
+    PulumiCase("pulumi-component-nested", "sg", "ts", "Component inside another component",
+               "The Bastion component is a child of acme:net:Zone; PosturaNet traces one level.",
+               "stop", {NET: TS_COMP}, export=_nested, exit_code=3,
+               says="not directly under the stack"),
+    PulumiCase("pulumi-component-two-children", "sg", "ts",
+               "Two computed-name groups inside the component",
+               "Neither call's name is a literal; PosturaNet won't pick one.", "stop",
+               {NET: [*TS_COMP, ('super("acme:net:Bastion", name, {}, opts);',
+                                 'super("acme:net:Bastion", name, {}, opts);\n'
+                                 "        new aws.ec2.SecurityGroup(`${name}-x`, "
+                                 '{ description: "x" }, { parent: this });')]},
+               export=_component, exit_code=3, says="can't tell which one"),
+    PulumiCase("pulumi-component-arg-cidr", "sg", "ts", "Component group's CIDR is a parameter",
+               "`cidrBlocks: [cidr]` takes a constructor argument; it isn't a literal.", "stop",
+               {NET: [*TS_COMP, ('cidrBlocks: ["0.0.0.0/0"]', "cidrBlocks: [cidr]")]},
+               export=_component, exit_code=3, says="not a literal"),
 ]  # fmt: skip
 
 
 def _repo(case: PulumiCase, work: Path) -> Path:
     repo = work / "repo"
     shutil.copytree(FIX / "pulumi" / f"{case.lang}-program", repo)
-    for rel, (old, new) in case.edits.items():
+    for rel, change in case.edits.items():
         path = repo / rel
         text = path.read_text(encoding="utf-8")
-        assert old in text, (case.id, old)
-        path.write_text(text.replace(old, new, 1), encoding="utf-8")
+        for old, new in change if isinstance(change, list) else [change]:
+            assert old in text, (case.id, old)
+            text = text.replace(old, new, 1)
+        path.write_text(text, encoding="utf-8")
     if case.export is not None:
         path = repo / "stack-export.json"
         doc = json.loads(path.read_text(encoding="utf-8"))

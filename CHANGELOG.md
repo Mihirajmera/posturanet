@@ -4,6 +4,11 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Added (Pulumi components)
+- A resource whose stack-export parent is a component (`ComponentResource`) is fixed in the constructor call inside the component's code, when that is unambiguous: exactly one TypeScript or Python class (`super("<type>", …)` / `super().__init__("<type>", …)`) or Go function (`ctx.RegisterComponentResource("<type>", …)`) registers the component's type, the program instantiates it exactly once, and the export has exactly one component of that type, directly under the stack. Inside it, the call is the one whose name is the URN's name as a literal, or else the only call of that class (a name like `` `${name}-sg` `` is accepted there).
+- Anything else stops with UNKNOWN and says why: no or several classes register the type, the class is instantiated more than once, the export holds several components of the type, a component nested in another component, several calls of the class with no literal match, or a YAML program.
+- Benchmark: 8 more Pulumi cases (a component fix in TypeScript, Python and Go; 5 traps); 39 in all, 0 wrongly reported safe.
+
 ### Added (Pulumi Go)
 - `posturanet fix` and `contract check --source` work on Pulumi Go programs (`runtime: go`), for the same three evidence-backed fixes. The resource is the one constructor call `ec2.NewSecurityGroup(ctx, "name", &ec2.SecurityGroupArgs{…})` (and `vpc.NewSecurityGroupIngressRule`, `ec2.NewSecurityGroupRule`, `s3.NewBucketPublicAccessBlock`, `iam.NewPolicy`) whose name argument is that string literal. `_test.go` files and `vendor/` are skipped.
 - Literals are `pulumi.String("…")`, `pulumi.Int(…)`, `pulumi.Bool(…)` (and their `…Ptr` forms) of a literal, `…Array{…}` slices, `&…Args{Field: …}` structs, and `pulumi.String(`…`)` of a raw string holding a JSON object (the usual policy literal). Variables, `json.Marshal` results, config reads, `pulumi.Sprintf`, positional struct fields and interpreted strings with escapes read as COMPUTED and stop with UNKNOWN. No Go parser dependency: the CDK scanner masks Go comments and strings.
