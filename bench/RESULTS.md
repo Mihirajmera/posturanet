@@ -801,11 +801,11 @@ The stack also allows s3:*; the app doesn't. A fix from the app would be wrong. 
 
 ## Pulumi (EC2.19, S3.8, IAM.21)
 
-The same three fix types on Pulumi programs in TypeScript and Python, mapped through a `pulumi stack export`, plus the traps that must stop the run (a computed value, a component resource, a repeated name, an undeployed rule, a program that differs from the export, drift). Validation is static; `pulumi preview` is not run. PosturaNet only.
+The same three fix types on Pulumi programs in TypeScript, Python and YAML, mapped through a `pulumi stack export`, plus the traps that must stop the run (a computed value, an interpolation, an anchor or `fn::` call in YAML, a component resource, a repeated name, an undeployed rule, a program that differs from the export, drift). Validation is static; `pulumi preview` is not run. PosturaNet only.
 
 | Contender | Correct | Stopped | Outage | Still Exposed | Unneeded stops |
 |---|---|---|---|---|---|
-| PosturaNet | 6 | 9 | 0 | 0 | 0 |
+| PosturaNet | 9 | 14 | 0 | 0 | 0 |
 
 **Wrongly reported safe: 0**
 
@@ -919,7 +919,7 @@ The Action list is narrowed inline. Ground truth: a safe fix exists.
 
 | Contender | Verdict | Detail |
 |---|---|---|
-| PosturaNet | Stopped | locate unknown: the policy of 'app' is not a literal document (an object, or JSON.stringify / json.dumps of one); PosturaNet won't guess |
+| PosturaNet | Stopped | locate unknown: the policy of 'app' is not a literal document (an object, or JSON.stringify / json.dumps / fn::toJSON of one); PosturaNet won't guess |
 
 #### `pulumi-iam-program-differs`: Deployed policy also allows s3:*
 
@@ -928,3 +928,67 @@ The stack runs a wider document than the program; a fix from the program would b
 | Contender | Verdict | Detail |
 |---|---|---|
 | PosturaNet | Stopped | locate unknown: the policy of 'app' in the program differs from the stack export |
+
+#### `pulumi-sg-yaml`: Bastion SSH open, inline ingress (YAML)
+
+A block-style `ingress` item becomes one item per observed source, each a copy of the original with its CIDR replaced; the flow-style item and comments stay. Ground truth: a safe fix exists.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Correct | allows 10.0.0.0/16:9100/tcp, 10.0.4.12/32:22/tcp, 10.0.4.37/32:22/tcp, 10.0.5.9/32:22/tcp, 203.0.113.7/32:22/tcp |
+
+#### `pulumi-s3-yaml`: Public bucket, BucketPublicAccessBlock (YAML)
+
+`false` becomes `true` (its comment stays); the missing flags are added as keys at the properties' indentation. Ground truth: a safe fix exists.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Correct | allows Block Public Access: all on |
+
+#### `pulumi-iam-yaml`: ec2:* and logs:* in fn::toJSON (YAML)
+
+The block-style Action list is narrowed, quotes kept. Ground truth: a safe fix exists.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Correct | allows ec2:DescribeInstances, ec2:DescribeVolumes, logs:CreateLogStream |
+
+#### `pulumi-yaml-interpolated-cidr`: SSH CIDR is `${adminCidr}`
+
+An interpolation reads a variable; its value isn't a literal in the program. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | locate unknown: ingress entry 1 of 'bastion-sg' has a value that is not a literal |
+
+#### `pulumi-yaml-anchor`: SSH port shared through a YAML anchor
+
+`fromPort: &ssh 22`; an edit could change every alias of it. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | locate unknown: ingress entry 1 of 'bastion-sg' has a value that is not a literal |
+
+#### `pulumi-yaml-undeployed-rule`: RDP rule written but not deployed
+
+A SecurityGroupIngressRule on the group in Pulumi.yaml isn't in the stack export. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | locate unknown: ingress rule 'bastion-rdp' in Pulumi.yaml is not in the stack export, so it may change 'bastion-sg' in ways the deployed state doesn't show |
+
+#### `pulumi-yaml-config-flag`: blockPublicAcls comes from config
+
+`blockPublicAcls: ${blockAcls}`; PosturaNet can't tell what it is. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | locate unknown: blockPublicAcls of 'assets-pab' is not a literal boolean |
+
+#### `pulumi-yaml-secret-policy`: Policy wrapped in fn::secret
+
+Only `fn::toJSON` of a literal map is read; any other `fn::` call is computed. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | locate unknown: the policy of 'app' is not a literal document (an object, or JSON.stringify / json.dumps / fn::toJSON of one); PosturaNet won't guess |

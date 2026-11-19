@@ -1209,10 +1209,26 @@
         "broken": [],
         "expect": "stop",
         "exposed": [],
-        "note": "locate unknown: the policy of 'app' is not a literal document (an object, or JSON.stringify / json.dumps of one); PosturaNet won't guess",
+        "note": "locate unknown: the policy of 'app' is not a literal document (an object, or JSON.stringify / json.dumps / fn::toJSON of one); PosturaNet won't guess",
         "status": "STOPPED",
         "tool": "PosturaNet",
         "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-iam-yaml": [
+      {
+        "allowed": [
+          "ec2:DescribeInstances",
+          "ec2:DescribeVolumes",
+          "logs:CreateLogStream"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: every used action stays allowed",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
       }
     ],
     "pulumi-s3-computed-flag": [
@@ -1254,6 +1270,20 @@
       }
     ],
     "pulumi-s3-ts": [
+      {
+        "allowed": [
+          "Block Public Access: all on"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: no public use in the logs",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "pulumi-s3-yaml": [
       {
         "allowed": [
           "Block Public Access: all on"
@@ -1358,6 +1388,84 @@
         "expect": "stop",
         "exposed": [],
         "note": "locate unknown: ingress rule 'bastion-rdp' in network.ts is not in the stack export, so it may change 'bastion-sg' in ways the deployed state doesn't show",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-sg-yaml": [
+      {
+        "allowed": [
+          "10.0.0.0/16:9100/tcp",
+          "10.0.4.12/32:22/tcp",
+          "10.0.4.37/32:22/tcp",
+          "10.0.5.9/32:22/tcp",
+          "203.0.113.7/32:22/tcp"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "pulumi-yaml-anchor": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: ingress entry 1 of 'bastion-sg' has a value that is not a literal",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-yaml-config-flag": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: blockPublicAcls of 'assets-pab' is not a literal boolean",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-yaml-interpolated-cidr": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: ingress entry 1 of 'bastion-sg' has a value that is not a literal",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-yaml-secret-policy": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: the policy of 'app' is not a literal document (an object, or JSON.stringify / json.dumps / fn::toJSON of one); PosturaNet won't guess",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-yaml-undeployed-rule": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: ingress rule 'bastion-rdp' in Pulumi.yaml is not in the stack export, so it may change 'bastion-sg' in ways the deployed state doesn't show",
         "status": "STOPPED",
         "tool": "PosturaNet",
         "verdict": "STOPPED"

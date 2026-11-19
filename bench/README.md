@@ -155,10 +155,11 @@ Fixes are scored on that synthesized resource, and wrongly reported safe must be
 
 ## Pulumi family
 
-[`pulumi.py`](pulumi.py) runs the same three fixes on the TypeScript and Python programs in
-`tests/fixtures/pulumi/`, mapped through their synthetic `pulumi stack export`. No AWS doubles
+[`pulumi.py`](pulumi.py) runs the same three fixes on the TypeScript, Python and YAML programs
+in `tests/fixtures/pulumi/`, mapped through their synthetic `pulumi stack export`. No AWS doubles
 are needed: nothing in the Pulumi path calls AWS. Per fix type: a fix in each language, and
-traps that must stop: a computed value in the field the fix edits, a resource inside a
+traps that must stop: a computed value in the field the fix edits (in YAML: an interpolation,
+an anchor, a `fn::` call other than `fn::toJSON`), a resource inside a
 component, a name used twice, an ingress rule written but not deployed, a fix that needs a new
 resource, a program that differs from the export, and drift between the export's inputs and
 outputs. Fixes are scored on the edited program's literals. `python -m bench` exits 1 if this

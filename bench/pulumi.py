@@ -1,8 +1,9 @@
 """Pulumi benchmark: the same three fix types (open security group, public bucket, wildcard IAM
-policy) when the source is a Pulumi program (TypeScript or Python, AWS Classic provider).
+policy) when the source is a Pulumi program (TypeScript, Python or YAML, AWS Classic provider).
 
 Every case runs the real pipeline (`run_fix`, check mode) on a copy of
-`tests/fixtures/pulumi/ts-program` or `py-program`, with the program or the stack export
+`tests/fixtures/pulumi/ts-program`, `py-program` or `yaml-program`, with the program or the
+stack export
 changed to set a trap: a computed value in the field the fix edits, a resource inside a
 component, a name used twice, an ingress rule written since the last deploy, a program that no
 longer matches the export, and drift between the export's inputs and outputs. No AWS call is
@@ -69,7 +70,7 @@ def _wider_policy(doc: Export) -> None:
 class PulumiCase:
     id: str
     family: Family
-    lang: Literal["ts", "py"]
+    lang: Literal["ts", "py", "yaml"]
     title: str
     why: str
     expect: Expect
@@ -85,6 +86,12 @@ RDP = (
     "    securityGroupId: bastionSg.id,\n"
     '    ipProtocol: "tcp",\n    fromPort: 3389,\n    toPort: 3389,\n'
     '    cidrIpv4: "0.0.0.0/0",\n});\n'
+)
+YML = "Pulumi.yaml"
+YRDP = (
+    "\n  bastion-rdp:\n    type: aws:vpc:SecurityGroupIngressRule\n    properties:\n"
+    "      securityGroupId: ${bastion-sg.id}\n      ipProtocol: tcp\n      fromPort: 3389\n"
+    "      toPort: 3389\n      cidrIpv4: 0.0.0.0/0\n"
 )
 
 CASES: list[PulumiCase] = [
@@ -139,6 +146,35 @@ CASES: list[PulumiCase] = [
                "The stack runs a wider document than the program; a fix from the program "
                "would be wrong.", "stop", export=_wider_policy, exit_code=3,
                says="differs from the stack export"),
+    PulumiCase("pulumi-sg-yaml", "sg", "yaml", "Bastion SSH open, inline ingress (YAML)",
+               "A block-style `ingress` item becomes one item per observed source, each a copy of "
+               "the original with its CIDR replaced; the flow-style item and comments stay.",
+               "fix"),
+    PulumiCase("pulumi-s3-yaml", "s3", "yaml", "Public bucket, BucketPublicAccessBlock (YAML)",
+               "`false` becomes `true` (its comment stays); the missing flags are added as "
+               "keys at the properties' indentation.", "fix"),
+    PulumiCase("pulumi-iam-yaml", "iam", "yaml", "ec2:* and logs:* in fn::toJSON (YAML)",
+               "The block-style Action list is narrowed, quotes kept.", "fix"),
+    PulumiCase("pulumi-yaml-interpolated-cidr", "sg", "yaml", "SSH CIDR is `${adminCidr}`",
+               "An interpolation reads a variable; its value isn't a literal in the program.",
+               "stop", {YML: ('cidrBlocks: ["0.0.0.0/0"]', 'cidrBlocks: ["${adminCidr}"]')},
+               exit_code=3, says="not a literal"),
+    PulumiCase("pulumi-yaml-anchor", "sg", "yaml", "SSH port shared through a YAML anchor",
+               "`fromPort: &ssh 22`; an edit could change every alias of it.", "stop",
+               {YML: ("fromPort: 22\n", "fromPort: &ssh 22\n")}, exit_code=3,
+               says="not a literal"),
+    PulumiCase("pulumi-yaml-undeployed-rule", "sg", "yaml", "RDP rule written but not deployed",
+               "A SecurityGroupIngressRule on the group in Pulumi.yaml isn't in the stack "
+               "export.", "stop", {YML: ("\n  assets:\n", YRDP + "\n  assets:\n")}, exit_code=3,
+               says="not in the stack export"),
+    PulumiCase("pulumi-yaml-config-flag", "s3", "yaml", "blockPublicAcls comes from config",
+               "`blockPublicAcls: ${blockAcls}`; PosturaNet can't tell what it is.", "stop",
+               {YML: ("blockPublicAcls: false", "blockPublicAcls: ${blockAcls}")}, exit_code=3,
+               says="not a literal boolean"),
+    PulumiCase("pulumi-yaml-secret-policy", "iam", "yaml", "Policy wrapped in fn::secret",
+               "Only `fn::toJSON` of a literal map is read; any other `fn::` call is computed.",
+               "stop", {YML: ("fn::toJSON:", "fn::secret:")}, exit_code=3,
+               says="not a literal document"),
 ]  # fmt: skip
 
 
@@ -200,10 +236,11 @@ def report(results: dict[str, list[Result]]) -> list[str]:
     return [
         "## Pulumi (EC2.19, S3.8, IAM.21)",
         "",
-        "The same three fix types on Pulumi programs in TypeScript and Python, mapped through a "
-        "`pulumi stack export`, plus the traps that must stop the run (a computed value, a "
-        "component resource, a repeated name, an undeployed rule, a program that differs from "
-        "the export, drift). Validation is static; `pulumi preview` is not run. PosturaNet only.",
+        "The same three fix types on Pulumi programs in TypeScript, Python and YAML, mapped "
+        "through a `pulumi stack export`, plus the traps that must stop the run (a computed "
+        "value, an interpolation, an anchor or `fn::` call in YAML, a component resource, a "
+        "repeated name, an undeployed rule, a program that differs from the export, drift). "
+        "Validation is static; `pulumi preview` is not run. PosturaNet only.",
         "",
         *summary("Contender", results),
         "",
