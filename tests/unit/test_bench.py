@@ -89,7 +89,7 @@ def test_cdk_cases_fix_or_stop_for_the_stated_reason() -> None:
 
 
 def test_pulumi_cases_fix_or_stop_for_the_stated_reason() -> None:
-    """Pulumi: TypeScript and Python programs fix; every trap stops with its own reason."""
+    """Pulumi: TypeScript, Python and YAML programs fix; every trap stops with its own reason."""
     results = {c.id: pulumi.run_case(c) for c in pulumi.CASES}
     for case in pulumi.CASES:
         result, exit_code = results[case.id]
@@ -101,4 +101,5 @@ def test_pulumi_cases_fix_or_stop_for_the_stated_reason() -> None:
         assert {c.lang for c in pulumi.CASES if c.family == fam and c.expect == "fix"} == {
             "ts",
             "py",
+            "yaml",
         }

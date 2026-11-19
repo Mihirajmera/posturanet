@@ -1,0 +1,156 @@
+{
+  "_comment": "Synthetic `pulumi stack export` for tests. Fake account 123456789012; RFC 5737 / RFC 1918 addresses. Never commit a real export.",
+  "version": 3,
+  "deployment": {
+    "manifest": {
+      "time": "2026-10-28T08:00:00Z"
+    },
+    "resources": [
+      {
+        "urn": "urn:pulumi:prod::acme-infra::pulumi:pulumi:Stack::acme-infra-prod",
+        "custom": false,
+        "type": "pulumi:pulumi:Stack"
+      },
+      {
+        "custom": true,
+        "parent": "urn:pulumi:prod::acme-infra::pulumi:pulumi:Stack::acme-infra-prod",
+        "type": "aws:ec2/securityGroup:SecurityGroup",
+        "id": "sg-0a91f3c2",
+        "inputs": {
+          "description": "bastion",
+          "vpcId": "vpc-0example",
+          "ingress": [
+            {
+              "protocol": "tcp",
+              "fromPort": 22,
+              "toPort": 22,
+              "cidrBlocks": [
+                "0.0.0.0/0"
+              ],
+              "description": "SSH from anywhere"
+            },
+            {
+              "protocol": "tcp",
+              "fromPort": 9100,
+              "toPort": 9100,
+              "cidrBlocks": [
+                "10.0.0.0/16"
+              ],
+              "description": "node exporter"
+            }
+          ]
+        },
+        "urn": "urn:pulumi:prod::acme-infra::aws:ec2/securityGroup:SecurityGroup::bastion-sg",
+        "outputs": {
+          "description": "bastion",
+          "vpcId": "vpc-0example",
+          "ingress": [
+            {
+              "protocol": "tcp",
+              "fromPort": 22,
+              "toPort": 22,
+              "cidrBlocks": [
+                "0.0.0.0/0"
+              ],
+              "description": "SSH from anywhere"
+            },
+            {
+              "protocol": "tcp",
+              "fromPort": 9100,
+              "toPort": 9100,
+              "cidrBlocks": [
+                "10.0.0.0/16"
+              ],
+              "description": "node exporter"
+            }
+          ]
+        }
+      },
+      {
+        "custom": true,
+        "parent": "urn:pulumi:prod::acme-infra::pulumi:pulumi:Stack::acme-infra-prod",
+        "type": "aws:ec2/securityGroup:SecurityGroup",
+        "id": "sg-0b22c4d6",
+        "inputs": {
+          "description": "web",
+          "vpcId": "vpc-0example"
+        },
+        "urn": "urn:pulumi:prod::acme-infra::aws:ec2/securityGroup:SecurityGroup::web-sg",
+        "outputs": {
+          "description": "web",
+          "vpcId": "vpc-0example"
+        }
+      },
+      {
+        "custom": true,
+        "parent": "urn:pulumi:prod::acme-infra::pulumi:pulumi:Stack::acme-infra-prod",
+        "type": "aws:vpc/securityGroupIngressRule:SecurityGroupIngressRule",
+        "id": "sgr-0c33d5e7",
+        "inputs": {
+          "securityGroupId": "sg-0b22c4d6",
+          "ipProtocol": "tcp",
+          "fromPort": 443,
+          "toPort": 443,
+          "cidrIpv4": "0.0.0.0/0"
+        },
+        "urn": "urn:pulumi:prod::acme-infra::aws:vpc/securityGroupIngressRule:SecurityGroupIngressRule::web-https",
+        "outputs": {
+          "securityGroupId": "sg-0b22c4d6",
+          "ipProtocol": "tcp",
+          "fromPort": 443,
+          "toPort": 443,
+          "cidrIpv4": "0.0.0.0/0"
+        }
+      },
+      {
+        "custom": true,
+        "parent": "urn:pulumi:prod::acme-infra::pulumi:pulumi:Stack::acme-infra-prod",
+        "type": "aws:s3/bucket:Bucket",
+        "id": "acme-assets",
+        "inputs": {
+          "bucket": "acme-assets"
+        },
+        "outputs": {
+          "bucket": "acme-assets",
+          "arn": "arn:aws:s3:::acme-assets"
+        },
+        "urn": "urn:pulumi:prod::acme-infra::aws:s3/bucket:Bucket::assets"
+      },
+      {
+        "custom": true,
+        "parent": "urn:pulumi:prod::acme-infra::pulumi:pulumi:Stack::acme-infra-prod",
+        "type": "aws:s3/bucketPublicAccessBlock:BucketPublicAccessBlock",
+        "id": "acme-assets",
+        "inputs": {
+          "bucket": "acme-assets",
+          "blockPublicAcls": false,
+          "ignorePublicAcls": true
+        },
+        "outputs": {
+          "bucket": "acme-assets",
+          "blockPublicAcls": false,
+          "blockPublicPolicy": false,
+          "ignorePublicAcls": true,
+          "restrictPublicBuckets": false
+        },
+        "urn": "urn:pulumi:prod::acme-infra::aws:s3/bucketPublicAccessBlock:BucketPublicAccessBlock::assets-pab"
+      },
+      {
+        "custom": true,
+        "parent": "urn:pulumi:prod::acme-infra::pulumi:pulumi:Stack::acme-infra-prod",
+        "type": "aws:iam/policy:Policy",
+        "id": "arn:aws:iam::123456789012:policy/app",
+        "inputs": {
+          "name": "app",
+          "policy": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Sid\": \"App\", \"Effect\": \"Allow\", \"Action\": [\"ec2:*\", \"logs:*\"], \"Resource\": \"*\"}]}"
+        },
+        "outputs": {
+          "name": "app",
+          "policy": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Sid\": \"App\", \"Effect\": \"Allow\", \"Action\": [\"ec2:*\", \"logs:*\"], \"Resource\": \"*\"}]}",
+          "arn": "arn:aws:iam::123456789012:policy/app"
+        },
+        "urn": "urn:pulumi:prod::acme-infra::aws:iam/policy:Policy::app"
+      }
+    ]
+  }
+}

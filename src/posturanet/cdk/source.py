@@ -20,7 +20,7 @@ from posturanet.errors import StageStop
 from posturanet.synth.hcl_render import DEFAULT_DESCRIPTION
 from posturanet.synth.sg_rules import Rule, norm_proto
 
-Lang = Literal["ts", "py"]
+Lang = Literal["ts", "py", "yaml"]  # yaml: Pulumi YAML programs only (pulumi/yaml_source.py)
 SUFFIXES: dict[str, Lang] = {".ts": "ts", ".py": "py"}
 _SKIP_DIRS = {
     "node_modules", "cdk.out", ".git", ".venv", "venv", "__pycache__", ".posturanet",

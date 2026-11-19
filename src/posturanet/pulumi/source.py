@@ -1,5 +1,5 @@
 """Pulumi program source (TypeScript and Python): find a resource by its name and read or edit
-its literal arguments.
+its literal arguments. YAML programs are read in `yaml_source.py` into the same `Lit` shapes.
 
 The scanning (comment and string masking, bracket matching) is the CDK one: no language
 parser, only shapes PosturaNet can be certain of. A constructor call whose first argument is
@@ -175,6 +175,10 @@ def find(files: list[Path], name: str, cls: str, module: str) -> list[Construct]
 
 
 def rescan(c: Construct, new_text: str) -> Construct:
+    if c.lang == "yaml":
+        from posturanet.pulumi import yaml_source
+
+        return yaml_source.rescan(c, new_text)
     hits = scan(c.file, new_text, c.construct_id, c.cls)
     if len(hits) != 1:
         raise unsupported(f"the edited {c.file.name}")
@@ -195,6 +199,10 @@ class Props:
 
 
 def props(c: Construct) -> Props:
+    if c.lang == "yaml":
+        from posturanet.pulumi import yaml_source
+
+        return yaml_source.props(c)
     args = c.args
     if c.lang == "ts":
         if len(args) < 2:
@@ -223,6 +231,10 @@ def arg_key(c: Construct, key: str) -> str:
 
 def render(v: Any, c: Construct, quote: str, *, py_keys: bool = False) -> str:
     """A literal in the file's language; `py_keys` writes object keys in snake_case."""
+    if c.lang == "yaml":
+        from posturanet.pulumi import yaml_source
+
+        return yaml_source.render(v, quote)
     if isinstance(v, bool):
         return ("True" if v else "False") if c.lang == "py" else ("true" if v else "false")
     if isinstance(v, int):

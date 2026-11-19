@@ -4,6 +4,12 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Added (Pulumi YAML)
+- `posturanet fix` and `contract check --source` work on Pulumi YAML programs (`runtime: yaml`; resources in `Pulumi.yaml`, or `Main.yaml` under `main:`), for the same three evidence-backed fixes. The resource is the entry of `resources:` whose key (or literal `name:`) is the URN's name and whose `type` is `aws:ec2:SecurityGroup` (with its rule resources), `aws:s3:BucketPublicAccessBlock` or `aws:iam:Policy`, in either token form.
+- Literals are strings, integers, booleans, lists, maps and `fn::toJSON` of a literal map. A `${…}` interpolation (a variable, config or another resource), any other `fn::` call, an anchor, alias or tag reads as COMPUTED and stops with UNKNOWN.
+- Edits replace only the characters of the values that change (positions from ruamel.yaml's parser), so comments, key order, quotes and indentation stay. Validation, the stack-export checks and the "`pulumi preview` not run" note are unchanged.
+- Benchmark: 8 more Pulumi cases (3 YAML fixes, 5 YAML traps); 23 in all, 0 wrongly reported safe.
+
 ## [0.4.0] - 2026-11-19
 
 ### Added (Wiz, Orca and Prisma Cloud findings, R5)
