@@ -1,0 +1,29 @@
+{
+ "Resources": {
+  "AppPolicy5A6B7C8D": {
+   "Type": "AWS::IAM::ManagedPolicy",
+   "Properties": {
+    "Description": "",
+    "ManagedPolicyName": "app",
+    "Path": "/",
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "ec2:*",
+        "logs:*"
+       ],
+       "Effect": "Allow",
+       "Resource": "*",
+       "Sid": "App"
+      }
+     ],
+     "Version": "2012-10-17"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "iam/AppPolicy/Resource"
+   }
+  }
+ }
+}

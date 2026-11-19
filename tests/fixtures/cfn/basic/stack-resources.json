@@ -1,0 +1,40 @@
+{
+  "_comment": "Synthetic `aws cloudformation describe-stack-resources` export. Fake account 123456789012.",
+  "StackResources": [
+    {
+      "StackName": "network",
+      "LogicalResourceId": "BastionSG",
+      "PhysicalResourceId": "sg-0a91f3c2",
+      "ResourceType": "AWS::EC2::SecurityGroup",
+      "ResourceStatus": "CREATE_COMPLETE"
+    },
+    {
+      "StackName": "network",
+      "LogicalResourceId": "WebSG",
+      "PhysicalResourceId": "sg-0b22c4d6",
+      "ResourceType": "AWS::EC2::SecurityGroup",
+      "ResourceStatus": "CREATE_COMPLETE"
+    },
+    {
+      "StackName": "storage",
+      "LogicalResourceId": "AssetsBucket",
+      "PhysicalResourceId": "acme-assets",
+      "ResourceType": "AWS::S3::Bucket",
+      "ResourceStatus": "CREATE_COMPLETE"
+    },
+    {
+      "StackName": "storage",
+      "LogicalResourceId": "ThumbnailFunctionRole",
+      "PhysicalResourceId": "storage-ThumbnailFunctionRole-EXAMPLE",
+      "ResourceType": "AWS::IAM::Role",
+      "ResourceStatus": "CREATE_COMPLETE"
+    },
+    {
+      "StackName": "iam",
+      "LogicalResourceId": "AppPolicy",
+      "PhysicalResourceId": "arn:aws:iam::123456789012:policy/app",
+      "ResourceType": "AWS::IAM::ManagedPolicy",
+      "ResourceStatus": "CREATE_COMPLETE"
+    }
+  ]
+}

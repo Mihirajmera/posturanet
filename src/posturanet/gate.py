@@ -12,13 +12,17 @@ PASS. Three contract kinds:
 Two inputs:
 - `check_plan`: `terraform show -json` output. Exact, needs a plan (and so AWS read access).
 - `check_source`: the HCL in the working tree. Offline and fast, for editor and agent hooks;
-  only literal values can be judged, everything else is UNKNOWN.
+  only literal values can be judged, everything else is UNKNOWN. CloudFormation contracts are
+  judged from the template; CDK contracts from the synthesized template (`cdk.assembly`, or
+  `cdk synth --no-lookups` with no AWS credentials); Pulumi contracts from the program's
+  literals, mapped through `pulumi.stack_export`.
 """
 
 from __future__ import annotations
 
 import json
 import re
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -27,6 +31,8 @@ from pydantic import BaseModel, ValidationError
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
+from posturanet import cdk, cfn, pulumi
+from posturanet.cfn import template as cfn_template
 from posturanet.configfix.hcl_attrs import ABSENT, BLOCK, Unsupported, lookup, resource_block
 from posturanet.errors import StageStop
 from posturanet.iamfix import gate as iam_gate
@@ -365,17 +371,62 @@ def check_source(repo: Path, config: Config, files: list[Path] | None = None) ->
     """Judge every contract from the HCL. With `files`, only contracts on resources in them."""
     wanted = None if files is None else {f.resolve() for f in files}
     results: list[ContractResult] = []
-    for loaded in _all_contracts(repo, config):
-        c = loaded.contract
-        if isinstance(c, BehaviorContract):
-            res = _source_sg(loaded, repo, config, wanted)
-        elif isinstance(c, IamContract):
-            res = _source_iam(loaded, repo, config, wanted)
-        else:
-            res = _source_s3(loaded, repo, config, wanted)
-        if res is not None:
-            results.append(res)
+    contracts = _all_contracts(repo, config)
+    if any(cfn.split_address(x.contract.resource) for x in contracts):
+        results += _unreadable_templates(repo, files or [])
+    with ExitStack() as stack:
+        assembly: list[tuple[Path, str] | str] = []  # synthesized once, on first use
+        export: list[pulumi.stack.Export | str] = []  # read once, on first use
+        for loaded in contracts:
+            c = loaded.contract
+            if pulumi.split_address(c.resource):
+                if not export:
+                    try:
+                        export.append(pulumi.load_export(repo, config, None))
+                    except StageStop as exc:
+                        export.append(exc.reason)
+                res = _source_pulumi(loaded, repo, config, wanted, export[0])
+            elif cdk.split_address(c.resource):
+                if not assembly:
+                    try:
+                        found = stack.enter_context(cdk.assembly(repo, config, None, dry=False))
+                        assembly.append(found)
+                    except StageStop as exc:
+                        assembly.append(exc.reason)
+                res = _source_cdk(loaded, repo, config, wanted, assembly[0])
+            elif cfn.split_address(c.resource):
+                res = _source_cfn(loaded, repo, config, wanted)
+            elif isinstance(c, BehaviorContract):
+                res = _source_sg(loaded, repo, config, wanted)
+            elif isinstance(c, IamContract):
+                res = _source_iam(loaded, repo, config, wanted)
+            else:
+                res = _source_s3(loaded, repo, config, wanted)
+            if res is not None:
+                results.append(res)
     return GateResult(_overall(results), results, "source")
+
+
+def _unreadable_templates(repo: Path, files: list[Path]) -> list[ContractResult]:
+    """An edited file that looks like a template but no longer parses can't be checked: UNKNOWN,
+    never a silent PASS (find_templates would just skip it)."""
+    out = []
+    for f in files:
+        text = cfn_template.maybe_template(f)
+        if text is None:
+            continue
+        try:
+            cfn_template.parse(text, f)
+        except cfn_template.TemplateError as exc:
+            try:
+                rel = f.resolve().relative_to(repo.resolve()).as_posix()
+            except ValueError:
+                rel = f.as_posix()
+            reason = f"{exc}; can't check the contracts in it"
+            out.append(
+                ContractResult(rel, "", "UNKNOWN", [reason], source_file=rel, subject="template")
+            )
+    return out
 
 
 def _in_scope(repo: Path, file_rel: str, wanted: set[Path] | None) -> bool:
@@ -485,6 +536,165 @@ def _source_s3(
         needles += n
     if not touched:
         return None
+    return _finish(result, loaded, violations, unknowns, needles)
+
+
+def _intrinsic_anywhere(v: Any) -> bool:
+    if cfn_template.is_intrinsic(v):
+        return True
+    if isinstance(v, dict):
+        return any(_intrinsic_anywhere(x) for x in v.values())
+    return isinstance(v, list) and any(_intrinsic_anywhere(x) for x in v)
+
+
+def _source_cfn(
+    loaded: _Loaded, repo: Path, config: Config, wanted: set[Path] | None
+) -> ContractResult | None:
+    """A contract on a CloudFormation resource, judged from the template (literals only)."""
+    c = loaded.contract
+    result = ContractResult(c.resource, loaded.rel, "PASS", subject=_subject(c))
+    parts = cfn.split_address(c.resource)
+    assert parts is not None
+    stack, logical = parts
+    logical, _, name = logical.partition(".")  # `.<PolicyName>` marks an inline IAM policy
+    res = cfn.resolve(repo, config, stack, logical)
+    if isinstance(res, str):
+        return _finish(result, loaded, [], [res], []) if wanted is None else None
+    file_rel = res.template.path.resolve().relative_to(repo.resolve()).as_posix()
+    result.source_file, result.source_line = file_rel, res.line
+    if not _in_scope(repo, file_rel, wanted):
+        return None
+    return _judge_template(result, loaded, res, name)
+
+
+def _subject(c: AnyContract) -> str:
+    if isinstance(c, BehaviorContract):
+        return "ingress"
+    return "policy" if isinstance(c, IamContract) else "public access block"
+
+
+def _source_cdk(
+    loaded: _Loaded,
+    repo: Path,
+    config: Config,
+    wanted: set[Path] | None,
+    assembly: tuple[Path, str] | str,
+) -> ContractResult | None:
+    """A contract on a CDK construct, judged from the synthesized template; the result points
+    at the construct in the program source."""
+    c = loaded.contract
+    result = ContractResult(c.resource, loaded.rel, "PASS", subject=_subject(c))
+    parts = cdk.split_address(c.resource)
+    assert parts is not None
+    try:
+        target = (
+            assembly if isinstance(assembly, str) else cdk.resolve(repo, config, *assembly, *parts)
+        )
+    except StageStop as exc:
+        target = exc.reason
+    if isinstance(target, str):
+        return _finish(result, loaded, [], [target], []) if wanted is None else None
+    file_rel = target.construct.file.resolve().relative_to(repo.resolve()).as_posix()
+    result.source_file, result.source_line = file_rel, target.construct.line
+    if not _in_scope(repo, file_rel, wanted):
+        return None
+    return _judge_template(result, loaded, target.res)
+
+
+def _source_pulumi(
+    loaded: _Loaded,
+    repo: Path,
+    config: Config,
+    wanted: set[Path] | None,
+    export: pulumi.stack.Export | str,
+) -> ContractResult | None:
+    """A contract on a Pulumi resource, judged from the literals in the program (as the
+    working tree has them); the stack export only maps the address to the code."""
+    c = loaded.contract
+    result = ContractResult(c.resource, loaded.rel, "PASS", subject=_subject(c))
+    try:
+        target = (
+            export
+            if isinstance(export, str)
+            else pulumi.resolve_address(repo, config, c.resource, export)
+        )
+    except StageStop as exc:
+        target = exc.reason
+    if isinstance(target, str):
+        # an edit to any program file may be what broke the mapping: UNKNOWN, never a silent PASS
+        return (
+            _finish(result, loaded, [], [target], [])
+            if _touches_program(repo, config, wanted)
+            else None
+        )
+    file_rel = target.construct.file.resolve().relative_to(repo.resolve()).as_posix()
+    result.source_file, result.source_line = file_rel, target.construct.line
+    if wanted is not None and not {p.construct.file.resolve() for p in target.parts()} & wanted:
+        return None
+    judged = _judge_template(result, loaded, target.res)
+    if isinstance(c, S3Contract) and pulumi.stack.bucket_policies(target):
+        judged.reasons.append(
+            "the program has aws.s3.BucketPolicy resources; PosturaNet doesn't judge their "
+            "statements on Pulumi programs yet"
+        )
+        judged.status = "BLOCK" if judged.status == "BLOCK" else "UNKNOWN"
+    return judged
+
+
+def _touches_program(repo: Path, config: Config, wanted: set[Path] | None) -> bool:
+    if wanted is None:
+        return True
+    try:
+        files = pulumi.stack.program(repo, config).files()
+    except StageStop:
+        return True
+    return any(f.resolve() in wanted for f in files)
+
+
+def _judge_template(
+    result: ContractResult, loaded: _Loaded, res: cfn.CfnResource, name: str = ""
+) -> ContractResult:
+    c = loaded.contract
+    try:
+        if isinstance(c, BehaviorContract):
+            return _judge(result, c, cfn.parse_sg(res).rules(), loaded.text)
+        if isinstance(c, IamContract):
+            # stops on anything that isn't a literal statement list
+            doc = cfn_template.value(cfn.parse_policy(res, name or None).doc)
+            if _intrinsic_anywhere(doc):
+                return _finish(result, loaded, [], ["the policy uses intrinsic functions"], [])
+            violations, unknowns, needles = iam_gate.judge(c, doc)
+            return _finish(result, loaded, violations, unknowns, needles)
+    except StageStop as exc:
+        return _finish(result, loaded, [], [exc.reason], [])
+    assert isinstance(c, S3Contract)
+    violations, unknowns = s3_gate.judge_flags(c, cfn.s3_flags(res))
+    needles = ["must_block"] * len(violations)
+    for lid, node in res.template.resources.items():
+        if cfn_template.value(cfn_template.get(node, "Type")) != "AWS::S3::BucketPolicy":
+            continue
+        props = cfn_template.value(cfn_template.get(node, "Properties")) or {}
+        target = props.get("Bucket")
+        bucket = (
+            target
+            if isinstance(target, str)
+            else next(iter(c.exposure), None)
+            if target == {"Ref": res.logical_id}
+            else None
+        )
+        if bucket is None:
+            unknowns.append(f"can't tell which bucket {lid} is for")
+            continue
+        if bucket not in c.exposure:
+            continue
+        doc = props.get("PolicyDocument")
+        if _intrinsic_anywhere(doc) or not isinstance(doc, dict):
+            unknowns.append(f"{lid} uses intrinsic functions")
+            continue
+        v, u, n = s3_gate.judge_policy(c, bucket, doc, None)
+        violations += v
+        unknowns += u
+        needles += n
     return _finish(result, loaded, violations, unknowns, needles)
 
 

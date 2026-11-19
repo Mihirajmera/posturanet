@@ -137,12 +137,16 @@ def unified_diff(path: str, old: str, new: str) -> str:
 
 def make_diff(repo: Path, sg: SecurityGroupSource, synth: Synthesis, target_address: str) -> Diff:
     rel = sg.file.resolve().relative_to(repo.resolve()).as_posix()
-    new = render(sg, synth)
-    if b"\r\n" in sg.file.read_bytes():
-        new_on_disk = new.replace("\r\n", "\n").replace("\n", "\r\n")
-    else:
-        new_on_disk = new
-    udiff = unified_diff(rel, sg.text, new)
+    crlf = b"\r\n" in sg.file.read_bytes()
+    return rules_diff(rel, sg.text, render(sg, synth), crlf, synth, target_address)
+
+
+def rules_diff(
+    rel: str, old: str, new: str, crlf: bool, synth: Synthesis, target_address: str
+) -> Diff:
+    """The Diff for a security group rewrite, in any source format."""
+    new_on_disk = new.replace("\r\n", "\n").replace("\n", "\r\n") if crlf else new
+    udiff = unified_diff(rel, old, new)
     before = [r.label() for r in synth.removed]
     after = [r.label() for r in synth.added]
     summary = (

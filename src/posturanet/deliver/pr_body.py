@@ -90,7 +90,7 @@ def safety_contract(p: Proposal) -> dict[str, Any]:
             f"flow logs coverage >= {int(obs.window.coverage_ratio * 100)}%",
         ],
         "invariants": [
-            {"id": c.id, "result": c.result.value.upper(), "method": _method(c.id)}
+            {"id": c.id, "result": c.result.value.upper(), "method": _method(c.id, loc.address)}
             for c in p.report.checks
             if c.required
         ],
@@ -125,7 +125,11 @@ def verify_spec(p: Proposal) -> VerifySpec:
     )
 
 
-def _method(check_id: str) -> str:
+def _method(check_id: str, address: str) -> str:
+    if check_id == "drift" and address.startswith(("cfn.", "cdk.")):
+        return "cloudformation-gettemplate"
+    if check_id == "drift" and address.startswith("pulumi."):
+        return "pulumi-stack-export"
     return {
         "invariants": "z3",
         "plan_scope": "terraform-plan",
@@ -134,6 +138,7 @@ def _method(check_id: str) -> str:
         "recheck": "check",
         "fmt": "terraform-fmt",
         "validate": "terraform-validate",
+        "cdk_synth": "cdk-synth",
     }.get(check_id, "static")
 
 
@@ -190,7 +195,7 @@ def body(p: Proposal, *, run_id: str) -> str:
     unknown_lines = [f"- {u}" for u in unknowns] or ["- None identified"]
 
     parts = [
-        markers(p.idempotency_key, f.finding_id),
+        markers(p.idempotency_key, p.issue),
         verify_marker(verify_spec(p)),
         f"**PosturaNet** found a fix for **{f.control_id} · {f.title}** and checked it "
         "against real usage.",

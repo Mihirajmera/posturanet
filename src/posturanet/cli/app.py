@@ -8,6 +8,7 @@ import re
 import shutil
 import sys
 from collections import Counter
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -16,6 +17,7 @@ from typing import TYPE_CHECKING, Annotated, TextIO
 import typer
 
 from posturanet import __version__
+from posturanet.aws.changeset import changeset_policy
 from posturanet.aws.readonly import iam_policy
 from posturanet.errors import PosturaNetError, StageStop, UsageError
 from posturanet.evidence import FileSource
@@ -31,7 +33,8 @@ from posturanet.pipeline import Context, Mode, run_fix
 
 if TYPE_CHECKING:
     from posturanet.gate import GateResult
-    from posturanet.ingest import Entry
+    from posturanet.ingest import Entry, FindingsFile
+    from posturanet.models.exceptions import AcceptedRisk
 
 app = typer.Typer(
     name="posturanet",
@@ -50,6 +53,10 @@ findings_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(findings_app, name="findings")
+outcomes_app = typer.Typer(
+    help="The opt-in outcome share: what it would send.", no_args_is_help=True
+)
+app.add_typer(outcomes_app, name="outcomes")
 
 
 class OutputFormat(StrEnum):
@@ -147,10 +154,11 @@ def _context(
         window_days=_window(window),
     )
     if mode != "dry-run":
-        from posturanet.aws.session import boto3_factory
+        from posturanet.aws.session import boto3_factory, changeset_client
 
         config, _ = load_config(repo)
         ctx.aws = boto3_factory(config.aws)
+        ctx.changeset = changeset_client(config)  # None unless opted in
     return ctx
 
 
@@ -294,9 +302,23 @@ _ACTION = re.compile(r"^[a-z0-9-]+:[A-Za-z0-9]+$")
 @contract_app.command("build", epilog=_examples(
     ("posturanet contract build sg-0a91f3c2 --repo infra/", "draft the contract from flow logs"),
     ("posturanet contract build sg-0a91f3c2 --repo infra/ --dry-run", "show it; write nothing"),
+    ("posturanet contract build --all --repo infra/", "every security group, S3 bucket and IAM policy in the state"),  # noqa: E501 (copyable example)
 ))  # fmt: skip
 def contract_build(
-    target: Annotated[str, typer.Argument(help="ASFF finding file or security group id.")],
+    target: Annotated[
+        str | None,
+        typer.Argument(
+            help="Finding file, security group id, or CONTROL:resource (S3.8:my-bucket)."
+        ),
+    ] = None,
+    build_all: Annotated[
+        bool,
+        typer.Option(
+            "--all",
+            help="Every security group, S3 bucket and IAM policy in the state (or in the "
+            "CloudFormation templates), each from its own evidence.",
+        ),
+    ] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Don't write the contract.")] = False,
     repo: RepoOpt = Path("."),
     state: StateOpt = None,
@@ -306,6 +328,12 @@ def contract_build(
     ascii_mode: AsciiOpt = False,
 ) -> None:
     """Build a draft behavior contract from observed usage."""
+    if build_all:
+        _contract_build_all(target, dry_run, repo, state, evidence_file, window, output_format)
+    if target is None:
+        raise _fail(
+            UsageError("give a finding file, a security group id, CONTROL:resource, or --all")
+        )
     try:
         ctx = _context("dry-run" if dry_run else "check", repo, state, evidence_file, window)
         ctx.stop_after = "contract"
@@ -315,6 +343,83 @@ def contract_build(
     except PosturaNetError as exc:
         raise _fail(exc) from exc
     _emit(record, output_format, ascii_mode)
+
+
+def _contract_build_all(
+    target: str | None,
+    dry_run: bool,
+    repo: Path,
+    state: Path | None,
+    evidence_file: Path | None,
+    window: str | None,
+    output_format: OutputFormat,
+) -> None:
+    """One contract per security group, S3 bucket and IAM policy in the state. A resource that
+    stops (no evidence, say) doesn't stop the rest. On CloudFormation: the ones a template
+    defines, from the stack-resources export."""
+    from posturanet import cfn
+    from posturanet.locate import load_repo_state
+    from posturanet.locate.backend import boto3_s3_fetch
+    from posturanet.locate.tfstate import ids_of
+
+    try:
+        if target is not None:
+            raise UsageError("use a target or --all, not both")
+        if evidence_file is not None:  # FR-12: never reuse one resource's evidence for another
+            raise UsageError("--all reads each resource's own evidence; --evidence-file holds one")
+        mode: Mode = "dry-run" if dry_run else "check"
+        probe = _context(mode, repo, state, None, window)
+        config, _ = load_config(repo)
+        if cfn.is_cloudformation(repo, config, state):
+            # (resource, target) for what the templates define; SAM-generated ones have no source
+            prefix = {cfn.SG_TYPE: "", cfn.BUCKET_TYPE: "S3.8:", cfn.POLICY_TYPE: "IAM.21:"}
+            rows = cfn.template_rows(repo, config, state, list(prefix))
+            targets = [
+                (str(r["PhysicalResourceId"]), prefix[r["ResourceType"]] + r["PhysicalResourceId"])
+                for r in rows
+            ]
+            if not targets:
+                raise UsageError(
+                    "no security group, bucket or managed policy in the stack-resources export "
+                    "is defined in a template here"
+                )
+        else:
+            s3_fetch = boto3_s3_fetch(probe.aws) if probe.aws is not None else None
+            tf_state, _ = load_repo_state(repo, config, state, s3_fetch)
+            # (resource, target): S3 and IAM need a control to pick their fix type
+            targets = [(sg, sg) for sg in ids_of(tf_state, "aws_security_group")]
+            targets += [(b, f"S3.8:{b}") for b in ids_of(tf_state, "aws_s3_bucket")]
+            targets += [(a, f"IAM.21:{a}") for a in ids_of(tf_state, "aws_iam_policy")]
+            if not targets:
+                raise UsageError(
+                    "no security group, S3 bucket or IAM policy in the Terraform state"
+                )
+        records = []
+        for resource, t in targets:
+            ctx = _context(mode, repo, state, None, window)
+            ctx.stop_after, ctx.command = "contract", "contract build"
+            records.append((resource, run_fix(t, repo, config, ctx)))
+    except PosturaNetError as exc:
+        raise _fail(exc) from exc
+    if output_format is OutputFormat.JSON:
+        rows = [{"resource": t, "result": r.result, "detail": r.result_detail} for t, r in records]
+        console.write(json.dumps(rows, indent=2) + "\n")
+    else:
+        f = _frame()
+        n = len(records)
+        title = f"{n} resource{'s' if n != 1 else ''}"
+        lines = f.open(console.header("contract build", title, f.style))
+        w = max(24, *(len(t) for t, _ in records))
+        table = [f"{t:<{w}} {r.result:<10} {r.result_detail}" for t, r in records]
+        lines += f.box("Contracts", table)
+        built = sum(r.exit_code == 0 for _, r in records)
+        lines += f.close(
+            "Dry run: nothing written."
+            if dry_run
+            else f"{built} of {n} built. Review each draft before you commit it."
+        )
+        _framed(f, lines)
+    raise typer.Exit(max(r.exit_code for _, r in records))
 
 
 _GATE_EXIT = {"PASS": 0, "BLOCK": 5, "UNKNOWN": 3}
@@ -334,9 +439,28 @@ def _publish_check(result: GateResult, sha: str | None) -> str:
     return publish(GitHub(token, repo_slug), result, head)
 
 
+def _comment(result: GateResult, pr: int, check_url: str | None) -> str | None:
+    """The PR comment is a courtesy: if it can't be written (fork PR, missing permission), warn
+    and keep the check's own result and exit code."""
+    from posturanet.deliver.checks import comment
+    from posturanet.deliver.github import GitHub
+
+    token = os.environ.get("GITHUB_TOKEN")
+    repo_slug = os.environ.get("GITHUB_REPOSITORY")
+    if not token or not repo_slug:
+        typer.echo("warning: --github-comment needs GITHUB_TOKEN and GITHUB_REPOSITORY", err=True)
+        return None
+    try:
+        return comment(GitHub(token, repo_slug), result, pr, check_url)
+    except StageStop as exc:
+        typer.echo(f"warning: PR comment not written: {exc.reason}", err=True)
+        return None
+
+
 @contract_app.command("check", epilog=_examples(
     ("posturanet contract check --source --repo infra/", "offline, from the edited .tf files"),
     ("posturanet contract check --source --file infra/sg.tf", "only groups in one file"),
+    ("posturanet contract check --source --file templates/net.yaml", "one CloudFormation template"),
     ("terraform show -json plan.out > plan.json && posturanet contract check --plan plan.json", "in CI, from a plan"),  # noqa: E501 (copyable example)
 ))  # fmt: skip
 def contract_check(
@@ -345,16 +469,29 @@ def contract_check(
     ] = None,
     source: Annotated[
         bool,
-        typer.Option("--source", help="Check the Terraform source instead of a plan (offline)."),
+        typer.Option(
+            "--source",
+            help="Check the Terraform or CloudFormation source instead of a plan (offline).",
+        ),
     ] = False,
     files: Annotated[
         list[Path] | None,
-        typer.Option("--file", help="With --source: only groups defined in this .tf file."),
+        typer.Option(
+            "--file", help="With --source: only resources defined in this .tf file or template."
+        ),
     ] = None,
     github_check: Annotated[
         bool, typer.Option("--github-check", help="Publish the result as a GitHub check run.")
     ] = False,
     sha: Annotated[str | None, typer.Option(help="Commit for the check run.")] = None,
+    github_comment: Annotated[
+        int | None,
+        typer.Option(
+            "--github-comment",
+            metavar="PR",
+            help="Also keep one comment on this PR up to date (needs pull-requests:write).",
+        ),
+    ] = None,
     repo: RepoOpt = Path("."),
     output_format: FormatOpt = OutputFormat.TEXT,
     ascii_mode: AsciiOpt = False,
@@ -381,11 +518,14 @@ def contract_check(
         check_url = _publish_check(result, sha) if github_check else None
     except PosturaNetError as exc:
         raise _fail(exc) from exc
+    comment_url = _comment(result, github_comment, check_url) if github_comment else None
 
     if output_format is OutputFormat.JSON:
         doc = result.to_dict()
         if check_url is not None:
             doc["check_url"] = check_url
+        if comment_url:
+            doc["comment_url"] = comment_url
         console.write(json.dumps(doc, indent=2) + "\n")
     else:
         f = _frame(ascii_mode)
@@ -527,65 +667,106 @@ def fixes_show(
 
 
 FindingsFileArg = Annotated[
-    Path,
-    typer.Argument(help="Finding file: Security Hub ASFF, OCSF (Prowler), Checkov or Trivy JSON."),
+    list[Path],
+    typer.Argument(
+        help="One or more finding files: Security Hub ASFF, OCSF (Prowler), Checkov, Trivy, "
+        "Wiz, Orca or Prisma Cloud JSON. A problem reported in more than one file is listed once."
+    ),
 ]
+
+
+@dataclass
+class _Row:
+    file: FindingsFile
+    entry: Entry
+    result: tuple[str, str | None]
+    also: list[str] = field(default_factory=list)  # other scanners that reported the same issue
+
+
+def _read_merged(paths: list[Path], exceptions: Path) -> list[_Row]:
+    """Every finding in every file; a problem several scanners report is kept once (FR-28)."""
+    from posturanet.ingest import issue_of, read_findings
+
+    try:
+        rules = load_config(Path("."))[0].detectors.rules()  # FR-4d vendor rule mappings
+        files = [read_findings(p, rules) for p in paths]
+        accepted: list[AcceptedRisk] = load_exceptions(exceptions)
+    except PosturaNetError as exc:
+        raise _fail(exc) from exc
+    today = datetime.now(UTC).date()
+    rows: list[_Row] = []
+    first: dict[tuple[str, str, str], _Row] = {}
+    for found in files:
+        for e in found.entries:
+            row = _Row(found, e, outcome(e, accepted, today))
+            if e.finding is not None and row.result[0] != "passed":
+                key = issue_of(e.finding)
+                if key in first:
+                    first[key].also.append(e.finding.source)
+                    continue
+                first[key] = row
+            rows.append(row)
+    return rows
 
 
 @findings_app.command("list", epilog=_examples(
     ("posturanet findings list scan.json", "the findings PosturaNet can fix"),
     ("posturanet findings list scan.json --all", "every finding, and why the rest can't be fixed yet"),  # noqa: E501 (copyable example)
+    ("posturanet findings list securityhub.json prowler.ocsf.json", "several scanners; each problem once"),  # noqa: E501 (copyable example)
     ("posturanet findings list plans.json --all", "Security Hub remediation plans"),
 ))  # fmt: skip
 def findings_list(
-    path: FindingsFileArg,
+    paths: FindingsFileArg,
     show_all: Annotated[
         bool, typer.Option("--all", help="Also show findings PosturaNet can't fix, and why.")
     ] = False,
     output_format: FormatOpt = OutputFormat.TEXT,
     exceptions: ExceptionsOpt = EXCEPTIONS_FILE,
 ) -> None:
-    """The findings in a file, and how each one ends: a fix, a runbook or an accepted risk."""
-    from posturanet.ingest import read_findings
-
-    try:
-        found = read_findings(path)
-        accepted = load_exceptions(exceptions)
-    except PosturaNetError as exc:
-        raise _fail(exc) from exc
-    today = datetime.now(UTC).date()
-    outcomes = {e.index: outcome(e, accepted, today) for e in found.entries}
-    shown = found.entries if show_all else found.fixable
-    rows = [_finding_row(e, outcomes[e.index]) for e in shown]
+    """The findings in one or more files, and how each one ends: a fix, a runbook or an
+    accepted risk."""
+    merged = _read_merged(paths, exceptions)
+    many = len(paths) > 1
+    shown = merged if show_all else [r for r in merged if r.entry.fixable]
+    rows = [_finding_row(r, many) for r in shown]
     if output_format is OutputFormat.JSON:
         console.write(json.dumps(rows, indent=2) + "\n")
         raise typer.Exit(0)
     f = _frame()
-    lines = f.open(console.header("findings list", path.name, f.style))
-    counts = Counter(kind for kind, _ in outcomes.values())
-    total = len(found.entries) - counts["passed"]  # coverage counts failed findings only
+    names = [p.name for p in paths]  # with several files, `#` is file number:index
+    lines = f.open(console.header("findings list", ", ".join(names), f.style))
+    counts = Counter(r.result[0] for r in merged)
+    total = len(merged) - counts["passed"]  # coverage counts failed findings only
     covered = total - counts["none"]
+    formats = " + ".join(dict.fromkeys(r.file.format.upper() for r in merged)) or "-"
     summary = (
-        f"{found.format.upper()} · {total} failed · {counts['fix']} fix · "
+        f"{formats} · {total} failed · {counts['fix']} fix · "
         f"{counts['runbook']} runbook · {counts['exception']} accepted · "
         f"coverage {covered}/{total}" + (f" ({100 * covered // total}%)" if total else "")
     )
-    lines += [f.step(summary, info=True, token="success" if covered else "muted"), f.bar()]
+    lines += [f.step(summary, info=True, token="success" if covered else "muted")]
+    dupes = sum(len(r.also) for r in merged)
+    if dupes:
+        lines += [f.step(f"{dupes} reported by more than one scanner, listed once", info=True)]
+    lines += [f.bar()]
     if rows:
         head = f"{'#':>4}  {'outcome':<10} {'control':<14} {'fix':<20} {'severity':<9} resource"
         table = [f.style("bold", head)]
         for r in rows:
             resource = r["resource"] or "-"
+            index = f"{names.index(str(r['file'])) + 1}:{r['index']}" if many else r["index"]
             line = (
-                f"{r['index']:>4}  {r['outcome']:<10} {r['control']:<14} {r['fix']:<20} "
+                f"{index:>4}  {r['outcome']:<10} {r['control']:<14} {r['fix']:<20} "
                 f"{r['severity']:<9} {resource}"
             )
-            if r["reason"]:
-                line += f.style("muted", f"  ({r['reason']})")
+            notes = "; ".join(str(n) for n in (r["reason"], r.get("also")) if n)
+            if notes:
+                line += f.style("muted", f"  ({notes})")
             table.append(line)
         lines += f.box("Findings", table)
-    if found.fixable:
-        lines += f.close(f"Next: posturanet findings split {path} --out findings/")
+    if any(r.entry.fixable for r in merged):
+        args = " ".join(str(p) for p in paths)
+        lines += f.close(f"Next: posturanet findings split {args} --out findings/")
     elif show_all:
         lines += f.close("Nothing PosturaNet can fix in this file yet.")
     else:
@@ -595,32 +776,31 @@ def findings_list(
 
 @findings_app.command("split", epilog=_examples(
     ("posturanet findings split scan.json --out findings/", "one file per fixable finding"),
+    ("posturanet findings split securityhub.json prowler.ocsf.json --out findings/", "one file per problem"),  # noqa: E501 (copyable example)
 ))  # fmt: skip
 def findings_split(
-    path: FindingsFileArg,
+    paths: FindingsFileArg,
     out: Annotated[Path, typer.Option("--out", help="Folder for one file per finding.")] = Path(
         "findings"
     ),
     exceptions: ExceptionsOpt = EXCEPTIONS_FILE,
 ) -> None:
-    """Write each finding PosturaNet can fix to its own file, ready for `posturanet fix`."""
-    from posturanet.ingest import document_for, read_findings
+    """Write each problem PosturaNet can fix to its own file, ready for `posturanet fix`."""
+    from posturanet.ingest import document_for
 
-    try:
-        found = read_findings(path)
-        accepted = load_exceptions(exceptions)
-    except PosturaNetError as exc:
-        raise _fail(exc) from exc
-    today = datetime.now(UTC).date()
-    to_fix = [e for e in found.fixable if outcome(e, accepted, today)[0] == "fix"]
-    skipped = len(found.fixable) - len(to_fix)
+    merged = _read_merged(paths, exceptions)
+    fixable = [r for r in merged if r.entry.fixable]
+    to_fix = [r for r in fixable if r.result[0] == "fix"]
+    skipped = len(fixable) - len(to_fix)
+    names = ", ".join(p.name for p in paths)
     if not to_fix:
-        typer.echo(f"{path.name}: no failed findings PosturaNet can fix; nothing written")
+        typer.echo(f"{names}: no failed findings PosturaNet can fix; nothing written")
         raise typer.Exit(0)
     out.mkdir(parents=True, exist_ok=True)
     used: set[str] = set()
     written: list[Path] = []
-    for e in to_fix:
+    for r in to_fix:
+        e = r.entry
         if e.finding is None:
             continue
         stem = re.sub(r"[^A-Za-z0-9._-]+", "_", f"{e.finding.control_id}-{e.finding.resource.id}")
@@ -628,13 +808,16 @@ def findings_split(
         while name in used:
             name, n = f"{stem}-{n}", n + 1
         used.add(name)
-        doc = document_for(e.item, found.format)
+        doc = document_for(e.item, r.file.format)
         target = out / f"{name}.json"
         target.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8", newline="\n")
         written.append(target)
     f = _frame()
-    lines = f.open(console.header("findings split", path.name, f.style))
-    lines += [f.step(f"Read {len(found.fixable)} findings PosturaNet can fix"), f.bar()]
+    lines = f.open(console.header("findings split", names, f.style))
+    lines += [f.step(f"Read {len(fixable)} findings PosturaNet can fix"), f.bar()]
+    dupes = sum(len(r.also) for r in to_fix)
+    if dupes:
+        lines += [f.step(f"Merged {dupes} reported by more than one scanner", info=True), f.bar()]
     if skipped:
         lines += [f.step(f"Skipped {skipped} accepted in {exceptions.as_posix()}", info=True)]
         lines += [f.bar()]
@@ -698,12 +881,12 @@ def findings_pull_plans(
     _framed(f, lines)
 
 
-def _finding_row(e: Entry, result: tuple[str, str | None]) -> dict[str, object]:
-    f = e.finding
-    kind, note = result
+def _finding_row(r: _Row, many: bool) -> dict[str, object]:
+    e, f = r.entry, r.entry.finding
+    kind, note = r.result
     if kind == "none" and not note:
         note = e.reason or (None if e.fixable else "no fix for this control yet")
-    return {
+    row: dict[str, object] = {
         "index": e.index,
         "outcome": kind,
         "finding_id": f.finding_id if f else None,
@@ -713,6 +896,11 @@ def _finding_row(e: Entry, result: tuple[str, str | None]) -> dict[str, object]:
         "resource": f.resource.id if f else None,
         "reason": note,
     }
+    if many:
+        row["file"] = r.file.path.name
+    if r.also:
+        row["also"] = "also " + ", ".join(sorted(set(r.also)))
+    return row
 
 
 @app.command(epilog=_examples(
@@ -782,16 +970,60 @@ def verify(
         record = run_verify(pr, repo, config, ctx)
     except PosturaNetError as exc:
         raise _fail(exc) from exc
+    share = config.outcome_share
+    if share.enabled and share.endpoint:  # FR-45a: opt-in, best-effort, exit code unchanged
+        from posturanet.outcome_share import share as send_share
+
+        warning = send_share(record, share.endpoint)
+        if warning:
+            typer.echo(f"warning: {warning}", err=True)
     _emit(record, output_format, ascii_mode)
+
+
+@outcomes_app.command("preview", epilog=_examples(
+    ("posturanet verify owner/repo#123 --repo infra/ --format json > run.json", "save a verify run"),  # noqa: E501 (copyable example)
+    ("posturanet outcomes preview run.json", "exactly what outcome_share.enabled would send"),
+))  # fmt: skip
+def outcomes_preview(
+    runs: Annotated[
+        list[Path], typer.Argument(help="Verify run records (`posturanet verify --format json`).")
+    ],
+) -> None:
+    """Print the outcome-share records these verify runs would send. Sends nothing."""
+    from pydantic import ValidationError
+
+    from posturanet.outcome_share import record_for
+
+    for path in runs:
+        try:
+            run = RunRecord.model_validate_json(path.read_text(encoding="utf-8"))
+        except (OSError, ValidationError) as exc:
+            raise _fail(UsageError(f"{path}: not a PosturaNet run record: {exc}")) from exc
+        rec, why = record_for(run)
+        if rec is None:
+            typer.echo(f"{path.name}: nothing would be sent: {why}", err=True)
+        else:
+            console.write(rec.model_dump_json() + "\n")
 
 
 @app.command(epilog=_examples(
     ("posturanet init > policy.json", "save the policy, then attach it to PosturaNet's role"),
+    ("posturanet init --changeset-preview > preview.json",
+     "opt-in only: the policy for the separate change-set preview role"),
 ))  # fmt: skip
-def init() -> None:
+def init(
+    changeset_preview: Annotated[
+        bool,
+        typer.Option(
+            "--changeset-preview",
+            help="Print the opt-in change-set preview policy (separate role) instead.",
+        ),
+    ] = False,
+) -> None:
     """Print the read-only IAM policy for PosturaNet's role. Writes nothing."""
     _banner(sys.stderr)  # stderr, so `posturanet init > policy.json` stays clean JSON
-    console.write(json.dumps(iam_policy(), indent=2) + "\n")
+    policy = changeset_policy() if changeset_preview else iam_policy()
+    console.write(json.dumps(policy, indent=2) + "\n")
 
 
 @app.command(epilog=_examples(

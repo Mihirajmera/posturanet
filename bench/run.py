@@ -319,17 +319,37 @@ def report(results: dict[str, list[Outcome]]) -> str:
 
 
 def main() -> int:
-    from bench import iam, s3
+    from bench import cdk, cfn, iam, pulumi, s3
 
     results = run()
     s3_results = s3.run()
     iam_results = iam.run()
+    cfn_results = cfn.run()
+    cdk_results = cdk.run()
+    pulumi_results = pulumi.run()
     out_dir = Path(__file__).resolve().parent
     head, rest = report(results).split("\n", 1)
     sg_text = f"{head}\n\n## Security groups (EC2.19-style findings)\n{rest}"
-    text = "\n".join([sg_text, "", *s3.report(s3_results), *iam.report(iam_results)])
+    text = "\n".join(
+        [
+            sg_text,
+            "",
+            *s3.report(s3_results),
+            *iam.report(iam_results),
+            *cfn.report(cfn_results),
+            *cdk.report(cdk_results),
+            *pulumi.report(pulumi_results),
+        ]
+    )
     (out_dir / "RESULTS.md").write_text(text.rstrip() + "\n", encoding="utf-8")
-    families = {"sg": results, "s3": s3_results, "iam": iam_results}
+    families = {
+        "sg": results,
+        "s3": s3_results,
+        "iam": iam_results,
+        "cfn": cfn_results,
+        "cdk": cdk_results,
+        "pulumi": pulumi_results,
+    }
     payload = {
         name: {k: [asdict(o) | {"verdict": o.verdict} for o in v] for k, v in fam.items()}
         for name, fam in families.items()
@@ -340,4 +360,5 @@ def main() -> int:
     for fam in families.values():
         for cid, outs in fam.items():
             print(f"{cid:30} " + "  ".join(f"{o.tool}={o.verdict}" for o in outs))
-    return 0
+    wrong = cfn.wrongly_safe(cfn_results) or cdk.wrongly_safe(cdk_results)
+    return 1 if wrong or pulumi.wrongly_safe(pulumi_results) else 0

@@ -1,0 +1,40 @@
+{
+  "_comment": "Synthetic `aws cloudformation describe-stack-resources` export for the CDK app. Fake account 123456789012.",
+  "StackResources": [
+    {
+      "StackName": "network",
+      "LogicalResourceId": "BastionSg1A2B3C4D",
+      "PhysicalResourceId": "sg-0a91f3c2",
+      "ResourceType": "AWS::EC2::SecurityGroup",
+      "ResourceStatus": "CREATE_COMPLETE"
+    },
+    {
+      "StackName": "network",
+      "LogicalResourceId": "WebSgE5F6A7B8",
+      "PhysicalResourceId": "sg-0b22c4d6",
+      "ResourceType": "AWS::EC2::SecurityGroup",
+      "ResourceStatus": "CREATE_COMPLETE"
+    },
+    {
+      "StackName": "storage",
+      "LogicalResourceId": "Assets1C2D3E4F",
+      "PhysicalResourceId": "acme-assets",
+      "ResourceType": "AWS::S3::Bucket",
+      "ResourceStatus": "CREATE_COMPLETE"
+    },
+    {
+      "StackName": "iam",
+      "LogicalResourceId": "AppPolicy5A6B7C8D",
+      "PhysicalResourceId": "arn:aws:iam::123456789012:policy/app",
+      "ResourceType": "AWS::IAM::ManagedPolicy",
+      "ResourceStatus": "CREATE_COMPLETE"
+    },
+    {
+      "StackName": "storage",
+      "LogicalResourceId": "Events1A2B3C4D",
+      "PhysicalResourceId": "events",
+      "ResourceType": "AWS::DynamoDB::Table",
+      "ResourceStatus": "CREATE_COMPLETE"
+    }
+  ]
+}

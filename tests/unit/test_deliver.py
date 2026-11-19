@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -49,7 +50,7 @@ def test_title_and_labels(tmp_repo: Path, flows_path: Path, sg_finding_path: Pat
 def test_body_sections(tmp_repo: Path, flows_path: Path, sg_finding_path: Path) -> None:
     p = _proposal(tmp_repo, flows_path, sg_finding_path)
     text = body(p, run_id="run_x")
-    assert text.startswith(markers(p.idempotency_key, p.finding.finding_id))
+    assert text.startswith(markers(p.idempotency_key, p.issue))
     assert key_in(text) == p.idempotency_key
     for heading in (
         "### What changes",
@@ -119,7 +120,58 @@ def test_existing_pr_for_finding_is_updated(
     assert not any(m == "POST" and path.endswith("/pulls") for m, path in fake.writes)
 
 
+def _same_issue_other_scanner(tmp_path: Path, finding: Path) -> Path:
+    """The same open SSH rule, reported under another finding id (as a second scanner would)."""
+    doc = json.loads(finding.read_text(encoding="utf-8"))
+    doc["Findings"][0]["Id"] = "prowler-ec2-19-sg-0a91f3c2"
+    other = tmp_path / "other.json"
+    other.write_text(json.dumps(doc), encoding="utf-8")
+    return other
+
+
+def test_two_scanners_one_issue_one_key(
+    tmp_repo: Path, tmp_path: Path, flows_path: Path, sg_finding_path: Path
+) -> None:
+    p = _proposal(tmp_repo, flows_path, sg_finding_path)
+    q = _proposal(tmp_repo, flows_path, _same_issue_other_scanner(tmp_path, sg_finding_path))
+    assert p.finding.finding_id != q.finding.finding_id
+    assert p.issue == q.issue == "sg_ingress@module.bastion.aws_security_group.this"
+    assert p.idempotency_key == q.idempotency_key
+
+
+def test_second_scanner_reuses_the_open_pr(
+    tmp_repo: Path, tmp_path: Path, flows_path: Path, sg_finding_path: Path
+) -> None:
+    p = _proposal(tmp_repo, flows_path, sg_finding_path)
+    q = _proposal(tmp_repo, flows_path, _same_issue_other_scanner(tmp_path, sg_finding_path))
+    open_pr = {
+        "number": 9,
+        "html_url": "https://github.com/acme/infra/pull/9",
+        "body": markers(p.idempotency_key, p.issue),
+        "labels": [{"name": "posturanet"}],
+        "head": {"ref": "posturanet/sg_ingress/bastion-12345678"},
+    }
+    fake = FakeGitHub({TF: (tmp_repo / TF).read_text(encoding="utf-8")}, [open_pr])
+    result = _deliver(_gh(fake), q, {TF: (tmp_repo / TF).read_text(encoding="utf-8")})
+    assert result.action == "unchanged" and result.number == 9  # type: ignore[attr-defined]
+    assert fake.writes == []
+
+
 def test_refuses_non_posturanet_branch() -> None:
     gh = GitHub("t", "acme/infra", FakeGitHub({}).client())
     with pytest.raises(StageStop, match="not a PosturaNet branch"):
         gh.set_branch("main", "sha", exists=True)
+
+
+def test_related_controls_share_an_issue() -> None:
+    from posturanet.deliver.idempotency import issue
+    from posturanet.ingest.controls import _S3_BUCKET_CONTROLS
+    from posturanet.s3fix import CONTROLS as S3_CONTROLS
+
+    sg = "module.bastion.aws_security_group.this"
+    assert issue("EC2.13", sg) == issue("EC2.19", sg) == f"sg_ingress@{sg}"
+    assert issue("S3.2", "aws_s3_bucket.a") == issue("S3.8", "aws_s3_bucket.a")
+    assert issue("S3.1", "x") == "S3.1@x"  # account-wide: its own problem
+    assert issue("IAM.1", "p") != issue("IAM.21", "p")  # they remove different actions
+    assert issue("RDS.2", "db") != issue("RDS.8", "db")  # different settings
+    assert {c for c, scope in S3_CONTROLS.items() if scope == "bucket"} == _S3_BUCKET_CONTROLS

@@ -1,4 +1,674 @@
 {
+  "cdk": {
+    "cdk-iam-add-statements": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "fix unknown: the 2 synthesized statement(s) of iam/AppPolicy/Resource don't map one-for-one to the 1 PolicyStatement(s) written in the construct",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "cdk-iam-computed-action": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "fix unknown: PolicyStatement actions is not a literal PosturaNet can read; it won't guess",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "cdk-iam-drift": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "validate fail: drift FAIL \u00b7 AppPolicy5A6B7C8D in the repo differs from stack iam; deploy or pull first; drift fail: AppPolicy5A6B7C8D in the repo differs from stack iam; deploy or pull first",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "cdk-iam-l1-fix": [
+      {
+        "allowed": [
+          "ec2:DescribeInstances",
+          "ec2:DescribeVolumes",
+          "logs:CreateLogStream"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: every used action stays allowed",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "cdk-iam-py": [
+      {
+        "allowed": [
+          "ec2:DescribeInstances",
+          "ec2:DescribeVolumes",
+          "logs:CreateLogStream"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: every used action stays allowed",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "cdk-iam-ts": [
+      {
+        "allowed": [
+          "ec2:DescribeInstances",
+          "ec2:DescribeVolumes",
+          "logs:CreateLogStream"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: every used action stays allowed",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "cdk-s3-drift": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "validate fail: drift FAIL \u00b7 Assets1C2D3E4F in the repo differs from stack Prod-platform; deploy or pull first; drift fail: Assets1C2D3E4F in the repo differs from stack Prod-platform; deploy or pull first",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "cdk-s3-l1-fix": [
+      {
+        "allowed": [
+          "Block Public Access: all on"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: no public use in the logs",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "cdk-s3-public-read": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "fix fail: the bucket sets publicReadAccess, which BLOCK_ALL forbids (cdk synth fails)",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "cdk-s3-py": [
+      {
+        "allowed": [
+          "Block Public Access: all on"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: no public use in the logs",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "cdk-s3-ts": [
+      {
+        "allowed": [
+          "Block Public Access: all on"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: no public use in the logs",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "cdk-sg-allow-from-any": [
+      {
+        "allowed": [
+          "10.0.0.0/16:9100/tcp",
+          "10.0.4.12/32:22/tcp",
+          "10.0.4.37/32:22/tcp",
+          "10.0.5.9/32:22/tcp",
+          "203.0.113.7/32:22/tcp"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "cdk-sg-computed-id": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: no SecurityGroup construct with the literal id 'BastionSg' in the app source (construct path network/BastionSg/Resource); the id may be computed, or another construct made it",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "cdk-sg-computed-peer": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "fix unknown: the peer or port of bastionSg.addIngressRule on line 19 is not a literal PosturaNet can read; it won't guess",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "cdk-sg-connections": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "fix unknown: network/BastionSg/Resource has 3 ingress rule(s) in the template but 2 literal ingress call(s) on `bastionSg` in network-stack.ts",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "cdk-sg-duplicate-id": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: 2 SecurityGroup constructs use the id 'BastionSg' (lib/legacy.ts:5, lib/network-stack.ts:15); can't tell which",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "cdk-sg-l1": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "fix unknown: network/BastionSg has 2 ingress rule(s) in the template but 0 literal securityGroupIngress entr(ies) of BastionSg in network-stack.ts",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "cdk-sg-l1-fix": [
+      {
+        "allowed": [
+          "10.0.0.0/16:9100/tcp",
+          "10.0.4.12/32:22/tcp",
+          "10.0.4.37/32:22/tcp",
+          "10.0.5.9/32:22/tcp",
+          "203.0.113.7/32:22/tcp"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "cdk-sg-l1-ingress-open": [
+      {
+        "allowed": [
+          "10.0.0.0/16:9100/tcp",
+          "10.0.4.12/32:22/tcp",
+          "10.0.4.37/32:22/tcp",
+          "10.0.5.9/32:22/tcp",
+          "203.0.113.7/32:22/tcp"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "cdk-sg-l1-ingress-untraced": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "fix unknown: network/BastionSg/Resource gets ingress from BastionRdp9A8B7C6D in the template, which no literal ingress call or CfnSecurityGroupIngress in network-stack.ts explains",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "cdk-sg-live-drift": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "validate fail: drift FAIL \u00b7 live group sg-0a91f3c2 differs from BastionSg1A2B3C4D in the template (1 rule(s) only live, 0 only in the template); someone changed it outside CloudFormation. Reconcile it first; drift fail: live group sg-0a91f3c2 differs from BastionSg1A2B3C4D in the template (1 rule(s) only live, 0 only in the template); someone changed it outside CloudFormation. Reconcile it first",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "cdk-sg-no-metadata": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: BastionSg1A2B3C4D has no aws:cdk:path metadata (path metadata is turned off in the app)",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "cdk-sg-peer-group": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "fix unknown: network/BastionSg/Resource has 1 security-group peer rule(s) in the template but 0 literal peer call(s) on `bastionSg` in network-stack.ts",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "cdk-sg-peer-traced": [
+      {
+        "allowed": [
+          "10.0.0.0/16:9100/tcp",
+          "10.0.4.12/32:22/tcp",
+          "10.0.4.37/32:22/tcp",
+          "10.0.5.9/32:22/tcp",
+          "203.0.113.7/32:22/tcp"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "cdk-sg-py": [
+      {
+        "allowed": [
+          "10.0.0.0/16:9100/tcp",
+          "10.0.4.12/32:22/tcp",
+          "10.0.4.37/32:22/tcp",
+          "10.0.5.9/32:22/tcp",
+          "203.0.113.7/32:22/tcp"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "cdk-sg-synth-fails": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "validate fail: cdk_synth FAIL \u00b7 the edited app doesn't synthesize: ModuleNotFoundError: No module named 'aws_cdk'; cdk_synth fail: the edited app doesn't synthesize: ModuleNotFoundError: No module named 'aws_cdk'",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "cdk-sg-ts": [
+      {
+        "allowed": [
+          "10.0.0.0/16:9100/tcp",
+          "10.0.4.12/32:22/tcp",
+          "10.0.4.37/32:22/tcp",
+          "10.0.5.9/32:22/tcp",
+          "203.0.113.7/32:22/tcp"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ]
+  },
+  "cfn": {
+    "cfn-iam-ambiguous": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: AppPolicy is defined in 2 templates (templates/iam-dev.yaml, templates/iam.json); set cloudformation.templates.iam to the one stack iam deploys",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "cfn-iam-drift": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "validate fail: drift FAIL \u00b7 AppPolicy in the repo differs from stack iam; deploy or pull first",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "cfn-iam-intrinsic-action": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "fix unknown: AppPolicy statement 1 Action: parameter ExtraAction has no known value; PosturaNet won't guess it",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "cfn-iam-json": [
+      {
+        "allowed": [
+          "ec2:DescribeInstances",
+          "ec2:DescribeVolumes",
+          "logs:CreateLogStream"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: every used action stays allowed",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "cfn-iam-sam-generated": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: ThumbnailFunctionPolicy (AWS::IAM::ManagedPolicy) is not defined in any template in this repo; it may be generated by the SAM transform, which has no source line to edit",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "cfn-iam-short-form": [
+      {
+        "allowed": [
+          "ec2:DescribeInstances",
+          "ec2:DescribeVolumes",
+          "logs:CreateLogStream"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: every used action stays allowed",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "cfn-iam-yaml": [
+      {
+        "allowed": [
+          "ec2:DescribeInstances",
+          "ec2:DescribeVolumes",
+          "logs:CreateLogStream"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: every used action stays allowed",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "cfn-s3-ambiguous": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: AssetsBucket is defined in 2 templates (templates/storage-dev.yaml, templates/storage.yaml); set cloudformation.templates.storage to the one stack storage deploys",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "cfn-s3-drift": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "validate fail: drift FAIL \u00b7 AssetsBucket in the repo differs from stack storage; deploy or pull first",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "cfn-s3-intrinsic-flag": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "fix unknown: the fix must change AssetsBucket PublicAccessBlockConfiguration.BlockPublicAcls, which comes from parameter Block; PosturaNet never rewrites a parameterised value",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "cfn-s3-json": [
+      {
+        "allowed": [
+          "Block Public Access: all on"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: no public use in the logs",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "cfn-s3-sam-generated": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: ThumbnailFunctionBucket (AWS::S3::Bucket) is not defined in any template in this repo; it may be generated by the SAM transform, which has no source line to edit",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "cfn-s3-short-form": [
+      {
+        "allowed": [
+          "Block Public Access: all on"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: no public use in the logs",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "cfn-s3-yaml": [
+      {
+        "allowed": [
+          "Block Public Access: all on"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: no public use in the logs",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "cfn-sg-ambiguous": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: BastionSG is defined in 2 templates (templates/network-dev.yaml, templates/network.yaml); set cloudformation.templates.network to the one stack network deploys",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "cfn-sg-intrinsic-cidr": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "fix unknown: the fix must change an open ingress entry of BastionSG, which comes from parameter AdminCidr; PosturaNet never rewrites a parameterised value",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "cfn-sg-json": [
+      {
+        "allowed": [
+          "10.0.0.0/16:9100/tcp",
+          "10.0.4.12/32:22/tcp",
+          "10.0.4.37/32:22/tcp",
+          "10.0.5.9/32:22/tcp",
+          "203.0.113.7/32:22/tcp"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "cfn-sg-live-drift": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "validate fail: drift FAIL \u00b7 live group sg-0a91f3c2 differs from BastionSG in the template (1 rule(s) only live, 0 only in the template); someone changed it outside CloudFormation. Reconcile it first",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "cfn-sg-sam-generated": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: ThumbnailFunctionSG (AWS::EC2::SecurityGroup) is not defined in any template in this repo; it may be generated by the SAM transform, which has no source line to edit",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "cfn-sg-short-form": [
+      {
+        "allowed": [
+          "10.0.0.0/16:9100/tcp",
+          "10.0.4.12/32:22/tcp",
+          "10.0.4.37/32:22/tcp",
+          "10.0.5.9/32:22/tcp",
+          "203.0.113.7/32:22/tcp"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "cfn-sg-yaml": [
+      {
+        "allowed": [
+          "10.0.0.0/16:9100/tcp",
+          "10.0.4.12/32:22/tcp",
+          "10.0.4.37/32:22/tcp",
+          "10.0.5.9/32:22/tcp",
+          "203.0.113.7/32:22/tcp"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ]
+  },
   "iam": {
     "iam-admin-star": [
       {
@@ -485,6 +1155,212 @@
         "status": "FIXED",
         "tool": "Remove wildcard",
         "verdict": "OUTAGE"
+      }
+    ]
+  },
+  "pulumi": {
+    "pulumi-iam-program-differs": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: the policy of 'app' in the program differs from the stack export",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-iam-py": [
+      {
+        "allowed": [
+          "ec2:DescribeInstances",
+          "ec2:DescribeVolumes",
+          "logs:CreateLogStream"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: every used action stays allowed",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "pulumi-iam-ts": [
+      {
+        "allowed": [
+          "ec2:DescribeInstances",
+          "ec2:DescribeVolumes",
+          "logs:CreateLogStream"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: every used action stays allowed",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "pulumi-iam-variable-policy": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: the policy of 'app' is not a literal document (an object, or JSON.stringify / json.dumps of one); PosturaNet won't guess",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-s3-computed-flag": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: blockPublicAcls of 'assets-pab' is not a literal boolean",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-s3-no-block": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: the bucket has no aws.s3.BucketPublicAccessBlock in stack-export.json; PosturaNet edits existing literals and won't add a resource",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-s3-py": [
+      {
+        "allowed": [
+          "Block Public Access: all on"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: no public use in the logs",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "pulumi-s3-ts": [
+      {
+        "allowed": [
+          "Block Public Access: all on"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: no public use in the logs",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "pulumi-sg-component": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: bastion-sg is created inside the component acme:net:Bastion; its name in the program may be computed, so PosturaNet can't trace it to one line",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-sg-computed-cidr": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: ingress entry 1 of 'bastion-sg' has a value that is not a literal",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-sg-drift": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate fail: drift: 'bastion-sg' has different ingress in its outputs than its inputs",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-sg-duplicate-name": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: 2 SecurityGroup calls use the name 'bastion-sg' (infra/network.ts:4, infra/storage.ts:10); can't tell which",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-sg-py-standalone": [
+      {
+        "allowed": [
+          "10.0.0.0/16:9100/tcp",
+          "10.0.4.12/32:22/tcp",
+          "10.0.4.37/32:22/tcp",
+          "10.0.5.9/32:22/tcp",
+          "203.0.113.7/32:22/tcp"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "pulumi-sg-ts": [
+      {
+        "allowed": [
+          "10.0.0.0/16:9100/tcp",
+          "10.0.4.12/32:22/tcp",
+          "10.0.4.37/32:22/tcp",
+          "10.0.5.9/32:22/tcp",
+          "203.0.113.7/32:22/tcp"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "pulumi-sg-undeployed-rule": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: ingress rule 'bastion-rdp' in network.ts is not in the stack export, so it may change 'bastion-sg' in ways the deployed state doesn't show",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
       }
     ]
   },

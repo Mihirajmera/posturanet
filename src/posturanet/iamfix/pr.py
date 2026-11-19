@@ -6,7 +6,7 @@ import hashlib
 from dataclasses import dataclass, field
 
 from posturanet import __version__
-from posturanet.deliver.idempotency import markers, verify_marker
+from posturanet.deliver.idempotency import issue, markers, verify_marker
 from posturanet.deliver.pr_body import _CHECK_LABELS, _cell, _sym
 from posturanet.iamfix.shrink import StatementChange
 from posturanet.models import Diff, Finding, Location, ValidationReport, VerifySpec
@@ -33,8 +33,12 @@ class IamProposal:
     approval: IamApproval | None = None  # approved at the terminal
 
     @property
+    def issue(self) -> str:
+        return issue(self.finding.control_id, self.location.address)
+
+    @property
     def idempotency_key(self) -> str:
-        text = self.finding.finding_id + self.finding.control_id + self.diff.sha256
+        text = self.issue + self.diff.sha256
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
     @property
@@ -110,7 +114,7 @@ def body(p: IamProposal, *, run_id: str) -> str:
         f" and {len(ev.principals) - 6} more" if len(ev.principals) > 6 else ""
     )
     parts = [
-        markers(p.idempotency_key, f.finding_id),
+        markers(p.idempotency_key, p.issue),
         verify_marker(verify_spec(p)),
         f"**PosturaNet** found a fix for **{f.control_id} · {f.title}**. It replaces "
         f"{', '.join(f'`{r}`' for r in p.removed)} with the actions the attached principals "

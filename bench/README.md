@@ -1,7 +1,7 @@
 # PosturaNet benchmark (v1)
 
 How safe is an automatic fix for an open security group, a public bucket or a wildcard IAM
-policy? This benchmark answers that with 35 cases whose right answer is known in advance, and
+policy? This benchmark answers that with 56 cases whose right answer is known in advance, and
 publishes PosturaNet's misses next to its wins.
 
 | Family | Cases | PosturaNet correct | Stopped (needed / unneeded) | Outage | Fewest outages, any baseline |
@@ -9,6 +9,7 @@ publishes PosturaNet's misses next to its wins.
 | Security groups | 13 | 10 | 2 | 1 | 3 |
 | S3 public access (S3.8) | 10 | 4 | 3 / 2 | 1 | 3 |
 | IAM least privilege (IAM.1, IAM.21) | 12 | 6 | 4 / 1 | 1 | 7 |
+| CloudFormation and SAM (all three) | 21 | 9 | 12 / 0 | 0 | - |
 
 "Needed" stops are cases with no safe automatic fix (a public website, a role that passes an
 untracked `iam:PassRole`). "Unneeded" stops are safe fixes PosturaNet declined for lack of
@@ -62,7 +63,7 @@ least privilege.
 
 ## Results today
 
-See [RESULTS.md](RESULTS.md) for every case. In short (PosturaNet 0.3.0):
+See [RESULTS.md](RESULTS.md) for every case. In short (PosturaNet 0.4.0):
 
 | Contender | Correct | Stopped | Outage | Still exposed | Invalid | Addresses opened |
 |---|---|---|---|---|---|---|
@@ -127,8 +128,46 @@ A fix is an **outage** when it takes away something a legit user needs (S3: a re
 only gets in through public access; IAM: an action the workload calls). **Still exposed** means
 the targeted wildcard is still there. Pinned verdicts are in `tests/unit/test_bench.py`.
 
+## CloudFormation and SAM family
+
+[`cfn.py`](cfn.py) runs the same three fixes on templates copied from `tests/fixtures/cfn/basic`,
+with read-only doubles for `GetTemplate`, `DescribeStackResources` and
+`DescribeSecurityGroups`. Per fix type: a fixable template in YAML, JSON and with short-form
+intrinsics, and four traps that must stop: an intrinsic in the field the fix edits, a
+SAM-generated resource, a resource defined in two templates, and drift (the deployed stack or
+the live group differs from the repo). Fixes are scored on the edited template. The family
+reports **wrongly reported safe** (a validated fix that breaks a need, leaves the exposure, or
+exists where no safe fix does); `python -m bench` exits 1 if it isn't 0.
+
+## AWS CDK family
+
+[`cdk.py`](cdk.py) runs the same three fixes on CDK apps copied from `tests/fixtures/cdk/ts-app`
+(TypeScript) and `py-app` (Python, nested Stage), with the same read-only doubles. Per fix type:
+a fixable app in each language, plus open rules from `connections.allowFromAnyIpv4` or a literal
+`CfnSecurityGroupIngress`, a traced group peer, and L1 `CfnSecurityGroup`, `CfnBucket` and
+`CfnManagedPolicy` constructs with literal props, then traps that must stop: a computed peer, id or action; rules
+from `connections` or a security-group peer that the group's file doesn't explain; a standalone
+ingress with no construct in the file; statements from `addStatements`; a duplicate id;
+an L1 whose props don't explain the template; no `aws:cdk:path` metadata; `publicReadAccess: true`; a failed synth; and
+drift. `cdk synth` is a bench stand-in (`MiniSynth`) that copies the app's cloud assembly and
+rewrites the target from the edited program with its own regexes, not PosturaNet's parser.
+Fixes are scored on that synthesized resource, and wrongly reported safe must be 0 here too.
+
+## Pulumi family
+
+[`pulumi.py`](pulumi.py) runs the same three fixes on the TypeScript and Python programs in
+`tests/fixtures/pulumi/`, mapped through their synthetic `pulumi stack export`. No AWS doubles
+are needed: nothing in the Pulumi path calls AWS. Per fix type: a fix in each language, and
+traps that must stop: a computed value in the field the fix edits, a resource inside a
+component, a name used twice, an ingress rule written but not deployed, a fix that needs a new
+resource, a program that differs from the export, and drift between the export's inputs and
+outputs. Fixes are scored on the edited program's literals. `python -m bench` exits 1 if this
+family reports anything **wrongly safe**.
+
 ## Limits
 
+- CDK: no real `cdk synth` yet (aws-cdk isn't installed in CI); `MiniSynth` reads only the
+  literal shapes the fixtures use.
 - Security groups: ingress only, single-port rules, IPv4, SSH/RDP/Postgres.
 - S3: one bucket, S3.8 only; requesters are modeled by kind, not by real log lines.
 - IAM: one Allow statement per policy, `jsonencode` form; principals are not modeled

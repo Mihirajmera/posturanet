@@ -6,7 +6,7 @@ PosturaNet is a source-available remediation agent for AWS + Terraform. It takes
 
 It also checks every security group, S3 and IAM policy change, written by a person or an AI agent, against those contracts before it merges: a `PosturaNet contract` check on PRs, a step in any CI, a Claude Code plugin, and MCP setups for Cursor, Codex, Copilot, Gemini, Windsurf, Cline, Kiro, Continue, Zed and Goose.
 
-> Status: early access. 0.3.0 is on PyPI: `connect`, outcomes, exceptions, runbooks and approval at the terminal are new.
+> Status: early access. 0.4.0 is on PyPI: fixes in CloudFormation, CDK and Pulumi code, Wiz, Orca and Prisma Cloud findings, and an opt-in outcome share are new.
 >
 > 88 controls: security groups, S3 public access and IAM least privilege from usage evidence, plus 74 settings controls. Findings from Security Hub, Prowler, Checkov or Trivy.
 
@@ -102,6 +102,26 @@ In Claude Code, add the plugin (skill, MCP server and a hook that checks every `
 /plugin install posturanet@posturanet
 ```
 
+### 8. Share outcomes (opt-in, off by default)
+PosturaNet sends nothing about your fixes unless you turn this on. With it on, each `posturanet verify` that ends CONFIRMED or REGRESSED sends one record with five fields, so we can learn which fixes break production across customers:
+
+```json
+{"control":"EC2.19","fix_type":"sg_ingress","outcome":"held","evidence_days":3,"agent_version":"0.3.0"}
+```
+
+Never sent: resource ids, ARNs, IPs, account ids, names, code, Terraform state, contracts or finding text. A control id that isn't in the `SERVICE.N` form is not sent at all. See exactly what would go out before you turn it on:
+```bash
+posturanet verify owner/repo#123 --repo infra/ --format json > run.json
+posturanet outcomes preview run.json                             # prints the record; sends nothing
+```
+To turn it on, add to `.posturanet.yml`:
+```yaml
+outcome_share:
+  enabled: true
+  endpoint: https://…            # required; PosturaNet ships no default
+```
+The receiving service isn't live yet, so there is no endpoint to point at today. Sending is best-effort: a timeout or no network prints a warning and never changes verify's exit code.
+
 ## Try it offline (no AWS)
 From a clone of this repo:
 ```bash
@@ -121,6 +141,8 @@ PosturaNet doesn't detect; it fixes what your scanner already found. It reads fi
 | Prowler | `prowler aws --output-formats json-ocsf` (or its ASFF output) | 72, from Prowler's own mapping to Security Hub controls |
 | Checkov | `checkov -d . -o json` | 52, from 56 Checkov checks |
 | Trivy | `trivy config -f json .` | 31, from 36 Trivy checks |
+
+Run several scanners? Pass all their files: `posturanet findings list securityhub.json prowler.ocsf.json`. The same control on the same resource is listed once, with the other scanners noted, and `findings split` writes one file for it. PRs are keyed on the control and the Terraform address, so a problem gets one PR whichever scanner reported it, including Checkov and Trivy.
 
 Wiz, Orca, Prisma Cloud and other platforms can send findings to Security Hub, but with their own rule names. PosturaNet doesn't map those to controls yet, so they show as `none`.
 

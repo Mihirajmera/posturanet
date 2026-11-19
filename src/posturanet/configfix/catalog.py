@@ -24,6 +24,10 @@ class Change(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     path: str  # dotted: nested block names, then the attribute
+    # CloudFormation property path under Properties; `List[key]` at the end means the Value
+    # of the {Key, Value} item with that Key (load balancer attributes)
+    cfn: str | None = None
+    cfn_value: Literal_ | None = None  # the CloudFormation value, when it isn't `value`
     op: Op
     value: Literal_
     allowed: list[str] = Field(default_factory=list)  # one_of only
@@ -79,6 +83,7 @@ class Condition(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     path: str
+    cfn: str | None = None
     in_: list[str | None] = Field(alias="in")
 
 
@@ -94,6 +99,30 @@ class ConfigFix(BaseModel):
     why: str
     note: str | None = None
     risk: Literal["low", "medium"] = "low"
+    cfn_type: str | None = None  # the CloudFormation resource type, when the row maps to one
+
+    def for_cfn(self) -> ConfigFix | None:
+        """This row with CloudFormation types and property paths, or None if it has no
+        complete mapping (every change and condition needs one)."""
+        if self.cfn_type is None or self.scope != "resource":
+            return None
+        if any(c.cfn is None for c in self.changes) or any(w.cfn is None for w in self.when):
+            return None
+        return self.model_copy(
+            update={
+                "resource_type": self.cfn_type,
+                "changes": [
+                    c.model_copy(
+                        update={
+                            "path": c.cfn,
+                            "value": c.value if c.cfn_value is None else c.cfn_value,
+                        }
+                    )
+                    for c in self.changes
+                ],
+                "when": [w.model_copy(update={"path": w.cfn}) for w in self.when],
+            }
+        )
 
     @property
     def service(self) -> str:
@@ -156,6 +185,7 @@ def merge(rows: list[ConfigFix]) -> ConfigFix | None:
     scopes = {r.scope for r in rows}
     if len(scopes) != 1:
         return None
+    cfn_types = {r.cfn_type for r in rows}
     return ConfigFix(
         control="+".join(r.control for r in rows),
         title="; ".join(dict.fromkeys(r.title for r in rows)),
@@ -166,6 +196,7 @@ def merge(rows: list[ConfigFix]) -> ConfigFix | None:
         why=" ".join(dict.fromkeys(r.why for r in rows)),
         note=" ".join(dict.fromkeys(r.note for r in rows if r.note)) or None,
         risk="medium" if any(r.risk == "medium" for r in rows) else "low",
+        cfn_type=cfn_types.pop() if len(cfn_types) == 1 else None,
     )
 
 

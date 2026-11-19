@@ -8,7 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
@@ -32,6 +32,39 @@ class TerraformConfig(_Strict):
     # Local backend only: path to the state file, relative to the repo root.
     state_path: str | None = None
     binary: str = "terraform"
+
+
+class ChangeSetPreviewConfig(_Strict):
+    # Opt-in control-plane write (NFR-2 exception, docs/design/cfn-changeset-preview.md):
+    # create, read and delete a change set, never execute it, under its own role.
+    enabled: bool = False
+    role_arn: str | None = None
+
+
+class CloudFormationConfig(_Strict):
+    # Offline stack mapping: an `aws cloudformation describe-stack-resources` export.
+    stack_resources: str | None = None
+    # stack name -> template path, when a logical id appears in more than one template.
+    templates: dict[str, str] = Field(default_factory=dict)
+    changeset_preview: ChangeSetPreviewConfig = Field(default_factory=ChangeSetPreviewConfig)
+
+
+class CdkConfig(_Strict):
+    # The CDK app directory (holds cdk.json), relative to the repo root; found when unset.
+    app: str | None = None
+    # A cloud assembly your CI already synthesized from this commit (`cdk synth -o …`).
+    # Unset: PosturaNet runs `cdk synth --no-lookups` itself, outside dry runs.
+    assembly: str | None = None
+    binary: str = "cdk"
+
+
+class PulumiConfig(_Strict):
+    # The Pulumi project directory (holds Pulumi.yaml), relative to the repo root; found when
+    # there is exactly one.
+    program: str | None = None
+    # A `pulumi stack export` of the deployed stack. Required: PosturaNet never runs the
+    # Pulumi CLI. State can hold secrets; keep the export out of git.
+    stack_export: str | None = None
 
 
 class FlowLogsConfig(_Strict):
@@ -75,15 +108,65 @@ class DeliveryConfig(_Strict):
     max_open_prs: int = Field(default=5, ge=1)
 
 
+class DetectorConfig(_Strict):
+    # vendor rule id -> PosturaNet control (FR-4d). PosturaNet ships no such table.
+    rules: dict[str, str] = Field(default_factory=dict)
+
+
+class DetectorsConfig(_Strict):
+    wiz: DetectorConfig = Field(default_factory=DetectorConfig)
+    orca: DetectorConfig = Field(default_factory=DetectorConfig)
+    prisma: DetectorConfig = Field(default_factory=DetectorConfig)
+
+    def rules(self) -> dict[str, dict[str, str]]:
+        return {"wiz": self.wiz.rules, "orca": self.orca.rules, "prisma": self.prisma.rules}
+
+
+class OutcomeShareConfig(_Strict):
+    # Opt-in (FR-45a, golden rule 6). No default endpoint: the receiving service isn't built.
+    enabled: bool = False
+    endpoint: str | None = Field(default=None, pattern=r"^https://\S+$")
+
+
 class Config(_Strict):
     version: Literal[1] = 1
     aws: AwsConfig = Field(default_factory=AwsConfig)
+    # auto: CDK when the repo has a cdk.json and no .tf files; else Pulumi when it has a
+    # Pulumi.yaml and no .tf files; else CloudFormation when a stack-resources export is
+    # given, or the repo has templates and no .tf files.
+    iac: Literal["auto", "terraform", "cloudformation", "cdk", "pulumi"] = "auto"
     terraform: TerraformConfig = Field(default_factory=TerraformConfig)
+    cloudformation: CloudFormationConfig = Field(default_factory=CloudFormationConfig)
+    cdk: CdkConfig = Field(default_factory=CdkConfig)
+    pulumi: PulumiConfig = Field(default_factory=PulumiConfig)
     evidence: EvidenceConfig = Field(default_factory=EvidenceConfig)
     contracts: ContractsConfig = Field(default_factory=ContractsConfig)
     synthesis: SynthesisConfig = Field(default_factory=SynthesisConfig)
     validation: ValidationConfig = Field(default_factory=ValidationConfig)
     delivery: DeliveryConfig = Field(default_factory=DeliveryConfig)
+    detectors: DetectorsConfig = Field(default_factory=DetectorsConfig)
+    outcome_share: OutcomeShareConfig = Field(default_factory=OutcomeShareConfig)
+
+    @model_validator(mode="after")
+    def _share_endpoint(self) -> Config:
+        if self.outcome_share.enabled and not self.outcome_share.endpoint:
+            raise ValueError(
+                "outcome_share.enabled needs outcome_share.endpoint (an https:// URL); "
+                "PosturaNet ships no default endpoint"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _changeset_role(self) -> Config:
+        preview = self.cloudformation.changeset_preview
+        if preview.enabled and not preview.role_arn:
+            raise ValueError("cloudformation.changeset_preview.enabled needs its own role_arn")
+        if preview.enabled and preview.role_arn == self.aws.role_arn:
+            raise ValueError(
+                "cloudformation.changeset_preview.role_arn must differ from aws.role_arn; "
+                "the read-only role stays read-only"
+            )
+        return self
 
 
 def load_config(repo: Path) -> tuple[Config, Path | None]:

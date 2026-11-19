@@ -197,6 +197,33 @@ class GitHub:
         )
         return data
 
+    def upsert_comment(self, number: int, marker: str, body: str, *, create: bool) -> str | None:
+        """Edit the PR comment starting with `marker`, or post one if `create`. Returns its URL."""
+        path = f"/repos/{self.repo}/issues/{number}/comments"
+        mine: dict[str, Any] | None = None
+        page = 1
+        while mine is None:
+            data = self._ok(
+                self._req("GET", f"{path}?per_page=100&page={page}", need="pull-requests:write"),
+                f"list comments on #{number}",
+            )
+            mine = next((c for c in data if str(c.get("body", "")).startswith(marker)), None)
+            if len(data) < 100:
+                break
+            page += 1
+        if mine is not None:
+            resp = self._req(
+                "PATCH",
+                f"/repos/{self.repo}/issues/comments/{mine['id']}",
+                need="pull-requests:write",
+                json={"body": body},
+            )
+        elif create:
+            resp = self._req("POST", path, need="pull-requests:write", json={"body": body})
+        else:
+            return None
+        return str(self._ok(resp, "comment on the pull request").get("html_url", ""))
+
     def add_labels(self, number: int, labels: list[str]) -> None:
         self._ok(
             self._req(
@@ -233,6 +260,7 @@ def deliver(
         gh,
         PullRequest(
             finding_id=p.finding.finding_id,
+            issue=p.issue,
             key=p.idempotency_key,
             branch=branch_name(p),
             title=pr_body.title(p),
@@ -258,6 +286,7 @@ class PullRequest:
     labels: list[str]
     writes: list[tuple[str, str, str]]  # (path, content, commit message)
     deletes: list[tuple[str, str]] = field(default_factory=list)  # (path, commit message)
+    issue: str = ""  # idempotency.issue(); empty for PRs that aren't per-finding (revert)
 
 
 def push_pr(
@@ -272,8 +301,9 @@ def push_pr(
     ours = [
         pr for pr in prs if any(lbl.get("name") == "posturanet" for lbl in pr.get("labels", []))
     ]
-    tag = finding_tag(pr_in.finding_id)
-    existing = next((pr for pr in prs if finding_in(pr.get("body")) == tag), None)
+    # One PR per issue across scanners; finding_id still matches PRs opened before 0.3.1.
+    tags = {finding_tag(pr_in.issue or pr_in.finding_id), finding_tag(pr_in.finding_id)}
+    existing = next((pr for pr in prs if finding_in(pr.get("body")) in tags), None)
 
     if existing is not None and key_in(existing.get("body")) == pr_in.key:
         return Delivery(

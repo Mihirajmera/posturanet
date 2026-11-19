@@ -1,7 +1,8 @@
 """AI agent hooks: check an edit against the contracts right after the agent makes it.
 
 Claude Code calls `posturanet hook claude-code` as a PostToolUse hook on Edit/Write. The check
-is `gate.check_source` (offline, no plan, no AWS), limited to the edited file. The event JSON is
+is `gate.check_source` (offline, no plan, no AWS), limited to the edited file: a `.tf` file or a
+CloudFormation/SAM template; other YAML and JSON files are left alone. The event JSON is
 untrusted data: only `tool_input.file_path` is read from it.
 """
 
@@ -10,6 +11,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from posturanet.cfn import template as cfn_template
 from posturanet.errors import PosturaNetError
 from posturanet.gate import GateResult, check_source
 from posturanet.models.config import load_config
@@ -35,9 +37,12 @@ def _edited_file(event_text: str) -> Path | None:
         return None
     tool_input = event.get("tool_input")
     path = tool_input.get("file_path") if isinstance(tool_input, dict) else None
-    if not isinstance(path, str) or not path.endswith(".tf"):
+    if not isinstance(path, str):
         return None
-    return Path(path)
+    file = Path(path)
+    if file.suffix == ".tf" or cfn_template.maybe_template(file) is not None:
+        return file
+    return None  # any other file, including YAML/JSON that isn't a CloudFormation template
 
 
 def _context(text: str) -> str:
@@ -76,10 +81,15 @@ def claude_code(event_text: str, repo: Path) -> str:
         )
         return json.dumps({"decision": "block", "reason": reason}) + "\n"
     if result.status == "UNKNOWN":
+        then = (
+            "Run `posturanet contract check --plan plan.json` before relying on it."
+            if file.suffix == ".tf"
+            else "Keep contracted properties as literal values the template parses, or ask the "
+            "user to review the change against the contract."
+        )
         return (
             _context(
-                report + "\nPosturaNet could not judge this edit from the source alone. Run "
-                "`posturanet contract check --plan plan.json` before relying on it."
+                report + "\nPosturaNet could not judge this edit from the source alone. " + then
             )
             + "\n"
         )

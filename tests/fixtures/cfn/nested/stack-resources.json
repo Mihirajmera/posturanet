@@ -1,0 +1,37 @@
+{
+  "_comment": "Synthetic `aws cloudformation describe-stack-resources` rows for a parent stack and its nested stack. Fake account 123456789012.",
+  "StackResources": [
+    {
+      "StackName": "app",
+      "StackId": "arn:aws:cloudformation:us-east-1:123456789012:stack/app/00000000-0000-0000-0000-000000000001",
+      "LogicalResourceId": "NetworkStack",
+      "PhysicalResourceId": "arn:aws:cloudformation:us-east-1:123456789012:stack/app-NetworkStack-EXAMPLE/00000000-0000-0000-0000-000000000002",
+      "ResourceType": "AWS::CloudFormation::Stack",
+      "ResourceStatus": "CREATE_COMPLETE"
+    },
+    {
+      "StackName": "app-NetworkStack-EXAMPLE",
+      "StackId": "arn:aws:cloudformation:us-east-1:123456789012:stack/app-NetworkStack-EXAMPLE/00000000-0000-0000-0000-000000000002",
+      "LogicalResourceId": "AppSG",
+      "PhysicalResourceId": "sg-0c33d5e7",
+      "ResourceType": "AWS::EC2::SecurityGroup",
+      "ResourceStatus": "CREATE_COMPLETE"
+    },
+    {
+      "StackName": "app-NetworkStack-EXAMPLE",
+      "StackId": "arn:aws:cloudformation:us-east-1:123456789012:stack/app-NetworkStack-EXAMPLE/00000000-0000-0000-0000-000000000002",
+      "LogicalResourceId": "AdminSG",
+      "PhysicalResourceId": "sg-0d44e6f8",
+      "ResourceType": "AWS::EC2::SecurityGroup",
+      "ResourceStatus": "CREATE_COMPLETE"
+    },
+    {
+      "StackName": "app-NetworkStack-EXAMPLE",
+      "StackId": "arn:aws:cloudformation:us-east-1:123456789012:stack/app-NetworkStack-EXAMPLE/00000000-0000-0000-0000-000000000002",
+      "LogicalResourceId": "DebugSG",
+      "PhysicalResourceId": "sg-0e55f7a9",
+      "ResourceType": "AWS::EC2::SecurityGroup",
+      "ResourceStatus": "CREATE_COMPLETE"
+    }
+  ]
+}

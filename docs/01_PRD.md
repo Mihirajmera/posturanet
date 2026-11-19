@@ -2,10 +2,10 @@
 
 | | |
 |---|---|
-| Version | 1.0 |
-| Date | 2026-11-02 |
+| Version | 2.0 (pivot) |
+| Date | 2026-11-17 |
 | Owners | The three co-founders |
-| Status | Active. This is the source of truth for *what* v1 does. |
+| Status | Active. This is the source of truth for *what* PosturaNet does. v1.0 (2026-11-02) described an AWS + Terraform remediation agent; v2.0 widens it to the remediation layer for every detector, IaC tool and AI coding agent. |
 | Related | [02_ARCHITECTURE_AND_DATA.md](02_ARCHITECTURE_AND_DATA.md) · [04_DESIGN_SYSTEM.md](04_DESIGN_SYSTEM.md) · [../AGENTS.md](../AGENTS.md) · [Company brief v2](../../docs/posturanet-brief-v2/PosturaNet_Company_Brief_v2.pdf) · [Strategy brief v1.1](../../docs/POSTURANET_STRATEGY_BRIEF_v1.1.md) |
 
 Requirement IDs (`FR-`, `NFR-`) are stable. Reference them in code comments, tests and PRs. When scope changes, update this file in the same PR.
@@ -14,65 +14,105 @@ Requirement IDs (`FR-`, `NFR-`) are stable. Reference them in code comments, tes
 
 ## 1. Product summary
 
-**PosturaNet is a remediation agent for AWS + Terraform teams.** It takes a security finding the team already has, finds the Terraform and team that own the resource, learns what actually uses the resource from flow logs and CloudTrail, records that as a **behavior contract**, and opens a pull request with the smallest fix that keeps every observed behavior working. After the fix is confirmed, it writes signed audit evidence.
+**PosturaNet is the remediation layer for cloud security.** It sits after every detector (Security Hub, Prowler, Checkov, Trivy, and the platforms that feed them) and after every AI coding agent. For each finding it:
+1. finds the code and team that own the resource;
+2. learns what really uses the resource, from flow logs and CloudTrail;
+3. records that as a **behavior contract**;
+4. opens a pull request with the smallest fix that keeps every observed behavior working;
+5. after merge, verifies the fix held, reverts on regression, and writes audit evidence.
 
-It runs **in the customer's CI or on an engineer's machine**, with a **read-only** AWS role and **the customer's own LLM**. It never writes to production. Humans review and merge every change.
+The same contracts then check every later change, from a person or an agent, so a fix stays fixed.
 
-**One line:** *Fixes cloud security issues without breaking prod, and proves it to your auditor.*
+It runs **in the customer's CI or on an engineer's machine**, with a **read-only** AWS role and **the customer's own LLM**. It never applies changes. Humans review and merge every PR.
+
+**One line:** *Fixes cloud security issues without breaking prod, keeps them fixed, and proves it to your auditor.*
+
+**The promise to every customer:** whatever scanner and whatever IaC they use, every failed finding ends in an outcome:
+- a fix PR;
+- a runbook;
+- an accepted exception, with an owner and an expiry;
+- or a stated reason why not yet.
+
+Nobody leaves empty-handed.
 
 ## 2. Problem
 
-When a finding lands (e.g. "SG allows 0.0.0.0/0 on port 22"), the engineer has to:
+Detection is solved; teams have more findings than they can close. When a finding lands (e.g. "SG allows 0.0.0.0/0 on port 22"), the engineer has to:
 1. **find the owner**: which repo, file, module and team;
 2. **find what uses it**: logs are hard to query, so this step is usually skipped;
 3. write the fix, which takes minutes;
-4. deal with `terraform plan` noise from unrelated drift;
+4. deal with plan noise from unrelated drift;
 5. get it through review ("are you sure nothing uses this?");
 6. deploy it, sometimes breaking an unknown dependency;
 7. revert it, after which the finding is marked "risk accepted" and never fixed.
 
-Writing the fix is cheap. Everything around it is expensive and risky, so backlogs grow. Vendors now generate fix PRs (Wiz, Gomboc, Cloudgeni and others), but their public material doesn't show them proving what the change *preserves*. That proof is PosturaNet's focus.
+Writing the fix is cheap. Everything around it is expensive and risky, so backlogs grow. Two things make it worse now:
+- **Several detectors report the same problem**, each opening its own ticket or PR.
+- **AI coding agents change infrastructure** faster than anyone reviews it, and quietly undo last quarter's fixes.
+
+Vendors now generate fix PRs (Wiz, Gomboc, Cloudgeni and others). Their public material doesn't show them doing three things, which are PosturaNet's focus:
+- proving what a change *preserves*;
+- keeping it fixed against later edits;
+- running read-only in the customer's CI.
 
 ## 3. Users and personas
 
 | Persona | Role | Needs | Success for them |
 |---|---|---|---|
 | **Dev**: DevOps / SRE engineer | Daily user | Small diffs, clear reasons, no PR flood | Merges a PosturaNet PR in minutes without asking anyone |
-| **Pat**: Platform / cloud-security lead | Champion | Backlog closed safely; a gate on risky changes | Findings close and nothing breaks |
+| **Pat**: Platform / cloud-security lead | Champion | Backlog closed safely; a gate on risky changes | Findings close, nothing breaks, nothing reopens |
 | **Cass**: CISO / Head of Security | Buyer | Confirmed closure, low effort | Closure numbers they can report |
 | **Gia**: GRC / compliance lead | Buyer | Evidence without screenshots | Signed evidence mapped to controls |
-| **Ava**: AI coding agent (Claude Code, Cursor) | Machine user | A way to check Terraform changes are safe | Calls `check_change` before proposing infrastructure edits |
+| **Ava**: AI coding agent (Claude Code, Cursor, others) | Machine user | A way to check infrastructure changes are safe | Calls `check_change` before proposing infrastructure edits, and fixes its own change on BLOCK |
 
 ## 4. Goals and non-goals
 
-### Goals (v1)
-- G1: Turn a supported AWS finding into a reviewable, validated Terraform PR with usage evidence.
+### Goals
+- G1: Turn any supported finding, from any supported detector, into a reviewable, validated PR with usage evidence, in the customer's own IaC tool.
 - G2: Never report a change as safe when it isn't (target: **zero wrongly reported "safe" fixes**).
 - G3: Install to first PR in under 15 minutes on a prepared repo, without founder help.
-- G4: Generate behavior contracts that teams approve and keep.
-- G5: Produce signed, control-mapped evidence for confirmed fixes (paid).
-- G6: Support license-based monetization (Community / Team / Business).
+- G4: **Every failed finding gets an outcome** (fix, runbook, accepted exception, or a reason), whatever the scanner or IaC tool. Coverage is shown on every run.
+- G5: **Be the safety check for every infrastructure change**: contracts checked on every PR and every AI-agent edit, so fixes stay fixed.
+- G6: **Contracts become the system of record** for what each resource must keep allowing.
+- G7: **Learn which fixes break production** from verify outcomes, through the opt-in outcome share (FR-45a).
+- G8: Produce signed, control-mapped evidence for confirmed fixes (paid).
+- G9: Revenue from software and partners: free CLI and Action, paid governance (Pro).
 
-### Non-goals (v1). Don't build these.
-- Writing to production or applying Terraform.
-- A dashboard or hosted multi-tenant SaaS.
-- Detection rules beyond re-checking a known finding.
-- Multi-cloud, CloudFormation, CDK, Pulumi, Terragrunt, remote modules.
-- More than three evidence-backed fix types (SG ingress, S3 public access, IAM least privilege). The attribute-fix catalog (FR-48) is not a fix type of this kind: it only sets literal settings that remove no access, and grows by catalog rows.
+### Coverage targets (what "no customer leaves empty-handed" means)
+| Area | Today | Target |
+|---|---|---|
+| Detectors | Security Hub (ASFF, OCSF), Prowler, Checkov, Trivy, Security Hub remediation plans; Wiz, Orca, Prisma Cloud JSON exports (R5: parsers built; mappings come from the export or the customer) | Wiz, Orca, Prisma Cloud CSV once their columns are documented or a design partner shares one; rules are never guessed |
+| IaC tools | Terraform; CloudFormation and SAM (R6); AWS CDK in TypeScript and Python (R7); Pulumi in TypeScript and Python (R8, merging) | + other CDK and Pulumi languages |
+| Same problem, many reports | One PR per issue across scanners and related controls | Kept as new detectors and IaC tools arrive |
+| Contracts | Security groups, S3 buckets, IAM policies, for the whole state (`contract build --all`) | Every supported resource in every supported IaC tool |
+| Outcomes | fix / runbook / exception / none on every failed finding | Every control a supported detector reports has a non-`none` outcome |
+
+### Non-goals. Don't build these.
+- Applying changes to production or merging PRs. (CloudFormation change-set *previews* are an opt-in exception that never executes; see NFR-2 and AGENTS.md rule 1.)
+- Detection: PosturaNet re-checks a known finding but never competes with the detectors it sits behind.
+- A hosted service that holds customer code, state, logs, contracts or findings. Hosted parts are limited to license keys and the opt-in outcome share's anonymous counts.
+- Multi-cloud (GCP, Azure) and Terragrunt, for now.
+- More than three evidence-backed fix types (SG ingress, S3 public access, IAM least privilege), decided again on 2026-11-14: deepen these first. The attribute-fix catalog (FR-48) is not a fix type of this kind: it only sets literal settings that remove no access, and grows by catalog rows.
 - Founder-delivered or managed services.
 
 ## 5. Scope by release
 
-| Release | Contents | Target |
+| Release | Contents | Status |
 |---|---|---|
-| **R0: Dry-run skeleton** | Package layout, OCSF finding model, ASFF ingest, locator v0, `posturanet fix --dry-run` on fixtures | Week 1 |
-| **R1: SG contracts** | Flow-log collector, SG contract builder, Z3 synthesis, validation pipeline, PR delivery, CLI + GitHub Action, Claude skill, MCP (read-only tools). **Built** (see CHANGELOG for what's deferred) | Weeks 2–3 |
-| **R1.5: PosturaNet check** | Contract check where teams already work: `PosturaNet contract` check run on PRs (FR-29, US-4 for one repo), Action `check` mode, offline source check, Claude Code hook, Cursor rule, MCP `check_change` source mode (US-7). **Built** | Week 3 |
-| **R1.6: Attribute fixes** | `config_attribute` fix type: 54 catalog rows covering 52 Security Hub controls across RDS, Aurora, DocumentDB, Neptune, DynamoDB, KMS, ELB, CloudTrail, ECR, EKS, ElastiCache, DMS, Redshift, SQS, API Gateway, Kinesis, Network Firewall, Athena, EBS, S3, MSK, GuardDuty, Config, Macie, IAM password policy and CodeBuild (FR-48). `posturanet fixes list|show` (FR-49). **Built** | Week 3 |
-| **R2: Verify + evidence** | Post-merge verification and revert PR (**built**: `posturanet verify`, FR-31..FR-33), S3 public-access fix (**built**: S3.1, S3.2, S3.3, S3.8, FR-17, FR-50), IAM least privilege (**built**: IAM.1, IAM.21, FR-16, FR-51) and the safety benchmark (**built**: 35 cases across SG, S3 and IAM, `bench/`), signed OSCAL evidence (pro) | Weeks 4–5 |
-| **R3: IAM + benchmark** | CloudTrail / last-accessed collector, IAM contract and least-privilege synthesis, benchmark v0 (20 cases), public launch | Week 6 |
-| **R4: Team plan** | Org-wide contract gate (one config for every repo), event triggers, license keys, Stripe, Slack notifications | Weeks 7–9 |
-| **R5: Living contracts** | New-behavior and drift PRs, periodicity, ASR input, policy packs (Prowler input shipped early, FR-4a) | Weeks 10–12 |
+| **R0: Dry-run skeleton** | Package layout, OCSF finding model, ASFF ingest, locator v0, `posturanet fix --dry-run` on fixtures | Built |
+| **R1: SG contracts** | Flow-log collector, SG contract builder, Z3 synthesis, validation pipeline, PR delivery, CLI + GitHub Action, Claude skill, MCP (read-only tools) | Built |
+| **R1.5: PosturaNet check** | Contract check where teams already work: `PosturaNet contract` check run on PRs (FR-29, US-4 for one repo), Action `check` mode, offline source check, Claude Code hook, Cursor rule, MCP `check_change` source mode (US-7) | Built |
+| **R1.6: Attribute fixes** | `config_attribute` fix type: catalog rows covering Security Hub controls across RDS, Aurora, DocumentDB, Neptune, DynamoDB, KMS, ELB, CloudTrail, ECR, EKS, ElastiCache, DMS, Redshift, SQS, API Gateway, Kinesis, Network Firewall, Athena, EBS, S3, MSK, GuardDuty, Config, Macie, IAM password policy and CodeBuild (FR-48). `posturanet fixes list|show` (FR-49) | Built |
+| **R2: Verify + evidence** | Post-merge verification and revert PR (FR-31..FR-33), S3 public-access fix (FR-17, FR-50), IAM least privilege (FR-16, FR-51), the safety benchmark (`bench/`); signed OSCAL evidence (pro) | Built, except evidence (pro) |
+| **R3: Outcomes** | Every failed finding gets fix / runbook / exception / none, with coverage (0.3.0) | Built |
+| **R4: One issue, many detectors** | One PR per issue across scanners and related controls (FR-28); `findings list|split` over several files; PR comment and Marketplace-ready Action; `contract build --all` for SG, S3 and IAM | On `test` |
+| **R5: Detector adapters** | Wiz, Orca, Prisma Cloud JSON ingest (FR-4d, FR-4e). Parsers built; mappings come from the export or the customer, never a built-in table. CSV waits for documented columns or a real export | Parsers built |
+| **R6: CloudFormation + SAM** | Locate, fix, contract check and drift on templates; opt-in change-set preview | Merging into `test` |
+| **R7: AWS CDK** | Fix PRs to CDK program code (TypeScript, Python), mapped from `aws:cdk:path` metadata; `cdk synth` validation with the CloudFormation checks; contract check through the synthesized template | Merging into `test` |
+| **R8: Pulumi** | Fix PRs to Pulumi programs (TypeScript, Python, AWS Classic), mapped through a `pulumi stack export`; static validation with the CloudFormation checks (`pulumi preview` not run: it needs write-capable credentials); contract check on the program's literals | Merging into `test` |
+| **R9: Outcome share** | Opt-in anonymous outcomes (FR-45a) and the "which fixes break prod" dataset | Client on `test`; receiving service not built |
+| **R10: Team plan (Pro)** | Org-wide contract gate, event triggers (US-3), license keys, contract history, audit evidence, team view. Lives in the private `pro` branch of the postura repo | First feature not chosen yet |
+| **R11: Living contracts** | New-behavior and drift PRs, periodicity, policy packs | Later |
 
 ## 6. User stories with acceptance criteria
 
@@ -120,6 +160,8 @@ Writing the fix is cheap. Everything around it is expensive and risky, so backlo
 - **FR-4a** Accept OCSF findings: Prowler `json-ocsf` (and Prowler's ASFF output) and OCSF compliance findings. The control id comes from `compliance.control`, then Prowler's FSBP compliance mapping, then a bundled check → control map. Only FAIL findings are fixable. A file with many findings: use the one fixable finding if there is exactly one; otherwise `posturanet findings list|split`. (Pulled forward from R5.)
 - **FR-4b** Accept Terraform scanner reports: Checkov (`-o json`) and Trivy (`config -f json`). Check ids map to controls through a hand-curated table (`ingest/iac_checks.json`), each row checked against the scanner's source; unmapped checks are unsupported. The finding names a Terraform address; locate resolves it against the state (exact address, else the one instance of that type and name), and stops if the resource isn't deployed or the name is ambiguous.
 - **FR-4c** Accept Security Hub's own formats. (1) OCSF findings from `get-findings-v2` (`{"Findings": [...]}`) and EventBridge "Findings Imported V2" events; a compliance finding's result is `compliance.status` (only `Fail` is fixable); an exposure finding is not fixed directly, it names the control findings it links. (2) Remediation plans (`GetRemediationsV2`): `posturanet findings pull-plans` reads them read-only with their exposures (`ListExposuresByRemediationV2`) and exposure findings (`GetFindingsV2`). A plan names one resource but no control; the controls come from the exposure findings' related control findings. The attribute-fix controls among them that share a Terraform resource type become one combined fix (`RDS.2+RDS.8`), so one plan is one PR; an evidence fix runs alone; the rest are listed to fix separately. AWS's guidance text and Terraform example are never used to build the change (NFR-4).
+- **FR-4d** Accept Wiz, Orca and Prisma Cloud JSON exports, detected from the content: Wiz `issuesV2` GraphQL results (`{"data": {"issues": {"nodes": [...]}}}` or the bare node list), Orca serving-layer alert queries (`{"data": [...]}` with `type: Alert`), Prisma Cloud `GET /alert` and `/v2/alert` (`{"items": [...]}`). Each parser reads only fields the vendor's public API docs or published integration code show (cited in `ingest/vendors.py`): resource id or ARN, account, region, vendor rule id and name. Closed alerts (Wiz RESOLVED/REJECTED, Orca closed/dismissed, Prisma Cloud anything but `open`) are passed. CSV exports are refused with a reason: no vendor documents its CSV columns. A vendor rule maps to a control only when (a) the customer maps it in `.posturanet.yml` (`detectors.<vendor>.rules: {<rule id>: <control>}`, which wins), or (b) the export itself names a supported control id (fix or runbook) under an AWS Foundational Security Best Practices or CIS AWS framework (Wiz `securitySubCategories`, Prisma Cloud `complianceMetadata`; Orca exports carry none). Two different supported controls stop. There is no built-in vendor-rule table.
+- **FR-4e** An unmapped vendor rule still ends in an outcome (G4): `none`, with the reason "<vendor> rule <id> has no control mapping; add it under detectors.<vendor>.rules", shown by `findings list` and counted in coverage. Mapped vendor findings work with `findings list|split` and `fix`, and merge with other scanners' reports of the same issue (FR-28).
 
 ### Locate
 - **FR-5** Find Terraform state using backend config (v1: S3 backend; local state file for tests).
@@ -128,6 +170,10 @@ Writing the fix is cheap. Everything around it is expensive and risky, so backlo
 - **FR-8** Find the owner from CODEOWNERS, falling back to recent committers.
 - **FR-9** Detect drift on the target resource. If it has drifted → stop, report, no PR.
 - **FR-10** Return candidates with confidence and reasoning. Never a single unexplained guess.
+- **FR-10a** CloudFormation and SAM templates (YAML or JSON, short-form intrinsics included) get the same three evidence-backed fixes as Terraform. The resource's physical id maps to its stack and logical id with read-only `cloudformation:DescribeStackResources` (offline: an export of it), then to the one template file and line that defines that logical id. A resource with no source line (SAM-generated, console-created) or a logical id in several templates without `cloudformation.templates` mapping → UNKNOWN. The edit changes only the target's ingress entries, Block Public Access settings or `Action` lists, in the file's own style. Validation is static: the template parses, only the target changed, re-check and contract invariants pass on the edited template, and (outside a dry run) the target matches the deployed template (`cloudformation:GetTemplate`) and the live resource still matches the template: a security group's ingress, a bucket's Block Public Access flags (`s3:GetBucketPublicAccessBlock`) or a managed policy's actions (`iam:GetPolicyVersion`). A change set needs `cloudformation:CreateChangeSet` (a write), so by default the PR's checks table says it was not run. A customer may opt in (`cloudformation.changeset_preview`, separate role, see NFR-2): PosturaNet then creates an UPDATE change set of the edited template, requires it to show an in-place `Modify` of the target and nothing else (for a security group, its own `SecurityGroupIngress` resources (`GroupId` a `!Ref`/`!GetAtt .GroupId` to it, before or after the edit) may be added, modified, replaced or removed), and deletes it. It never executes it. S3.1 (account Block Public Access) has no CloudFormation resource and stops. `contract check --source` judges contracts on templates too. Checkov and Trivy findings on templates name a file and logical id; the stack is the one `cloudformation.templates` maps that file to, and no mapping (or several stacks) → UNKNOWN.
+- **FR-10b** AWS CDK apps in TypeScript and Python get the same three evidence-backed fixes. The physical id maps to stack and logical id as in FR-10a; the synthesized template's `aws:cdk:path` names the construct; the source line is the one L2 constructor call (`SecurityGroup`, `Bucket`, `ManagedPolicy`) in the app whose id is that string literal. L1 `Cfn*` constructs (`CfnSecurityGroup`, `CfnBucket`, `CfnManagedPolicy`, path `…/Id` instead of `…/Id/Resource`) are edited in their literal props: `securityGroupIngress` entries (open ones replaced in the same list), `publicAccessBlockConfiguration` (all four flags true), and the `Action` of each `policyDocument` statement (one-for-one with the template). No path metadata, a computed id, an id used by several constructs, a resource another construct generated, or L1 props that aren't literals → UNKNOWN. The edit changes only literals in the program: ingress rules (`addIngressRule`, `connections.allowFrom` / `allowFromAnyIpv4` with `Peer` literals, or a literal `CfnSecurityGroupIngress` in the group's file, removed when open), after checking the group's file explains the template's ingress exactly: inline CIDR rules match the calls, standalone ingress matches a `CfnSecurityGroupIngress` by construct id, and security-group-peer rules (`addIngressRule(otherSg, …)`, `connections.allowFrom` / `allowTo`) match a literal call by ports and are never edited; rules from other files or computed values stop, `blockPublicAccess` (set to `BLOCK_ALL`; `publicReadAccess: true` stops) and `PolicyStatement` `actions` arrays (after checking they map one-for-one to the synthesized statements). Anything computed stops with UNKNOWN. Validation re-reads the edited source and, outside a dry run, runs `cdk synth --no-lookups` with no AWS credentials in its environment, then the FR-10a checks on the new template; `drift` compares the deployed template with `cloudformation:GetTemplate`. `cdk diff` is not run: it signs in with the CDK CLI's own credentials and bootstrap roles. A dry run needs `cdk.assembly` (a cloud assembly CI already synthesized) and doesn't synthesize. `contract check --source` judges CDK contracts on the synthesized template and points at the construct's line. Attribute fixes (catalog rows, from Security Hub or `CONTROL:id`) on CDK apps locate any L2 construct the same way and add one `addPropertyOverride` / `add_property_override` statement per property on its `node.defaultChild`, right after the construct's statement; a construct not assigned to a variable or an existing override of the same property stops with UNKNOWN, and synth must show the control passes. IaC scanner findings (Checkov, Trivy) on `cdk.out/<stack>.template.json` map through the assembly manifest to the stack and logical id, then run the same fix as a Security Hub finding; a template outside the assembly stops with UNKNOWN.
+  - *Java, C# and Go apps are not supported yet (decided 2026-11-18).* Locate and edit don't carry over cleanly: the source reader masks TypeScript and Python strings and comments, finds `new X(this, 'Id', {…})` / `X(self, "Id", k=v)` calls and edits object literals or keyword arguments. Java writes constructs as builder chains (`SecurityGroup.Builder.create(this, "Id").vpc(vpc).build()`, props as chained methods), C# as `new X(this, "Id", new XProps { Vpc = vpc })` with PascalCase members and verbatim `@"…"` strings, and Go as `awsec2.NewSecurityGroup(stack, jsii.String("Id"), &awsec2.SecurityGroupProps{…})` where every literal is wrapped (`jsii.String`, `jsii.Number`) and slices are typed. Each needs its own lexer, call and prop grammar, literal reader and renderer, plus a JVM, .NET or Go toolchain for `cdk synth`; a shallow port would map ids but edit wrongly, which breaks the zero-wrongly-reported-safe bar. Until then a finding on such an app stops UNKNOWN at locate (no TypeScript or Python construct has the id). Revisit when a design partner runs CDK in one of them, Java first (the most common after TypeScript and Python).
+- **FR-10c** Pulumi programs in TypeScript and Python (AWS Classic provider) get the same three evidence-backed fixes. The physical id (or ARN) maps to a URN and resource name offline, from a `pulumi stack export` (`pulumi.stack_export`; required, because PosturaNet never runs the Pulumi CLI); for S3 the target is the bucket's `aws.s3.BucketPublicAccessBlock`. The source line is the one constructor call (`aws.ec2.SecurityGroup`, `aws.s3.BucketPublicAccessBlock`, `aws.iam.Policy`, qualified by its module) whose first argument is that name as a string literal. A computed name, several matches, a resource inside a component, a runtime other than nodejs or python, or a standalone ingress rule in the program that the export doesn't have (or that points at a different group than deployed) → UNKNOWN. Before editing, the literals must give exactly the export's `inputs` (inline `ingress` plus `aws.ec2.SecurityGroupRule` / `aws.vpc.SecurityGroupIngressRule` resources on the group; the four flags; the policy document), and the `inputs` must match the `outputs`, else stop (drift). The edit changes only literals: open ingress entries become one entry per synthesized rule, a rule resource's CIDR list is narrowed when the ports match, the flags become `true`, `Action` lists keep only used actions. A fix that needs a new resource stops. Validation is static: re-read the edited files, only the target's calls changed (`program_scope`), the FR-10a re-check, contract and invariant checks on the edited literals, and drift against the export. `pulumi preview` is not run (state backend sign-in and the stack's own write-capable credentials), and the PR's checks table says so. `contract check --source` judges Pulumi contracts on the working tree's literals; an unresolvable target is UNKNOWN.
 
 ### Evidence and contracts
 - **FR-11** Collect SG usage from VPC Flow Logs (CloudWatch Logs Insights or Athena) for the SG's ENIs.
@@ -159,7 +205,7 @@ Writing the fix is cheap. Everything around it is expensive and risky, so backlo
 
 ### Delivery
 - **FR-27** Create a branch and PR with the body defined in the design system (evidence table, safety contract, validation, residual risk, unknowns, reviewer checklist, revert notes).
-- **FR-28** Idempotency key `sha256(finding_id + contract_sha + diff_sha)`. Never open duplicate PRs.
+- **FR-28** Idempotency key `sha256(issue + contract_sha + diff_sha)`, where `issue` is `control@terraform_address`, so the same problem reported by several scanners maps to one PR. An open PR matches on its issue marker, or on its finding id for PRs opened before 0.3.1. Never open duplicate PRs. `findings list|split` take several files and list each control-on-resource once.
 - **FR-29** Publish a check run with the summary.
 - **FR-30** Never merge. Never apply.
 
@@ -185,9 +231,10 @@ Writing the fix is cheap. Everything around it is expensive and risky, so backlo
 - **FR-43** An expired or invalid key disables Pro features only. Community keeps working and contracts and evidence files stay.
 - **FR-44** Show upgrade prompts at most once per run, never blocking a working free feature.
 - **FR-45** The optional heartbeat sends only `{lic_id, agent_version}` and can be disabled.
+- **FR-45a** Opt-in outcome share (client built; the receiving service isn't built yet, so there is no default endpoint). Off by default. When the customer turns it on, each verify result sends only `{control, fix_type, outcome: held | reverted, evidence_days, agent_version}`: no resource ids, ARNs, IPs, account ids, names, code, state, contracts or finding text. `posturanet outcomes preview` prints exactly what would be sent. `held` is a CONFIRMED verify, `reverted` a REGRESSED one; nothing is sent while a fix is still watching. Sending is best-effort and never changes an exit code. Purpose: learn which fixes break production, across customers.
 
 ### Configuration
-- **FR-46** `.posturanet.yml` in the repo root (schema in the architecture doc §5).
+- **FR-46** `.posturanet.yml` in the repo root (schema in the architecture doc §5), including `detectors.<vendor>.rules` (FR-4d).
 - **FR-47** `posturanet init` detects the backend, writes the config, and prints the read-only IAM policy.
 
 ## 8. Non-functional requirements
@@ -195,8 +242,8 @@ Writing the fix is cheap. Everything around it is expensive and risky, so backlo
 | ID | Requirement |
 |---|---|
 | **NFR-1 Safety** | Fail closed on any missing context, failed check, unexpected diff scope, timeout or auth error. "Unknown" is a valid result. |
-| **NFR-2 No production writes** | The agent must not call any AWS mutating API. This is enforced by an allowlist of read-only API calls in code, plus a test. |
-| **NFR-3 Data residency** | No customer code, state, logs or findings are sent to PosturaNet. Secrets are redacted before any LLM call. |
+| **NFR-2 No production writes** | The agent must not call any AWS mutating API. This is enforced by an allowlist of read-only API calls in code, plus a test. **One opt-in exception:** with `cloudformation.changeset_preview.enabled` and a separate role, the CloudFormation change-set preview may call `CreateChangeSet`, `DescribeChangeSet` and `DeleteChangeSet` (no resource changes; a control-plane write). It is off by default, always deletes its change set, and `ExecuteChangeSet` is never called: absent from code, checked by a test, and denied in the generated preview policy. |
+| **NFR-3 Data residency** | No customer code, state, logs or findings are sent to PosturaNet. Secrets are redacted before any LLM call. The one exception is the opt-in outcome share (FR-45a). |
 | **NFR-4 Untrusted input** | Finding text, code comments, tickets and tool outputs are data, never instructions to the LLM. |
 | **NFR-5 Determinism** | Same inputs give the same diff and the same idempotency key. LLM output is schema-validated and never executed. |
 | **NFR-6 Performance** | `fix` on one SG with a 30-day window finishes in < 5 min on a standard GitHub runner. |
@@ -242,7 +289,7 @@ Prices are on the website and never in code. Feature flags in the license key: `
 ## 11. Release criteria (every release)
 - All acceptance criteria for the included stories pass.
 - Zero wrongly-reported-safe cases on the benchmark and fixtures.
-- The no-mutating-AWS-calls test passes (NFR-2).
+- The no-mutating-AWS-calls test passes (NFR-2), the default path makes no change-set call, and `ExecuteChangeSet` appears nowhere in code but the preview policy's Deny.
 - Docs updated: this PRD, the architecture doc, and the CHANGELOG.
 
 ## 12. Risks

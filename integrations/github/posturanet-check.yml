@@ -8,6 +8,7 @@ on:
 permissions:
   contents: read
   checks: write        # publish the "PosturaNet contract" check run
+  pull-requests: write # one comment with the result on BLOCK or UNKNOWN (set comment: "false" to skip)
   id-token: write      # only for the AWS OIDC role below
 
 jobs:
@@ -24,12 +25,12 @@ jobs:
         with:
           role-to-assume: ${{ vars.POSTURANET_READONLY_ROLE_ARN }}
           aws-region: us-east-1
-      - uses: Mihirajmera/posturanet/action@v0.3.0
+      - uses: Mihirajmera/posturanet/action@v0.4.0
         with:
           command: check
 
       # Option B (offline): no terraform, no AWS. Delete the three steps above and use:
-      # - uses: Mihirajmera/posturanet/action@v0.3.0
+      # - uses: Mihirajmera/posturanet/action@v0.4.0
       #   with:
       #     command: check
       #     source-only: "true"

@@ -96,3 +96,30 @@ def payload(result: GateResult, head_sha: str) -> dict[str, Any]:
 def publish(gh: GitHub, result: GateResult, head_sha: str) -> str:
     data = gh.create_check_run(payload(result, head_sha))
     return str(data.get("html_url", ""))
+
+
+COMMENT_MARKER = "<!-- posturanet:contract-check -->"
+_HEADLINE = {
+    "PASS": "✓ PosturaNet contract check passed",
+    "BLOCK": "✗ PosturaNet contract check: this change breaks a contract",
+    "UNKNOWN": "? PosturaNet contract check: needs a person to review",
+}
+
+
+def comment_body(result: GateResult, check_url: str | None = None) -> str:
+    lines = [COMMENT_MARKER, f"### {_HEADLINE[result.status]}", "", check_summary(result), ""]
+    lines.append(check_text(result))
+    if check_url:
+        lines += ["", f"[Annotated lines in the check run]({check_url})"]
+    lines += [
+        "",
+        "<sub>Contracts list the access each resource must keep, from observed usage. "
+        "[PosturaNet](https://posturanet.com) · read-only · a person merges.</sub>",
+    ]
+    return "\n".join(lines)
+
+
+def comment(gh: GitHub, result: GateResult, pr: int, check_url: str | None = None) -> str | None:
+    """One sticky comment per PR. A PASS only edits an existing comment, so green PRs stay quiet."""
+    body = comment_body(result, check_url)
+    return gh.upsert_comment(pr, COMMENT_MARKER, body, create=result.status != "PASS")

@@ -1,0 +1,12 @@
+{
+  "_comment": "Synthetic `aws cloudformation describe-stack-resources` export. Fake account 123456789012.",
+  "StackResources": [
+    {"StackName": "apps", "LogicalResourceId": "WorkerRole", "PhysicalResourceId": "apps-WorkerRole-EXAMPLE", "ResourceType": "AWS::IAM::Role", "ResourceStatus": "CREATE_COMPLETE"},
+    {"StackName": "apps", "LogicalResourceId": "BatchRole", "PhysicalResourceId": "apps-BatchRole-EXAMPLE", "ResourceType": "AWS::IAM::Role", "ResourceStatus": "CREATE_COMPLETE"},
+    {"StackName": "apps", "LogicalResourceId": "UploadRole", "PhysicalResourceId": "apps-UploadRole-EXAMPLE", "ResourceType": "AWS::IAM::Role", "ResourceStatus": "CREATE_COMPLETE"},
+    {"StackName": "apps", "LogicalResourceId": "ReportsUser", "PhysicalResourceId": "apps-ReportsUser-EXAMPLE", "ResourceType": "AWS::IAM::User", "ResourceStatus": "CREATE_COMPLETE"},
+    {"StackName": "sam", "LogicalResourceId": "IngestFunctionRole", "PhysicalResourceId": "sam-IngestFunctionRole-EXAMPLE", "ResourceType": "AWS::IAM::Role", "ResourceStatus": "CREATE_COMPLETE"},
+    {"StackName": "sam", "LogicalResourceId": "ThumbsFunctionRole", "PhysicalResourceId": "sam-ThumbsFunctionRole-EXAMPLE", "ResourceType": "AWS::IAM::Role", "ResourceStatus": "CREATE_COMPLETE"},
+    {"StackName": "ops", "LogicalResourceId": "OpsGroup", "PhysicalResourceId": "ops-OpsGroup-EXAMPLE", "ResourceType": "AWS::IAM::Group", "ResourceStatus": "CREATE_COMPLETE"}
+  ]
+}

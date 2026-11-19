@@ -1,0 +1,30 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Synthetic IAM group stack for PosturaNet tests.",
+  "Resources": {
+    "OpsGroup": {
+      "Type": "AWS::IAM::Group"
+    },
+    "OpsPolicy": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyName": "ops",
+        "Groups": [{"Ref": "OpsGroup"}],
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "Ops",
+              "Effect": "Allow",
+              "Action": [
+                "ec2:*",
+                "logs:*"
+              ],
+              "Resource": "*"
+            }
+          ]
+        }
+      }
+    }
+  }
+}
