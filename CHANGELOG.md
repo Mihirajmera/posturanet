@@ -4,6 +4,8 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-19
+
 ### Added (Wiz, Orca and Prisma Cloud findings, R5)
 - `findings list|split` and `fix` read Wiz (`issuesV2` GraphQL results), Orca (serving-layer alert query) and Prisma Cloud (`/alert`, `/v2/alert`) JSON exports, detected from the content. Each parser uses only fields shown in the vendor's public API spec or published integration code, cited in `ingest/vendors.py`.
 - A vendor rule maps to a control only from the export itself (an AWS Foundational Security Best Practices or CIS AWS control id PosturaNet supports) or from the customer's `.posturanet.yml`: `detectors.<vendor>.rules: {<vendor rule id>: <control>}`. PosturaNet ships no vendor-rule table.
