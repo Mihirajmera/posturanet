@@ -155,7 +155,7 @@ Fixes are scored on that synthesized resource, and wrongly reported safe must be
 
 ## Pulumi family
 
-[`pulumi.py`](pulumi.py) runs the same three fixes on the TypeScript, Python and YAML programs
+[`pulumi.py`](pulumi.py) runs the same three fixes on the TypeScript, Python, Go and YAML programs
 in `tests/fixtures/pulumi/`, mapped through their synthetic `pulumi stack export`. No AWS doubles
 are needed: nothing in the Pulumi path calls AWS. Per fix type: a fix in each language, and
 traps that must stop: a computed value in the field the fix edits (in YAML: an interpolation,

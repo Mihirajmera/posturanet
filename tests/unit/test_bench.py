@@ -102,4 +102,5 @@ def test_pulumi_cases_fix_or_stop_for_the_stated_reason() -> None:
             "ts",
             "py",
             "yaml",
+            "go",
         }

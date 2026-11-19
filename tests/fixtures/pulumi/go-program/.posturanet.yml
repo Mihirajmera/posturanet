@@ -1,0 +1,3 @@
+version: 1
+pulumi:
+  stack_export: stack-export.json

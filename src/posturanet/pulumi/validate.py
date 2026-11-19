@@ -11,6 +11,7 @@ with the stack's own credentials, which can write. The PR's checks table says so
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Callable
 from pathlib import Path
 
@@ -98,6 +99,13 @@ def _ingress_item(c: Construct, item: Lit, r: Rule, desc: str | None, quote: str
     if c.lang == "yaml":  # a copy of the entry it replaces, with these values
         return yaml_source.edit_item(c.text, item, vals)
     q = _q(c, quote, desc or "")
+    if c.lang == "go":  # `&ec2.SecurityGroupIngressArgs{…}`, the type the entry uses
+        return (
+            item.call
+            + "{"
+            + ", ".join(f"{arg_key(c, k)}: {render(v, c, q)}" for k, v in vals.items())
+            + "}"
+        )
     if item.call:  # Python `…SecurityGroupIngressArgs(` call
         return (
             f"{item.call}("
@@ -112,7 +120,7 @@ def _list_edits(c: Construct, lst: Lit, new: dict[int, list[str]]) -> list[tuple
     its: list[Lit] = lst.value
     gone = {i for i, v in new.items() if not v}
     if len(gone) == len(its):
-        return [(lst.span[0], lst.span[1], "[]")]
+        return [(lst.span[0], lst.span[1], f"{lst.call}{{}}" if c.lang == "go" else "[]")]
     out = []
     k = max(i for i in range(len(its)) if i not in gone)
     for i, texts in new.items():
@@ -243,7 +251,9 @@ def s3_diff(repo: Path, t: PulumiTarget) -> Diff:
         brackets = props(c).brackets
         if brackets is None:
             raise _hand(f"'{name}' has no arguments object to add {f} to")
-        item = f"{f}: true" if c.lang == "ts" else f"{arg_key(c, f)}=True"
+        item = {"ts": f"{f}: true", "go": f"{arg_key(c, f)}: pulumi.Bool(true)"}.get(
+            c.lang, f"{arg_key(c, f)}=True"
+        )
         text = cdk_source.append_item(c.text, c.masked, brackets, item)
     summary = f"{name}: {', '.join(off)} → true"
     return _diff(repo, t, {c.file: (v.constructs[0], text)}, summary, "template:s3_public@1:pulumi")
@@ -268,7 +278,9 @@ def iam_diff(repo: Path, t: PulumiTarget, changes: list[StatementChange]) -> Dif
             spans.append((lit.span[0], lit.span[1], render_actions(c, st, ch.after)))
         elif lit.kind == "str":
             new = ch.after[0] if len(ch.after) == 1 else ch.after
-            spans.append((lit.span[0], lit.span[1], render(new, c, lit.quote)))
+            # in Go the document is JSON inside a raw string, not Go values
+            text = json.dumps(new) if c.lang == "go" else render(new, c, lit.quote)
+            spans.append((lit.span[0], lit.span[1], text))
         else:
             raise _hand(f"statement {ch.statement.index + 1} Action is not a literal")
     removed = sorted({p for ch in changes for p in ch.removed})

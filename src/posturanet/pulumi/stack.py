@@ -27,7 +27,7 @@ from posturanet.errors import StageStop
 from posturanet.locate.codeowners import find_codeowners, owners_for
 from posturanet.models import Confidence, Config, Finding, Location
 from posturanet.pulumi import model, yaml_source
-from posturanet.pulumi.source import SUFFIX, Computed, find, props
+from posturanet.pulumi.source import LANGS, SUFFIX, Computed, find, props
 
 PREFIX = "pulumi."
 _SECRET_SIG = "4dabf18193072939515e22adb298388d"  # Pulumi's marker for a secret value
@@ -99,6 +99,14 @@ class Program:
             names = [self.root / "Pulumi.yaml", self.root / "Pulumi.yml", self.main / "Main.yaml"]
             return [p for p in dict.fromkeys(names) if p.is_file()]
         suffix = SUFFIX[self.runtime]
+        if suffix == ".go":
+            skip = {"vendor", ".git", "testdata", ".pulumi"}
+            return [
+                p
+                for p in sorted(self.main.rglob("*.go"))
+                if p.is_file() and not p.name.endswith("_test.go")
+                and not skip & set(p.relative_to(self.main).parts[:-1])
+            ]  # fmt: skip
         return [p for p in cdk_source.source_files(self.main) if p.suffix == suffix]
 
 
@@ -128,8 +136,8 @@ def program(repo: Path, config: Config) -> Program:
     if runtime not in (*SUFFIX, "yaml"):
         raise StageStop(
             "locate",
-            f"the Pulumi runtime is {runtime!r}; PosturaNet reads TypeScript (nodejs), Python "
-            "and YAML",
+            f"the Pulumi runtime is {runtime!r}; PosturaNet reads TypeScript (nodejs), Python, "
+            "Go and YAML",
             [_HAND],
             unknown=True,
         )
@@ -416,7 +424,8 @@ def _rule_calls(prog: Program, exp: Export, sg: Construct, ours: set[str]) -> st
     could open the group without PosturaNet seeing it."""
     known = {r.name for r in [*exp.of_type(SG_RULE), *exp.of_type(SG_INGRESS)]}
     yaml = prog.runtime == "yaml"
-    here = (f"${{{sg.var}.id}}" if yaml else f"{sg.var}.id") if sg.var else None
+    form = {"yaml": "${{{}.id}}", "go": "{}.ID()"}.get(sg.lang, "{}.id")
+    here = form.format(sg.var) if sg.var else None
     try:
         refs = list(_yaml_rule_refs(prog.files()) if yaml else _rule_refs(prog.files()))
     except StageStop as exc:
@@ -443,9 +452,11 @@ def _rule_refs(files: list[Path]) -> Iterator[tuple[str, str | None, str | None]
         for f, text, masked, m in _calls(files, module, cls):
             o = m.end() - 1
             args = cdk_source.items(masked, o, cdk_source.close_of(masked, o))
-            lit = cdk_source.str_lit(text, args[0]) if args else None
+            at = 1 if f.suffix == ".go" else 0  # Go: New…(ctx, "name", …)
+            lit = cdk_source.str_lit(text, args[at]) if len(args) > at else None
             ref = re.search(
-                r"(?:securityGroupId\s*:|security_group_id\s*=)\s*([\w.]+)\s*[,)}\n]",
+                r"(?:securityGroupId\s*:|security_group_id\s*=|SecurityGroupId\s*:)\s*"
+                r"([\w.]+(?:\(\))?)\s*[,)}\n]",
                 masked[o : cdk_source.close_of(masked, o)],
             )
             yield f.name, lit[0] if lit else None, ref.group(1) if ref else None
@@ -472,9 +483,9 @@ def _calls(
     """(file, LF text, masked text, match) for every `<…module.>cls(` call in `files`."""
     for f in files:
         text = f.read_bytes().decode("utf-8", errors="replace").replace("\r\n", "\n")
-        lang = cdk_source.SUFFIXES[f.suffix]
+        lang = LANGS[f.suffix]
         masked = cdk_source.mask(text, lang)
-        for m in cdk_source._call_re(cls, lang).finditer(masked):
+        for m in cdk_source._call_re("New" + cls if lang == "go" else cls, lang).finditer(masked):
             if m.group(1).endswith(f"{module}."):
                 yield f, text, masked, m
 
@@ -531,7 +542,7 @@ def locate(
         )
     c = target.construct
     file_rel = _rel(c.file, repo)
-    lang = {"ts": "TypeScript", "py": "Python", "yaml": "YAML"}[c.lang]
+    lang = {"ts": "TypeScript", "py": "Python", "yaml": "YAML", "go": "Go"}[c.lang]
     reasoning = [
         f"physical id matched in {exp.label}: {state.urn}",
         f"defined in {file_rel}:{c.line} ({lang}, name '{state.name}')",

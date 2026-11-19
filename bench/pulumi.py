@@ -70,7 +70,7 @@ def _wider_policy(doc: Export) -> None:
 class PulumiCase:
     id: str
     family: Family
-    lang: Literal["ts", "py", "yaml"]
+    lang: Literal["ts", "py", "yaml", "go"]
     title: str
     why: str
     expect: Expect
@@ -87,7 +87,7 @@ RDP = (
     '    ipProtocol: "tcp",\n    fromPort: 3389,\n    toPort: 3389,\n'
     '    cidrIpv4: "0.0.0.0/0",\n});\n'
 )
-YML = "Pulumi.yaml"
+YML, GO, GOS = "Pulumi.yaml", "main.go", "storage.go"
 YRDP = (
     "\n  bastion-rdp:\n    type: aws:vpc:SecurityGroupIngressRule\n    properties:\n"
     "      securityGroupId: ${bastion-sg.id}\n      ipProtocol: tcp\n      fromPort: 3389\n"
@@ -175,6 +175,37 @@ CASES: list[PulumiCase] = [
                "Only `fn::toJSON` of a literal map is read; any other `fn::` call is computed.",
                "stop", {YML: ("fn::toJSON:", "fn::secret:")}, exit_code=3,
                says="not a literal document"),
+    PulumiCase("pulumi-sg-go", "sg", "go", "Bastion SSH open, inline ingress (Go)",
+               "A `&ec2.SecurityGroupIngressArgs{…}` entry becomes one entry per observed "
+               "source, in the same struct type.", "fix"),
+    PulumiCase("pulumi-s3-go", "s3", "go", "Public bucket, BucketPublicAccessBlock (Go)",
+               "`pulumi.Bool(false)` becomes true; the missing flags are added to the struct "
+               "literal.", "fix"),
+    PulumiCase("pulumi-iam-go", "iam", "go", "ec2:* and logs:* in a raw-string JSON policy (Go)",
+               "The JSON Action array inside `pulumi.String(`…`)` is narrowed in its layout.",
+               "fix"),
+    PulumiCase("pulumi-go-computed-cidr", "sg", "go", "SSH CIDR is a Go variable",
+               "`pulumi.StringArray{adminCidr}`; its value isn't a literal in the program.",
+               "stop", {GO: ('pulumi.StringArray{pulumi.String("0.0.0.0/0")}',
+                             "pulumi.StringArray{adminCidr}")}, exit_code=3,
+               says="not a literal"),
+    PulumiCase("pulumi-go-marshal-policy", "iam", "go", "Policy from json.Marshal",
+               "`pulumi.String(policyJSON)`: the document is built elsewhere.", "stop",
+               {GOS: ("Policy: pulumi.String(`", "Policy: pulumi.String(policyJSON),\n\t\tX: (`")},
+               exit_code=3, says="not a literal document"),
+    PulumiCase("pulumi-go-config-flag", "s3", "go", "BlockPublicAcls comes from config",
+               "`pulumi.Bool(cfg.RequireBool(\"block\"))`; PosturaNet can't tell what it is.",
+               "stop", {GOS: ("pulumi.Bool(false)", 'pulumi.Bool(cfg.RequireBool("block"))')},
+               exit_code=3, says="not a literal boolean"),
+    PulumiCase("pulumi-go-computed-name", "sg", "go", "Group name built with fmt.Sprintf",
+               "The name argument isn't a string literal; no call can be matched to the URN.",
+               "stop", {GO: ('ctx, "bastion-sg",', 'ctx, fmt.Sprintf("%s-sg", "bastion"),')},
+               exit_code=3, says="the name may be computed"),
+    PulumiCase("pulumi-go-args-variable", "sg", "go", "Group args passed as a variable",
+               "`ec2.NewSecurityGroup(ctx, \"bastion-sg\", args)`: the struct isn't written in "
+               "the call.", "stop", {GO: ('"bastion-sg", &ec2.SecurityGroupArgs{',
+                                          '"bastion-sg", args, &ec2.SecurityGroupArgs{')},
+               exit_code=3, says="not a literal object"),
 ]  # fmt: skip
 
 
@@ -236,7 +267,7 @@ def report(results: dict[str, list[Result]]) -> list[str]:
     return [
         "## Pulumi (EC2.19, S3.8, IAM.21)",
         "",
-        "The same three fix types on Pulumi programs in TypeScript, Python and YAML, mapped "
+        "The same three fix types on Pulumi programs in TypeScript, Python, Go and YAML, mapped "
         "through a `pulumi stack export`, plus the traps that must stop the run (a computed "
         "value, an interpolation, an anchor or `fn::` call in YAML, a component resource, a "
         "repeated name, an undeployed rule, a program that differs from the export, drift). "
