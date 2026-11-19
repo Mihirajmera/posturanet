@@ -1,13 +1,13 @@
 # PosturaNet benchmark (v1)
 
 How safe is an automatic fix for an open security group, a public bucket or a wildcard IAM
-policy? This benchmark answers that with 56 cases whose right answer is known in advance, and
+policy? This benchmark answers that with 58 cases whose right answer is known in advance, and
 publishes PosturaNet's misses next to its wins.
 
 | Family | Cases | PosturaNet correct | Stopped (needed / unneeded) | Outage | Fewest outages, any baseline |
 |---|---|---|---|---|---|
-| Security groups | 13 | 10 | 2 | 1 | 3 |
-| S3 public access (S3.8) | 10 | 4 | 3 / 2 | 1 | 3 |
+| Security groups | 14 | 11 | 2 | 1 | 3 |
+| S3 public access (S3.8) | 11 | 4 | 4 / 2 | 1 | 3 |
 | IAM least privilege (IAM.1, IAM.21) | 12 | 6 | 4 / 1 | 1 | 7 |
 | CloudFormation and SAM (all three) | 21 | 9 | 12 / 0 | 0 | - |
 
@@ -23,7 +23,7 @@ python -m bench          # writes bench/RESULTS.md and bench/results.json
 
 ## What it does
 
-Each of the 13 cases in [`cases.py`](cases.py) is a security group open to `0.0.0.0/0`, plus
+Each of the 14 cases in [`cases.py`](cases.py) is a security group open to `0.0.0.0/0`, plus
 the **ground truth**, written down before any tool runs:
 
 - **legit** sources that must keep working, including ones the logs never see (a drill that
@@ -67,14 +67,14 @@ See [RESULTS.md](RESULTS.md) for every case. In short (PosturaNet 0.4.0):
 
 | Contender | Correct | Stopped | Outage | Still exposed | Invalid | Addresses opened |
 |---|---|---|---|---|---|---|
-| **PosturaNet** | **10** | 2 | 1 | 0 | 0 | 86 |
-| Revoke open rule | 1 | 0 | 12 | 0 | 0 | 0 |
-| Private ranges only | 10 | 0 | 3 | 0 | 0 | 232.6M |
-| Allow all observed | 6 | 0 | 4 | 2 | 1 | 19 |
+| **PosturaNet** | **11** | 2 | 1 | 0 | 0 | 88 |
+| Revoke open rule | 1 | 0 | 13 | 0 | 0 | 0 |
+| Private ranges only | 11 | 0 | 3 | 0 | 0 | 250.5M |
+| Allow all observed | 7 | 0 | 4 | 2 | 1 | 21 |
 
 - **Private ranges only** ties on correct count because no hostile source in these cases is
-  internal. It breaks every case with a public legit source and opens 232.6M addresses
-  (17.9M internal per fix); PosturaNet opens 86 in total.
+  internal. It breaks every case with a public legit source and opens 250.5M addresses
+  (17.9M internal per fix); PosturaNet opens 88 in total.
 - **Allow all observed** lets scanners in, breaks when logs are short or missing, and produces an
   over-quota fix for 70 runners.
 
@@ -86,15 +86,16 @@ See [RESULTS.md](RESULTS.md) for every case. In short (PosturaNet 0.4.0):
 | `persistent-scanner` | Still exposed | Correct | Internet sources averaging under 2,000 bytes per flow are `not_kept`. Every other internet source is flagged for review. |
 | `ci-fleet-70` | Stopped | Correct | Exact nested-prefix solver when Z3 times out: same optimum, 70 runners in ≤60 rules, never wider than needed. |
 | `quarterly-dr-drill-approved` | (new) | Correct | The approved contract remembers the drill; the fix keeps it. |
+| `quarterly-dr-drill-year-of-logs` | (new) | Correct | PosturaNet reads every flow log the account keeps (up to 400 days), so the drill is seen and kept, flagged for review. |
 
 ### Where PosturaNet still misses
 
 | Case | Result | Why | Next step |
 |---|---|---|---|
-| `quarterly-dr-drill` | Outage | Without an approved contract, a source rarer than the 90-day window is invisible to flow logs. The PR states this as residual risk, but the fix still blocks it. | Ask owners to list rare jobs in the contract before the first fix (`quarterly-dr-drill-approved` shows this works); longer windows when log retention allows; CloudTrail and ticket signals. |
+| `quarterly-dr-drill` | Outage | Without an approved contract, a source rarer than the 90-day window is invisible to flow logs. The PR states this as residual risk, but the fix still blocks it. | Ask owners to list rare jobs in the contract before the first fix (`quarterly-dr-drill-approved` shows this works); keep a year of flow logs: PosturaNet now reads all retained logs (`quarterly-dr-drill-year-of-logs` is correct); CloudTrail and ticket signals. |
 | `logs-10-days`, `no-flow-logs` | Stopped | Too little evidence. Safe, but the finding stays open. | By design: PosturaNet explains how to enable logs and waits. |
 
-| `s3-partner-every-120-days` | Outage | A partner admitted by the public bucket policy reads every 120 days, outside the 90-day log window, so Block Public Access cuts it off. | Owners list rare requesters in the contract; read the policy's named principals; S3 post-merge watch on 403s (verify has `watch_hours: 0` for S3 today). |
+| `s3-partner-every-120-days` | Outage | A partner admitted by the public bucket policy reads every 120 days, outside the 90-day log window, so Block Public Access cuts it off. | Keep a year of access logs: PosturaNet now reads all retained logs and stops (`s3-partner-every-120-days-year-of-logs`); owners list rare requesters in the contract; read the policy's named principals; S3 post-merge watch on 403s (verify has `watch_hours: 0` for S3 today). |
 | `iam-rare-job-outside-tracking` | Outage | A yearly job last ran 430 days ago, past IAM's ~400-day tracking period; last-accessed reports it as unused. | Owners add rare actions to `must_allow`; CloudTrail Lake history when the account keeps it longer. |
 | `s3-anonymous-scrapers`, `s3-public-no-logs`, `iam-admin-star` | Stopped (unneeded) | Logs can't tell a scraper from a customer; no logs means no evidence; `"*"` covers the untracked `iam:PassRole`. | By design: the PR draft contract asks a human, and the `-approved` / `-reviewed` cases show the path to a fix. |
 
@@ -110,7 +111,7 @@ is disclosed in the PR, but a reviewer could still merge a fix that breaks it.
 
 [`s3.py`](s3.py) and [`iam.py`](iam.py) run the real pipeline (`run_fix`, check mode) on a
 generated repo, with evidence built from each case's ground truth the way AWS would report it:
-S3 server access logs over 90 days, IAM action-level last-accessed data (no data-plane
+S3 server access logs over 90 days (365 in the `-year-of-logs` case), IAM action-level last-accessed data (no data-plane
 actions, no `iam:PassRole`, nothing past ~400 days). Cases marked `-approved` or `-reviewed`
 let PosturaNet write its draft contract, then approve it as a reviewer would.
 

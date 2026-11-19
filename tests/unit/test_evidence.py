@@ -176,6 +176,50 @@ def test_malformed_row_stops_instead_of_dropping() -> None:
         src.fetch("sg-1", START, START + timedelta(days=1))
 
 
+class GroupLogs(FakeLogs):
+    def __init__(self, group: dict[str, Any]) -> None:
+        super().__init__([[]])
+        self.group = group
+
+    def describe_log_groups(self, **kw: Any) -> dict[str, Any]:
+        return {"logGroups": [{"logGroupName": "/g-other"}, self.group]}
+
+
+@pytest.mark.parametrize(
+    ("group", "first_day"),
+    [
+        # Retention 30 days: nothing older can exist, so the window starts there.
+        ({"logGroupName": "/g", "retentionInDays": 30}, 370),
+        # Created 100 days before the end (mid-hour): the first whole hour after creation.
+        ({"logGroupName": "/g", "creationTime": 0}, None),
+        # No retention, created before the window: the full 400 days.
+        ({"logGroupName": "/g", "creationTime": 1}, 0),
+    ],
+)
+def test_window_starts_where_the_logs_start(group: dict[str, Any], first_day: int | None) -> None:
+    end = START + timedelta(days=400)
+    if first_day is None:
+        created = end - timedelta(days=100, minutes=30)
+        group = {**group, "creationTime": int(created.timestamp() * 1000)}
+        want = end - timedelta(days=100)
+    else:
+        want = START + timedelta(days=first_day)
+    logs = GroupLogs(group)
+    data = LogsInsightsSource(FakeEc2(["eni-a"]), logs, "/g", sleep=lambda s: None).fetch(
+        "sg-1", START, end
+    )
+    assert data.start == want
+    assert logs.queries[0]["startTime"] == int(want.timestamp())
+
+
+def test_window_kept_when_log_group_unreadable() -> None:
+    logs = FakeLogs([[]])  # no describe_log_groups: as if access were denied
+    data = LogsInsightsSource(FakeEc2(["eni-a"]), logs, "/g", sleep=lambda s: None).fetch(
+        "sg-1", START, START + timedelta(days=2)
+    )
+    assert data.start == START
+
+
 def test_no_enis_skips_queries() -> None:
     logs = FakeLogs([[]])
     data = LogsInsightsSource(FakeEc2([]), logs, "/g").fetch("sg-1", START, START)

@@ -4,6 +4,12 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Changed (evidence reads every log the account keeps)
+- `evidence.window_days` now defaults to 400 (was 90) and is a look-back cap: the window starts where the logs do. Flow logs: the later of the log group's creation and its retention limit, from `DescribeLogGroups` (already allowlisted); if that call fails, the full window is kept, which can only lower confidence. S3 access logs: the first log object. Hours or days before logs could exist no longer count as gaps, so a longer look-back doesn't lower coverage.
+- A job that runs every quarter or less is now seen when the account keeps enough logs. Benchmark: `quarterly-dr-drill-year-of-logs` is correct (the drill is kept and flagged for review) and `s3-partner-every-120-days-year-of-logs` stops on the partner's read. The 90-day versions of both are still outages: no logs, no evidence.
+- S3 live evidence past 20,000 access-log objects reads the newest 20,000 and starts the window the day after the oldest one kept, instead of stopping.
+- Cost: Logs Insights bills per GB scanned, so a 400-day look-back on a busy VPC scans up to about 4x the data of 90 days. Set `evidence.window_days: 90` to keep the old cost.
+
 ## [0.4.0] - 2026-11-19
 
 ### Added (Wiz, Orca and Prisma Cloud findings, R5)

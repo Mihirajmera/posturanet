@@ -63,12 +63,13 @@ class S3Case:
     logging: bool = True
     cloudfront: list[dict[str, object]] = field(default_factory=list)
     approve_review: bool = False  # the team approves every needs_review requester
+    log_days: int = WINDOW_DAYS  # how long access logs have been kept
 
 
-def _days(r: Requester) -> list[str]:
-    start = END.date() - timedelta(days=WINDOW_DAYS)
+def _days(r: Requester, log_days: int) -> list[str]:
+    start = END.date() - timedelta(days=log_days)
     out = []
-    for i in range(WINDOW_DAYS):
+    for i in range(log_days):
         d = start + timedelta(days=i)
         back = (END.date() - d).days
         hit = {"daily": True, "weekly": d.weekday() == 2, "every120": back == 120}[r.schedule]
@@ -78,11 +79,11 @@ def _days(r: Requester) -> list[str]:
 
 
 def evidence(case: S3Case) -> dict[str, object]:
-    start = END.date() - timedelta(days=WINDOW_DAYS)
+    start = END.date() - timedelta(days=case.log_days)
     requests = [
         {"requester": r.who, "operation": "REST.GET.OBJECT", "status": r.status, "day": d, "n": 25}
         for r in case.requesters
-        for d in _days(r)
+        for d in _days(r, case.log_days)
     ]
     return {
         "account": "123456789012",
@@ -228,6 +229,17 @@ CASES = [
             Requester(APP, "daily", True, False, "in-account app"),
             Requester(PARTNER, "every120", True, True, "partner account (every 120 days)"),
         ],
+    ),
+    S3Case(
+        "s3-partner-every-120-days-year-of-logs",
+        "The same partner, with a year of access logs kept",
+        "PosturaNet reads every log the account keeps, so the partner's read shows up.",
+        "stop",
+        [
+            Requester(APP, "daily", True, False, "in-account app"),
+            Requester(PARTNER, "every120", True, True, "partner account (every 120 days)"),
+        ],
+        log_days=365,
     ),
     S3Case(
         "s3-public-no-logs",
