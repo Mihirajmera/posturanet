@@ -4,6 +4,12 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Added (Pulumi Go)
+- `posturanet fix` and `contract check --source` work on Pulumi Go programs (`runtime: go`), for the same three evidence-backed fixes. The resource is the one constructor call `ec2.NewSecurityGroup(ctx, "name", &ec2.SecurityGroupArgs{…})` (and `vpc.NewSecurityGroupIngressRule`, `ec2.NewSecurityGroupRule`, `s3.NewBucketPublicAccessBlock`, `iam.NewPolicy`) whose name argument is that string literal. `_test.go` files and `vendor/` are skipped.
+- Literals are `pulumi.String("…")`, `pulumi.Int(…)`, `pulumi.Bool(…)` (and their `…Ptr` forms) of a literal, `…Array{…}` slices, `&…Args{Field: …}` structs, and `pulumi.String(`…`)` of a raw string holding a JSON object (the usual policy literal). Variables, `json.Marshal` results, config reads, `pulumi.Sprintf`, positional struct fields and interpreted strings with escapes read as COMPUTED and stop with UNKNOWN. No Go parser dependency: the CDK scanner masks Go comments and strings.
+- Edits keep the program's own style: new ingress entries use the struct type the entry already uses, missing BPA flags are added to the struct literal, and the JSON `Action` array keeps its layout. New lines aren't gofmt-aligned; run `gofmt` on the branch if your CI checks it.
+- Benchmark: 8 more Pulumi cases (3 Go fixes, 5 Go traps); 31 in all, 0 wrongly reported safe.
+
 ### Added (Pulumi YAML)
 - `posturanet fix` and `contract check --source` work on Pulumi YAML programs (`runtime: yaml`; resources in `Pulumi.yaml`, or `Main.yaml` under `main:`), for the same three evidence-backed fixes. The resource is the entry of `resources:` whose key (or literal `name:`) is the URN's name and whose `type` is `aws:ec2:SecurityGroup` (with its rule resources), `aws:s3:BucketPublicAccessBlock` or `aws:iam:Policy`, in either token form.
 - Literals are strings, integers, booleans, lists, maps and `fn::toJSON` of a literal map. A `${…}` interpolation (a variable, config or another resource), any other `fn::` call, an anchor, alias or tag reads as COMPUTED and stops with UNKNOWN.

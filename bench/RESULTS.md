@@ -801,11 +801,11 @@ The stack also allows s3:*; the app doesn't. A fix from the app would be wrong. 
 
 ## Pulumi (EC2.19, S3.8, IAM.21)
 
-The same three fix types on Pulumi programs in TypeScript, Python and YAML, mapped through a `pulumi stack export`, plus the traps that must stop the run (a computed value, an interpolation, an anchor or `fn::` call in YAML, a component resource, a repeated name, an undeployed rule, a program that differs from the export, drift). Validation is static; `pulumi preview` is not run. PosturaNet only.
+The same three fix types on Pulumi programs in TypeScript, Python, Go and YAML, mapped through a `pulumi stack export`, plus the traps that must stop the run (a computed value, an interpolation, an anchor or `fn::` call in YAML, a component resource, a repeated name, an undeployed rule, a program that differs from the export, drift). Validation is static; `pulumi preview` is not run. PosturaNet only.
 
 | Contender | Correct | Stopped | Outage | Still Exposed | Unneeded stops |
 |---|---|---|---|---|---|
-| PosturaNet | 9 | 14 | 0 | 0 | 0 |
+| PosturaNet | 12 | 19 | 0 | 0 | 0 |
 
 **Wrongly reported safe: 0**
 
@@ -919,7 +919,7 @@ The Action list is narrowed inline. Ground truth: a safe fix exists.
 
 | Contender | Verdict | Detail |
 |---|---|---|
-| PosturaNet | Stopped | locate unknown: the policy of 'app' is not a literal document (an object, or JSON.stringify / json.dumps / fn::toJSON of one); PosturaNet won't guess |
+| PosturaNet | Stopped | locate unknown: the policy of 'app' is not a literal document (an object, or JSON.stringify / json.dumps / fn::toJSON of one, or a Go raw string of JSON); PosturaNet won't guess |
 
 #### `pulumi-iam-program-differs`: Deployed policy also allows s3:*
 
@@ -991,4 +991,68 @@ Only `fn::toJSON` of a literal map is read; any other `fn::` call is computed. G
 
 | Contender | Verdict | Detail |
 |---|---|---|
-| PosturaNet | Stopped | locate unknown: the policy of 'app' is not a literal document (an object, or JSON.stringify / json.dumps / fn::toJSON of one); PosturaNet won't guess |
+| PosturaNet | Stopped | locate unknown: the policy of 'app' is not a literal document (an object, or JSON.stringify / json.dumps / fn::toJSON of one, or a Go raw string of JSON); PosturaNet won't guess |
+
+#### `pulumi-sg-go`: Bastion SSH open, inline ingress (Go)
+
+A `&ec2.SecurityGroupIngressArgs{…}` entry becomes one entry per observed source, in the same struct type. Ground truth: a safe fix exists.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Correct | allows 10.0.0.0/16:9100/tcp, 10.0.4.12/32:22/tcp, 10.0.4.37/32:22/tcp, 10.0.5.9/32:22/tcp, 203.0.113.7/32:22/tcp |
+
+#### `pulumi-s3-go`: Public bucket, BucketPublicAccessBlock (Go)
+
+`pulumi.Bool(false)` becomes true; the missing flags are added to the struct literal. Ground truth: a safe fix exists.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Correct | allows Block Public Access: all on |
+
+#### `pulumi-iam-go`: ec2:* and logs:* in a raw-string JSON policy (Go)
+
+The JSON Action array inside `pulumi.String(`…`)` is narrowed in its layout. Ground truth: a safe fix exists.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Correct | allows ec2:DescribeInstances, ec2:DescribeVolumes, logs:CreateLogStream |
+
+#### `pulumi-go-computed-cidr`: SSH CIDR is a Go variable
+
+`pulumi.StringArray{adminCidr}`; its value isn't a literal in the program. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | locate unknown: ingress entry 1 of 'bastion-sg' has a value that is not a literal |
+
+#### `pulumi-go-marshal-policy`: Policy from json.Marshal
+
+`pulumi.String(policyJSON)`: the document is built elsewhere. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | locate unknown: the policy of 'app' is not a literal document (an object, or JSON.stringify / json.dumps / fn::toJSON of one, or a Go raw string of JSON); PosturaNet won't guess |
+
+#### `pulumi-go-config-flag`: BlockPublicAcls comes from config
+
+`pulumi.Bool(cfg.RequireBool("block"))`; PosturaNet can't tell what it is. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | locate unknown: blockPublicAcls of 'assets-pab' is not a literal boolean |
+
+#### `pulumi-go-computed-name`: Group name built with fmt.Sprintf
+
+The name argument isn't a string literal; no call can be matched to the URN. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | locate unknown: no ec2.SecurityGroup call with the literal name 'bastion-sg' in the program source; the name may be computed |
+
+#### `pulumi-go-args-variable`: Group args passed as a variable
+
+`ec2.NewSecurityGroup(ctx, "bastion-sg", args)`: the struct isn't written in the call. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | locate unknown: the arguments of 'bastion-sg' are not a literal object; PosturaNet won't guess |
