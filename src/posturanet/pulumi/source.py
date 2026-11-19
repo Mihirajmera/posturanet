@@ -1,5 +1,6 @@
 """Pulumi program source (TypeScript, Python and Go, see `parse_go`): find a resource by its
-name and read or edit its literal arguments. YAML programs are read in `yaml_source.py` into the same `Lit` shapes.
+name and read or edit its literal arguments. YAML programs are read in `yaml_source.py` into
+the same `Lit` shapes.
 
 The scanning (comment and string masking, bracket matching) is the CDK one: no language
 parser, only shapes PosturaNet can be certain of. A constructor call whose first argument is
