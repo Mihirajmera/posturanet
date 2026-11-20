@@ -21,6 +21,7 @@ Formats, each read only from public documentation of the vendor's API:
   Orca alerts carry no control ids, so they map through the customer's file only.
 
 CSV exports are not read: none of the three vendors documents its CSV columns publicly.
+The refusal points to `docs/vendor-exports.md`, which has the JSON export commands.
 
 Finding text is kept as data only. Nothing here interprets it (NFR-4).
 """
