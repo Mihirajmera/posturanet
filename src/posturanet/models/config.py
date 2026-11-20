@@ -74,7 +74,10 @@ class FlowLogsConfig(_Strict):
 
 class EvidenceConfig(_Strict):
     flow_logs: FlowLogsConfig = Field(default_factory=FlowLogsConfig)
-    window_days: int = Field(default=90, ge=1, le=400)
+    # How far back to look. The window starts where the logs do (log group creation or
+    # retention, first access-log object), so this reads everything kept, up to 400 days: a job
+    # that runs every quarter shows up only if the logs reach back that far.
+    window_days: int = Field(default=400, ge=1, le=400)
     min_confidence_for_pr: Literal["high", "medium"] = "medium"
 
 

@@ -1827,6 +1827,42 @@
         "verdict": "OUTAGE"
       }
     ],
+    "s3-partner-every-120-days-year-of-logs": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "1 blocker(s) \u00b7 s3 evidence file \u00b7 365 days \u00b7 100% coverage \u00b7 confidence high",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      },
+      {
+        "allowed": [],
+        "broken": [
+          "partner account (every 120 days)"
+        ],
+        "expect": "stop",
+        "exposed": [],
+        "note": "",
+        "status": "FIXED",
+        "tool": "Block always",
+        "verdict": "OUTAGE"
+      },
+      {
+        "allowed": [],
+        "broken": [
+          "partner account (every 120 days)"
+        ],
+        "expect": "stop",
+        "exposed": [],
+        "note": "",
+        "status": "FIXED",
+        "tool": "Skip websites",
+        "verdict": "OUTAGE"
+      }
+    ],
     "s3-partner-public-policy": [
       {
         "allowed": [],
@@ -2803,6 +2839,71 @@
         "tool": "Allow all observed",
         "total_addresses": 1,
         "verdict": "OUTAGE"
+      }
+    ],
+    "quarterly-dr-drill-year-of-logs": [
+      {
+        "broken": [],
+        "exposed": [],
+        "flagged": [
+          "10.0.40.5/32:22"
+        ],
+        "internet_addresses": 0,
+        "note": "risk medium \u00b7 disruption none",
+        "rules": [
+          "10.0.4.12/32:22/tcp",
+          "10.0.40.5/32:22/tcp"
+        ],
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "total_addresses": 2,
+        "verdict": "CORRECT"
+      },
+      {
+        "broken": [
+          "10.0.4.12:22 (CI runner)",
+          "10.0.40.5:22 (DR drill)"
+        ],
+        "exposed": [],
+        "flagged": [],
+        "internet_addresses": 0,
+        "note": "",
+        "rules": [],
+        "status": "FIXED",
+        "tool": "Revoke open rule",
+        "total_addresses": 0,
+        "verdict": "OUTAGE"
+      },
+      {
+        "broken": [],
+        "exposed": [],
+        "flagged": [],
+        "internet_addresses": 0,
+        "note": "",
+        "rules": [
+          "10.0.0.0/8:22/tcp",
+          "172.16.0.0/12:22/tcp",
+          "192.168.0.0/16:22/tcp"
+        ],
+        "status": "FIXED",
+        "tool": "Private ranges only",
+        "total_addresses": 17891328,
+        "verdict": "CORRECT"
+      },
+      {
+        "broken": [],
+        "exposed": [],
+        "flagged": [],
+        "internet_addresses": 0,
+        "note": "",
+        "rules": [
+          "10.0.4.12/32:22/tcp",
+          "10.0.40.5/32:22/tcp"
+        ],
+        "status": "FIXED",
+        "tool": "Allow all observed",
+        "total_addresses": 2,
+        "verdict": "CORRECT"
       }
     ],
     "rdp-jump-host": [

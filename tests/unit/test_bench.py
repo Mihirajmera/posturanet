@@ -20,6 +20,7 @@ S3_EXPECTED = {
     "s3-cloudfront-oac": "CORRECT",
     "s3-partner-public-policy": "STOPPED",
     "s3-partner-every-120-days": "OUTAGE",  # known miss: invisible in a 90-day log window
+    "s3-partner-every-120-days-year-of-logs": "STOPPED",  # the same partner, seen in a year of logs
     "s3-public-no-logs": "STOPPED",
     "s3-unknown-requester-approved": "CORRECT",
 }

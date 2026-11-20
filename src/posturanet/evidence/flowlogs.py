@@ -225,6 +225,11 @@ class LogsInsightsSource:
             )
         eni_list = ", ".join(json.dumps(e) for e in enis)
         ip_list = ", ".join(json.dumps(ip) for ip in ips)
+        # Look back as far as the logs go, and no further: hours before the log group existed
+        # or past its retention aren't gaps, and counting them would sink coverage.
+        since = self._logs_since(end)
+        if since is not None and since > start:
+            start = min(since, end)
 
         records: list[FlowRecord] = []
         active: set[datetime] = set()
@@ -255,6 +260,29 @@ class LogsInsightsSource:
                     active.add(parse_ts(row["hour"]))
             cur = nxt
         return FlowData(enis, start, end, records, active, "vpc_flow_logs")
+
+    def _logs_since(self, end: datetime) -> datetime | None:
+        """The first whole hour the log group can hold: its creation, or its retention limit."""
+        try:
+            groups = self.logs.describe_log_groups(logGroupNamePrefix=self.log_group)
+        except Exception:
+            return None  # keep the full window: missing hours lower confidence, never raise it
+        group = next(
+            (g for g in groups.get("logGroups", []) if g.get("logGroupName") == self.log_group),
+            None,
+        )
+        if group is None:
+            return None
+        since: datetime | None = None
+        if "creationTime" in group:
+            since = datetime.fromtimestamp(group["creationTime"] / 1000, tz=UTC)
+        if group.get("retentionInDays"):
+            kept = end - timedelta(days=int(group["retentionInDays"]))
+            since = kept if since is None else max(since, kept)
+        if since is None:
+            return None
+        hour = since.replace(minute=0, second=0, microsecond=0)
+        return hour if hour == since else hour + timedelta(hours=1)
 
     def _interfaces(self, group_id: str) -> tuple[list[str], list[str]]:
         """(ENI ids, their private IPv4 and IPv6 addresses) for the security group."""

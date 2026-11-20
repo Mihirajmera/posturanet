@@ -4,6 +4,12 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Changed (evidence reads every log the account keeps)
+- `evidence.window_days` now defaults to 400 (was 90) and is a look-back cap: the window starts where the logs do. Flow logs: the later of the log group's creation and its retention limit, from `DescribeLogGroups` (already allowlisted); if that call fails, the full window is kept, which can only lower confidence. S3 access logs: the first log object. Hours or days before logs could exist no longer count as gaps, so a longer look-back doesn't lower coverage.
+- A job that runs every quarter or less is now seen when the account keeps enough logs. Benchmark: `quarterly-dr-drill-year-of-logs` is correct (the drill is kept and flagged for review) and `s3-partner-every-120-days-year-of-logs` stops on the partner's read. The 90-day versions of both are still outages: no logs, no evidence.
+- S3 live evidence past 20,000 access-log objects reads the newest 20,000 and starts the window the day after the oldest one kept, instead of stopping.
+- Cost: Logs Insights bills per GB scanned, so a 400-day look-back on a busy VPC scans up to about 4x the data of 90 days. Set `evidence.window_days: 90` to keep the old cost.
+
 ### Added (Pulumi components)
 - A resource whose stack-export parent is a component (`ComponentResource`) is fixed in the constructor call inside the component's code, when that is unambiguous: exactly one TypeScript or Python class (`super("<type>", …)` / `super().__init__("<type>", …)`) or Go function (`ctx.RegisterComponentResource("<type>", …)`) registers the component's type, the program instantiates it exactly once, and the export has exactly one component of that type, directly under the stack. Inside it, the call is the one whose name is the URN's name as a literal, or else the only call of that class (a name like `` `${name}-sg` `` is accepted there).
 - Anything else stops with UNKNOWN and says why: no or several classes register the type, the class is instantiated more than once, the export holds several components of the type, a component nested in another component, several calls of the class with no literal match, or a YAML program.
