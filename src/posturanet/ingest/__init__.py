@@ -26,6 +26,7 @@ from posturanet.ingest.vendors import Rules
 from posturanet.models import Finding, FixType
 
 Format = Literal["asff", "ocsf", "checkov", "trivy", "plan", "wiz", "orca", "prisma"]
+VENDOR_EXPORTS_DOC = "https://github.com/Mihirajmera/posturanet/blob/main/docs/vendor-exports.md"
 
 
 @dataclass(frozen=True)
@@ -82,7 +83,12 @@ def read_findings(path: Path, rules: Rules | None = None) -> FindingsFile:
             raise UsageError(
                 f"{path} looks like a CSV export. PosturaNet reads Wiz, Orca and Prisma Cloud "
                 "findings as JSON from their APIs only: none of them documents its CSV columns, "
-                "and PosturaNet doesn't guess them"
+                "and PosturaNet doesn't guess them. Export the same findings as JSON and pass "
+                "that file instead:\n"
+                "  Wiz           the issuesV2 GraphQL query\n"
+                "  Orca          POST <your Orca address>/api/serving-layer/query\n"
+                "  Prisma Cloud  GET /v2/alert?detailed=true\n"
+                f"Copy-paste commands: {VENDOR_EXPORTS_DOC}"
             ) from exc
         raise UsageError(f"{path} is not valid JSON: {exc.msg} (line {exc.lineno})") from exc
     sha = hashlib.sha256(raw).hexdigest()

@@ -133,8 +133,13 @@ def test_fix_on_an_unmapped_alert_stops(tmp_path: Path) -> None:
 def test_csv_is_refused_not_guessed(tmp_path: Path) -> None:
     csv = tmp_path / "issues.csv"
     csv.write_text("Issue ID,Rule,Resource\n1,r,sg-0a91f3c2\n", encoding="utf-8")
-    with pytest.raises(UsageError, match="CSV"):
+    with pytest.raises(UsageError, match="CSV") as err:
         read_findings(csv)
+    # The refusal says how to get the same findings in a form PosturaNet reads.
+    msg = str(err.value)
+    assert "issuesV2" in msg and "/api/serving-layer/query" in msg and "/v2/alert" in msg
+    assert msg.endswith("docs/vendor-exports.md")
+    assert (Path(__file__).parents[2] / "docs" / "vendor-exports.md").is_file()
 
 
 def test_unknown_detector_key_is_an_error(tmp_path: Path) -> None:
