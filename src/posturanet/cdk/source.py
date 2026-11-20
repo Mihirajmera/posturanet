@@ -20,7 +20,7 @@ from posturanet.errors import StageStop
 from posturanet.synth.hcl_render import DEFAULT_DESCRIPTION
 from posturanet.synth.sg_rules import Rule, norm_proto
 
-Lang = Literal["ts", "py"]
+Lang = Literal["ts", "py", "yaml", "go"]  # yaml and go: Pulumi programs only (pulumi/)
 SUFFIXES: dict[str, Lang] = {".ts": "ts", ".py": "py"}
 _SKIP_DIRS = {
     "node_modules", "cdk.out", ".git", ".venv", "venv", "__pycache__", ".posturanet",
@@ -57,21 +57,23 @@ def mask(text: str, lang: Lang) -> str:
 
     while i < n:
         c = text[i]
-        if (lang == "ts" and text.startswith("//", i)) or (lang == "py" and c == "#"):
+        cstyle = lang in ("ts", "go")
+        if (cstyle and text.startswith("//", i)) or (lang == "py" and c == "#"):
             j = text.find("\n", i)
             j = n if j < 0 else j
             blank(i, j)
             i = j
-        elif lang == "ts" and text.startswith("/*", i):
+        elif cstyle and text.startswith("/*", i):
             j = text.find("*/", i + 2)
             j = n if j < 0 else j + 2
             blank(i, j)
             i = j
-        elif c in "'\"" or (lang == "ts" and c == "`"):
+        elif c in "'\"" or (cstyle and c == "`"):
             q = text[i : i + 3] if lang == "py" and text[i : i + 3] in ('"""', "'''") else c
+            raw = lang == "go" and q == "`"  # a Go raw string has no escapes
             j = i + len(q)
             while j < n and not text.startswith(q, j):
-                j += 2 if text[j] == "\\" else 1
+                j += 2 if text[j] == "\\" and not raw else 1
             blank(i + len(q), j)
             i = j + len(q)
         else:

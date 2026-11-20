@@ -1,0 +1,65 @@
+name: acme-infra
+runtime: yaml
+description: synthetic
+
+variables:
+  adminCidr: 203.0.113.0/24
+
+resources:
+  # Bastion host access. Opened "temporarily" in 2025.
+  bastion-sg:
+    type: aws:ec2:SecurityGroup
+    properties:
+      description: bastion
+      vpcId: vpc-0example
+      ingress:
+        - protocol: tcp
+          fromPort: 22
+          toPort: 22
+          cidrBlocks: ["0.0.0.0/0"]
+          description: SSH from anywhere
+        # monitoring stays as it is
+        - { protocol: tcp, fromPort: 9100, toPort: 9100, cidrBlocks: ["10.0.0.0/16"], description: node exporter }
+
+  web-sg:
+    type: aws:ec2:SecurityGroup
+    properties: { description: web, vpcId: vpc-0example }
+
+  web-https:
+    type: aws:vpc:SecurityGroupIngressRule
+    properties:
+      securityGroupId: ${web-sg.id}
+      ipProtocol: tcp
+      fromPort: 443
+      toPort: 443
+      cidrIpv4: 0.0.0.0/0
+
+  assets:
+    type: aws:s3:Bucket
+    properties:
+      bucket: acme-assets
+
+  assets-pab:
+    type: aws:s3:BucketPublicAccessBlock
+    properties:
+      bucket: ${assets.id}
+      blockPublicAcls: false # reviewed 2025-03
+      ignorePublicAcls: true
+
+  app:
+    type: aws:iam:Policy
+    properties:
+      name: app
+      policy:
+        fn::toJSON:
+          Version: "2012-10-17"
+          Statement:
+            - Sid: App
+              Effect: Allow
+              Action:
+                - "ec2:*"
+                - "logs:*"
+              Resource: "*"
+
+outputs:
+  bastionId: ${bastion-sg.id}

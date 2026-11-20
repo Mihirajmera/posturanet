@@ -1,4 +1,4 @@
-"""Pulumi support (TypeScript and Python programs, AWS Classic provider): map a deployed
+"""Pulumi support (TypeScript, Python, Go and YAML programs, AWS Classic provider): map a deployed
 resource to its URN through a `pulumi stack export`, edit the literals of its constructor call
 in the program, and validate statically. Evidence, contracts, Z3 synthesis and the
 CloudFormation re-checks are shared."""

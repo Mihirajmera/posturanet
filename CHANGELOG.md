@@ -10,6 +10,23 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 - S3 live evidence past 20,000 access-log objects reads the newest 20,000 and starts the window the day after the oldest one kept, instead of stopping.
 - Cost: Logs Insights bills per GB scanned, so a 400-day look-back on a busy VPC scans up to about 4x the data of 90 days. Set `evidence.window_days: 90` to keep the old cost.
 
+### Added (Pulumi components)
+- A resource whose stack-export parent is a component (`ComponentResource`) is fixed in the constructor call inside the component's code, when that is unambiguous: exactly one TypeScript or Python class (`super("<type>", …)` / `super().__init__("<type>", …)`) or Go function (`ctx.RegisterComponentResource("<type>", …)`) registers the component's type, the program instantiates it exactly once, and the export has exactly one component of that type, directly under the stack. Inside it, the call is the one whose name is the URN's name as a literal, or else the only call of that class (a name like `` `${name}-sg` `` is accepted there).
+- Anything else stops with UNKNOWN and says why: no or several classes register the type, the class is instantiated more than once, the export holds several components of the type, a component nested in another component, several calls of the class with no literal match, or a YAML program.
+- Benchmark: 8 more Pulumi cases (a component fix in TypeScript, Python and Go; 5 traps); 39 in all, 0 wrongly reported safe.
+
+### Added (Pulumi Go)
+- `posturanet fix` and `contract check --source` work on Pulumi Go programs (`runtime: go`), for the same three evidence-backed fixes. The resource is the one constructor call `ec2.NewSecurityGroup(ctx, "name", &ec2.SecurityGroupArgs{…})` (and `vpc.NewSecurityGroupIngressRule`, `ec2.NewSecurityGroupRule`, `s3.NewBucketPublicAccessBlock`, `iam.NewPolicy`) whose name argument is that string literal. `_test.go` files and `vendor/` are skipped.
+- Literals are `pulumi.String("…")`, `pulumi.Int(…)`, `pulumi.Bool(…)` (and their `…Ptr` forms) of a literal, `…Array{…}` slices, `&…Args{Field: …}` structs, and `pulumi.String(`…`)` of a raw string holding a JSON object (the usual policy literal). Variables, `json.Marshal` results, config reads, `pulumi.Sprintf`, positional struct fields and interpreted strings with escapes read as COMPUTED and stop with UNKNOWN. No Go parser dependency: the CDK scanner masks Go comments and strings.
+- Edits keep the program's own style: new ingress entries use the struct type the entry already uses, missing BPA flags are added to the struct literal, and the JSON `Action` array keeps its layout. New lines aren't gofmt-aligned; run `gofmt` on the branch if your CI checks it.
+- Benchmark: 8 more Pulumi cases (3 Go fixes, 5 Go traps); 31 in all, 0 wrongly reported safe.
+
+### Added (Pulumi YAML)
+- `posturanet fix` and `contract check --source` work on Pulumi YAML programs (`runtime: yaml`; resources in `Pulumi.yaml`, or `Main.yaml` under `main:`), for the same three evidence-backed fixes. The resource is the entry of `resources:` whose key (or literal `name:`) is the URN's name and whose `type` is `aws:ec2:SecurityGroup` (with its rule resources), `aws:s3:BucketPublicAccessBlock` or `aws:iam:Policy`, in either token form.
+- Literals are strings, integers, booleans, lists, maps and `fn::toJSON` of a literal map. A `${…}` interpolation (a variable, config or another resource), any other `fn::` call, an anchor, alias or tag reads as COMPUTED and stops with UNKNOWN.
+- Edits replace only the characters of the values that change (positions from ruamel.yaml's parser), so comments, key order, quotes and indentation stay. Validation, the stack-export checks and the "`pulumi preview` not run" note are unchanged.
+- Benchmark: 8 more Pulumi cases (3 YAML fixes, 5 YAML traps); 23 in all, 0 wrongly reported safe.
+
 ## [0.4.0] - 2026-11-19
 
 ### Added (Wiz, Orca and Prisma Cloud findings, R5)

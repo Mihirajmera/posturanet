@@ -1,0 +1,3 @@
+name: acme-infra
+runtime: go
+description: synthetic

@@ -11,6 +11,7 @@ with the stack's own credentials, which can write. The PR's checks table says so
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Callable
 from pathlib import Path
 
@@ -28,7 +29,7 @@ from posturanet.models import (
     FileChange,
     ValidationReport,
 )
-from posturanet.pulumi import model
+from posturanet.pulumi import model, yaml_source
 from posturanet.pulumi.model import FLAGS, Entry, View, is_open
 from posturanet.pulumi.source import Edits, Lit, arg_key, props, render, rescan
 from posturanet.pulumi.stack import SG_INGRESS, SG_RULE, PulumiTarget
@@ -95,7 +96,16 @@ def _ingress_item(c: Construct, item: Lit, r: Rule, desc: str | None, quote: str
     vals: dict[str, object] = {"protocol": r.proto, "fromPort": lo, "toPort": hi, key: [r.cidr]}
     if desc:
         vals["description"] = desc
+    if c.lang == "yaml":  # a copy of the entry it replaces, with these values
+        return yaml_source.edit_item(c.text, item, vals)
     q = _q(c, quote, desc or "")
+    if c.lang == "go":  # `&ec2.SecurityGroupIngressArgs{…}`, the type the entry uses
+        return (
+            item.call
+            + "{"
+            + ", ".join(f"{arg_key(c, k)}: {render(v, c, q)}" for k, v in vals.items())
+            + "}"
+        )
     if item.call:  # Python `…SecurityGroupIngressArgs(` call
         return (
             f"{item.call}("
@@ -110,7 +120,7 @@ def _list_edits(c: Construct, lst: Lit, new: dict[int, list[str]]) -> list[tuple
     its: list[Lit] = lst.value
     gone = {i for i, v in new.items() if not v}
     if len(gone) == len(its):
-        return [(lst.span[0], lst.span[1], "[]")]
+        return [(lst.span[0], lst.span[1], f"{lst.call}{{}}" if c.lang == "go" else "[]")]
     out = []
     k = max(i for i in range(len(its)) if i not in gone)
     for i, texts in new.items():
@@ -120,6 +130,8 @@ def _list_edits(c: Construct, lst: Lit, new: dict[int, list[str]]) -> list[tuple
             sep = (
                 ",\n" + indent if not indent.strip() and "\n" in c.masked[lst.span[0] : s] else ", "
             )
+            if c.lang == "yaml" and lst.brackets is None:  # a block list: `- ` items
+                sep = yaml_source.item_sep(c.text, its[i])
             out.append((s, e, sep.join(texts)))
         elif i < k:
             out.append((s, its[i + 1].span[0], ""))
@@ -144,7 +156,7 @@ def _standalone_edit(
         raise _hand(f"the fix removes every CIDR of ingress rule '{name}'; delete it by hand")
     v4 = [r.cidr for r in rules if r.net.version == 4]
     v6 = [r.cidr for r in rules if r.net.version == 6]
-    q = e.quote or '"'
+    q = e.quote if c.lang == "yaml" else e.quote or '"'
     out: list[tuple[int, int, str]] = []
     if part.state.type == SG_INGRESS:
         key = "cidrIpv4" if v4 else "cidrIpv6"
@@ -159,7 +171,12 @@ def _standalone_edit(
     for key, cidrs in (("cidrBlocks", v4), ("ipv6CidrBlocks", v6)):
         lit = p.values.get(key)
         if lit is not None:
-            out.append((lit.span[0], lit.span[1], render(cidrs, c, q)))
+            new = (
+                yaml_source.list_text(c.text, lit, cidrs)
+                if c.lang == "yaml" and lit.kind == "list"
+                else render(cidrs, c, q)
+            )
+            out.append((lit.span[0], lit.span[1], new))
         elif cidrs:
             raise _hand(f"ingress rule '{name}' has no {key} to put {cidrs[0]} in")
     return out
@@ -228,10 +245,15 @@ def s3_diff(repo: Path, t: PulumiTarget) -> Diff:
         if v.flags[f] is not None:
             continue
         c = rescan(c, text)
+        if c.lang == "yaml":
+            text = yaml_source.add_key(c, f, "true")
+            continue
         brackets = props(c).brackets
         if brackets is None:
             raise _hand(f"'{name}' has no arguments object to add {f} to")
-        item = f"{f}: true" if c.lang == "ts" else f"{arg_key(c, f)}=True"
+        item = {"ts": f"{f}: true", "go": f"{arg_key(c, f)}: pulumi.Bool(true)"}.get(
+            c.lang, f"{arg_key(c, f)}=True"
+        )
         text = cdk_source.append_item(c.text, c.masked, brackets, item)
     summary = f"{name}: {', '.join(off)} → true"
     return _diff(repo, t, {c.file: (v.constructs[0], text)}, summary, "template:s3_public@1:pulumi")
@@ -248,13 +270,17 @@ def iam_diff(repo: Path, t: PulumiTarget, changes: list[StatementChange]) -> Dif
         lit = v.statements[ch.statement.index].value.get("Action")
         if lit is None:
             raise _hand(f"statement {ch.statement.index + 1} has no literal Action")
-        if lit.kind == "list" and all(x.kind == "str" for x in lit.value):
+        if lit.kind == "list" and all(x.kind == "str" for x in lit.value) and c.lang == "yaml":
+            spans.append((lit.span[0], lit.span[1], yaml_source.list_text(c.text, lit, ch.after)))
+        elif lit.kind == "list" and all(x.kind == "str" for x in lit.value):
             q = lit.value[0].quote if lit.value else '"'
             st = SourceStatement([x.value for x in lit.value], lit.span, q)
             spans.append((lit.span[0], lit.span[1], render_actions(c, st, ch.after)))
         elif lit.kind == "str":
             new = ch.after[0] if len(ch.after) == 1 else ch.after
-            spans.append((lit.span[0], lit.span[1], render(new, c, lit.quote)))
+            # in Go the document is JSON inside a raw string, not Go values
+            text = json.dumps(new) if c.lang == "go" else render(new, c, lit.quote)
+            spans.append((lit.span[0], lit.span[1], text))
         else:
             raise _hand(f"statement {ch.statement.index + 1} Action is not a literal")
     removed = sorted({p for ch in changes for p in ch.removed})

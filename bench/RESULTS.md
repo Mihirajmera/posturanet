@@ -822,11 +822,11 @@ The stack also allows s3:*; the app doesn't. A fix from the app would be wrong. 
 
 ## Pulumi (EC2.19, S3.8, IAM.21)
 
-The same three fix types on Pulumi programs in TypeScript and Python, mapped through a `pulumi stack export`, plus the traps that must stop the run (a computed value, a component resource, a repeated name, an undeployed rule, a program that differs from the export, drift). Validation is static; `pulumi preview` is not run. PosturaNet only.
+The same three fix types on Pulumi programs in TypeScript, Python, Go and YAML, mapped through a `pulumi stack export`, plus the traps that must stop the run (a computed value, an interpolation, an anchor or `fn::` call in YAML, a component resource, a repeated name, an undeployed rule, a program that differs from the export, drift). Validation is static; `pulumi preview` is not run. PosturaNet only.
 
 | Contender | Correct | Stopped | Outage | Still Exposed | Unneeded stops |
 |---|---|---|---|---|---|
-| PosturaNet | 6 | 9 | 0 | 0 | 0 |
+| PosturaNet | 15 | 24 | 0 | 0 | 0 |
 
 **Wrongly reported safe: 0**
 
@@ -860,7 +860,7 @@ The URN's parent is a component; the name in the program may be computed. Ground
 
 | Contender | Verdict | Detail |
 |---|---|---|
-| PosturaNet | Stopped | locate unknown: bastion-sg is created inside the component acme:net:Bastion; its name in the program may be computed, so PosturaNet can't trace it to one line |
+| PosturaNet | Stopped | locate unknown: bastion-sg is created inside the component acme:net:Bastion; 0 classes or functions in the program register acme:net:Bastion, so PosturaNet can't tell which code made it |
 
 #### `pulumi-sg-duplicate-name`: Two SecurityGroup calls named bastion-sg
 
@@ -940,7 +940,7 @@ The Action list is narrowed inline. Ground truth: a safe fix exists.
 
 | Contender | Verdict | Detail |
 |---|---|---|
-| PosturaNet | Stopped | locate unknown: the policy of 'app' is not a literal document (an object, or JSON.stringify / json.dumps of one); PosturaNet won't guess |
+| PosturaNet | Stopped | locate unknown: the policy of 'app' is not a literal document (an object, or JSON.stringify / json.dumps / fn::toJSON of one, or a Go raw string of JSON); PosturaNet won't guess |
 
 #### `pulumi-iam-program-differs`: Deployed policy also allows s3:*
 
@@ -949,3 +949,195 @@ The stack runs a wider document than the program; a fix from the program would b
 | Contender | Verdict | Detail |
 |---|---|---|
 | PosturaNet | Stopped | locate unknown: the policy of 'app' in the program differs from the stack export |
+
+#### `pulumi-sg-yaml`: Bastion SSH open, inline ingress (YAML)
+
+A block-style `ingress` item becomes one item per observed source, each a copy of the original with its CIDR replaced; the flow-style item and comments stay. Ground truth: a safe fix exists.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Correct | allows 10.0.0.0/16:9100/tcp, 10.0.4.12/32:22/tcp, 10.0.4.37/32:22/tcp, 10.0.5.9/32:22/tcp, 203.0.113.7/32:22/tcp |
+
+#### `pulumi-s3-yaml`: Public bucket, BucketPublicAccessBlock (YAML)
+
+`false` becomes `true` (its comment stays); the missing flags are added as keys at the properties' indentation. Ground truth: a safe fix exists.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Correct | allows Block Public Access: all on |
+
+#### `pulumi-iam-yaml`: ec2:* and logs:* in fn::toJSON (YAML)
+
+The block-style Action list is narrowed, quotes kept. Ground truth: a safe fix exists.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Correct | allows ec2:DescribeInstances, ec2:DescribeVolumes, logs:CreateLogStream |
+
+#### `pulumi-yaml-interpolated-cidr`: SSH CIDR is `${adminCidr}`
+
+An interpolation reads a variable; its value isn't a literal in the program. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | locate unknown: ingress entry 1 of 'bastion-sg' has a value that is not a literal |
+
+#### `pulumi-yaml-anchor`: SSH port shared through a YAML anchor
+
+`fromPort: &ssh 22`; an edit could change every alias of it. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | locate unknown: ingress entry 1 of 'bastion-sg' has a value that is not a literal |
+
+#### `pulumi-yaml-undeployed-rule`: RDP rule written but not deployed
+
+A SecurityGroupIngressRule on the group in Pulumi.yaml isn't in the stack export. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | locate unknown: ingress rule 'bastion-rdp' in Pulumi.yaml is not in the stack export, so it may change 'bastion-sg' in ways the deployed state doesn't show |
+
+#### `pulumi-yaml-config-flag`: blockPublicAcls comes from config
+
+`blockPublicAcls: ${blockAcls}`; PosturaNet can't tell what it is. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | locate unknown: blockPublicAcls of 'assets-pab' is not a literal boolean |
+
+#### `pulumi-yaml-secret-policy`: Policy wrapped in fn::secret
+
+Only `fn::toJSON` of a literal map is read; any other `fn::` call is computed. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | locate unknown: the policy of 'app' is not a literal document (an object, or JSON.stringify / json.dumps / fn::toJSON of one, or a Go raw string of JSON); PosturaNet won't guess |
+
+#### `pulumi-sg-go`: Bastion SSH open, inline ingress (Go)
+
+A `&ec2.SecurityGroupIngressArgs{…}` entry becomes one entry per observed source, in the same struct type. Ground truth: a safe fix exists.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Correct | allows 10.0.0.0/16:9100/tcp, 10.0.4.12/32:22/tcp, 10.0.4.37/32:22/tcp, 10.0.5.9/32:22/tcp, 203.0.113.7/32:22/tcp |
+
+#### `pulumi-s3-go`: Public bucket, BucketPublicAccessBlock (Go)
+
+`pulumi.Bool(false)` becomes true; the missing flags are added to the struct literal. Ground truth: a safe fix exists.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Correct | allows Block Public Access: all on |
+
+#### `pulumi-iam-go`: ec2:* and logs:* in a raw-string JSON policy (Go)
+
+The JSON Action array inside `pulumi.String(`…`)` is narrowed in its layout. Ground truth: a safe fix exists.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Correct | allows ec2:DescribeInstances, ec2:DescribeVolumes, logs:CreateLogStream |
+
+#### `pulumi-go-computed-cidr`: SSH CIDR is a Go variable
+
+`pulumi.StringArray{adminCidr}`; its value isn't a literal in the program. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | locate unknown: ingress entry 1 of 'bastion-sg' has a value that is not a literal |
+
+#### `pulumi-go-marshal-policy`: Policy from json.Marshal
+
+`pulumi.String(policyJSON)`: the document is built elsewhere. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | locate unknown: the policy of 'app' is not a literal document (an object, or JSON.stringify / json.dumps / fn::toJSON of one, or a Go raw string of JSON); PosturaNet won't guess |
+
+#### `pulumi-go-config-flag`: BlockPublicAcls comes from config
+
+`pulumi.Bool(cfg.RequireBool("block"))`; PosturaNet can't tell what it is. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | locate unknown: blockPublicAcls of 'assets-pab' is not a literal boolean |
+
+#### `pulumi-go-computed-name`: Group name built with fmt.Sprintf
+
+The name argument isn't a string literal; no call can be matched to the URN. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | locate unknown: no ec2.SecurityGroup call with the literal name 'bastion-sg' in the program source; the name may be computed |
+
+#### `pulumi-go-args-variable`: Group args passed as a variable
+
+`ec2.NewSecurityGroup(ctx, "bastion-sg", args)`: the struct isn't written in the call. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | locate unknown: the arguments of 'bastion-sg' are not a literal object; PosturaNet won't guess |
+
+#### `pulumi-sg-ts-component`: Bastion group in a component (TypeScript)
+
+The export puts bastion-sg under acme:net:Bastion; the one class registering that type is instantiated once, so its only SecurityGroup call is edited. Ground truth: a safe fix exists.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Correct | allows 10.0.0.0/16:9100/tcp, 10.0.4.12/32:22/tcp, 10.0.4.37/32:22/tcp, 10.0.5.9/32:22/tcp, 203.0.113.7/32:22/tcp |
+
+#### `pulumi-s3-py-component`: Public access block inside a component (Python)
+
+The call named assets-pab inside the one `Assets` class is edited. Ground truth: a safe fix exists.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Correct | allows Block Public Access: all on |
+
+#### `pulumi-iam-go-component`: Policy inside a component function (Go)
+
+The call named app inside the one function that registers acme:iam:App is edited. Ground truth: a safe fix exists.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Correct | allows ec2:DescribeInstances, ec2:DescribeVolumes, logs:CreateLogStream |
+
+#### `pulumi-component-used-twice`: Component class instantiated twice
+
+Both instances run the same constructor call; an edit would change both groups. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | locate unknown: bastion-sg is created inside the component acme:net:Bastion; Bastion is instantiated 2 times in the program, not once |
+
+#### `pulumi-component-two-in-export`: Two Bastion components deployed
+
+The program has one call, but the stack holds two components of the type (another stack file, a loop): an edit would change all. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | locate unknown: bastion-sg is created inside the component acme:net:Bastion, which the stack export has 2 times; an edit would change all |
+
+#### `pulumi-component-nested`: Component inside another component
+
+The Bastion component is a child of acme:net:Zone; PosturaNet traces one level. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | locate unknown: bastion-sg is created inside the component acme:net:Bastion, which is not directly under the stack; PosturaNet traces one level only |
+
+#### `pulumi-component-two-children`: Two computed-name groups inside the component
+
+Neither call's name is a literal; PosturaNet won't pick one. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | locate unknown: bastion-sg is created inside the component acme:net:Bastion (Bastion, infra/network.ts:4): 2 calls of the class in the component (0 named 'bastion-sg'); can't tell which one made it |
+
+#### `pulumi-component-arg-cidr`: Component group's CIDR is a parameter
+
+`cidrBlocks: [cidr]` takes a constructor argument; it isn't a literal. Ground truth: no safe automatic fix: stopping is right.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Stopped | locate unknown: ingress entry 1 of 'bastion-sg' has a value that is not a literal |
