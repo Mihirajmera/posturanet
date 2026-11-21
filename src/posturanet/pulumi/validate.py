@@ -106,6 +106,18 @@ def _ingress_item(c: Construct, item: Lit, r: Rule, desc: str | None, quote: str
             + ", ".join(f"{arg_key(c, k)}: {render(v, c, q)}" for k, v in vals.items())
             + "}"
         )
+    if c.lang == "cs":  # `new Aws.Ec2.Inputs.SecurityGroupIngressArgs { … }`, or `new() { … }`
+        return (
+            f"{item.call} {{ "
+            + ", ".join(f"{arg_key(c, k)} = {render(v, c, q)}" for k, v in vals.items())
+            + " }"
+        )
+    if c.lang == "java":  # `SecurityGroupIngressArgs.builder().key(…)….build()`
+        return (
+            f"{item.call}.builder()"
+            + "".join(f".{k}({render(v, c, q)})" for k, v in vals.items())
+            + ".build()"
+        )
     if item.call:  # Python `…SecurityGroupIngressArgs(` call
         return (
             f"{item.call}("
@@ -120,16 +132,18 @@ def _list_edits(c: Construct, lst: Lit, new: dict[int, list[str]]) -> list[tuple
     its: list[Lit] = lst.value
     gone = {i for i, v in new.items() if not v}
     if len(gone) == len(its):
-        return [(lst.span[0], lst.span[1], f"{lst.call}{{}}" if c.lang == "go" else "[]")]
+        if c.lang == "cs":  # `new[] { }` has no element type to infer
+            raise _hand("the fix removes every ingress entry; empty the C# list by hand")
+        empty = {"go": f"{lst.call}{{}}", "java": ""}.get(c.lang, "[]")  # Java: no items
+        return [(lst.span[0], lst.span[1], empty)]
     out = []
+    opened = lst.brackets[0] if lst.brackets else lst.span[0]  # a Java list's span is its items
     k = max(i for i in range(len(its)) if i not in gone)
     for i, texts in new.items():
         s, e = its[i].span
         if texts:
             indent = c.text[line_start(c.text, s) : s]
-            sep = (
-                ",\n" + indent if not indent.strip() and "\n" in c.masked[lst.span[0] : s] else ", "
-            )
+            sep = ",\n" + indent if not indent.strip() and "\n" in c.masked[opened:s] else ", "
             if c.lang == "yaml" and lst.brackets is None:  # a block list: `- ` items
                 sep = yaml_source.item_sep(c.text, its[i])
             out.append((s, e, sep.join(texts)))
@@ -251,9 +265,16 @@ def s3_diff(repo: Path, t: PulumiTarget) -> Diff:
         brackets = props(c).brackets
         if brackets is None:
             raise _hand(f"'{name}' has no arguments object to add {f} to")
-        item = {"ts": f"{f}: true", "go": f"{arg_key(c, f)}: pulumi.Bool(true)"}.get(
-            c.lang, f"{arg_key(c, f)}=True"
-        )
+        if c.lang == "java":  # a setter after the last one, on its own line if they are
+            last, dot = brackets
+            nl = "\n" + c.text[line_start(c.text, dot) : dot] if "\n" in c.text[last:dot] else ""
+            text = c.text[:last] + f"{nl}.{f}(true)" + c.text[last:]
+            continue
+        item = {
+            "ts": f"{f}: true",
+            "go": f"{arg_key(c, f)}: pulumi.Bool(true)",
+            "cs": f"{arg_key(c, f)} = true",
+        }.get(c.lang, f"{arg_key(c, f)}=True")
         text = cdk_source.append_item(c.text, c.masked, brackets, item)
     summary = f"{name}: {', '.join(off)} → true"
     return _diff(repo, t, {c.file: (v.constructs[0], text)}, summary, "template:s3_public@1:pulumi")
@@ -272,6 +293,20 @@ def iam_diff(repo: Path, t: PulumiTarget, changes: list[StatementChange]) -> Dif
             raise _hand(f"statement {ch.statement.index + 1} has no literal Action")
         if lit.kind == "list" and all(x.kind == "str" for x in lit.value) and c.lang == "yaml":
             spans.append((lit.span[0], lit.span[1], yaml_source.list_text(c.text, lit, ch.after)))
+        elif (
+            lit.kind == "list"
+            and all(x.kind == "str" for x in lit.value)
+            and c.lang
+            in (
+                "cs",
+                "java",
+            )
+        ):
+            assert lit.brackets is not None  # `new[] { … }`, `jsonArray(…)`: only the items
+            o, cl = lit.brackets
+            inner = render_actions(c, SourceStatement([], (o, cl + 1), '"'), ch.after)[1:-1]
+            pad = " " if "\n" not in inner and c.text[o + 1 : o + 2] == " " else ""
+            spans.append((o + 1, cl, f"{pad}{inner}{pad}"))
         elif lit.kind == "list" and all(x.kind == "str" for x in lit.value):
             q = lit.value[0].quote if lit.value else '"'
             st = SourceStatement([x.value for x in lit.value], lit.span, q)
@@ -280,6 +315,8 @@ def iam_diff(repo: Path, t: PulumiTarget, changes: list[StatementChange]) -> Dif
             new = ch.after[0] if len(ch.after) == 1 else ch.after
             # in Go the document is JSON inside a raw string, not Go values
             text = json.dumps(new) if c.lang == "go" else render(new, c, lit.quote)
+            if c.lang == "java" and isinstance(new, list):
+                text = f"jsonArray({text})"  # a Java list renders as bare items
             spans.append((lit.span[0], lit.span[1], text))
         else:
             raise _hand(f"statement {ch.statement.index + 1} Action is not a literal")

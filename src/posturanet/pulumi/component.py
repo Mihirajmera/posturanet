@@ -16,9 +16,10 @@ from pathlib import Path
 
 from posturanet.cdk import source as cdk_source
 from posturanet.cdk.source import Construct, Span, close_of, items, line_start, str_lit
-from posturanet.pulumi.source import LANGS, InComponent, _go_mask, scan
+from posturanet.pulumi.source import LANGS, InComponent, _go_mask, scan, trusted
 
 _TS_CLASS = re.compile(r"\bclass\s+(\w+)\s+extends\s+(?:[\w.]+\.)?ComponentResource\b[^{]*\{")
+_CS_CLASS = re.compile(r"\bclass\s+(\w+)\s*:\s*(?:[\w.]+\.)?ComponentResource\b[^{]*\{")
 _PY_CLASS = re.compile(r"^([ \t]*)class\s+(\w+)\s*\(([^)]*)\)\s*:", re.M)
 _GO_FUNC = re.compile(r"\bfunc\s+(?:\([^)]*\)\s*)?(\w+)\s*\(")
 # The call that registers the component type, per language (its first argument is the token).
@@ -26,6 +27,8 @@ _REGISTER = {
     "ts": re.compile(r"\bsuper\s*\("),
     "py": re.compile(r"\bsuper\s*\([^)]*\)\s*\.\s*__init__\s*\("),
     "go": re.compile(r"\.\s*RegisterComponentResource\s*\("),
+    "cs": re.compile(r":\s*base\s*\("),
+    "java": re.compile(r"\bsuper\s*\("),
 }
 
 
@@ -63,9 +66,10 @@ def _py_body(masked: str, m: re.Match[str]) -> Span:
 
 def _bodies(path: Path, text: str, masked: str) -> list[tuple[str, Span]]:
     lang = LANGS[path.suffix]
-    if lang == "ts":
+    if lang in ("ts", "cs", "java"):
+        rx = _CS_CLASS if lang == "cs" else _TS_CLASS  # Java: `extends`, like TypeScript
         return [(m.group(1), (m.end() - 1, close_of(masked, m.end() - 1) + 1))
-                for m in _TS_CLASS.finditer(masked)]  # fmt: skip
+                for m in rx.finditer(masked)]  # fmt: skip
     if lang == "py":
         return [(m.group(2), _py_body(masked, m)) for m in _PY_CLASS.finditer(masked)
                 if re.search(r"\bComponentResource\b", m.group(3))]  # fmt: skip
@@ -108,7 +112,7 @@ def uses(files: list[Path], comp: Component) -> int:
     for f in files:
         text, masked = _read(f)
         lang = LANGS[f.suffix]
-        head = r"\bnew\s+" if lang == "ts" else r"(?<![\w.])"
+        head = r"\bnew\s+" if lang in ("ts", "cs", "java") else r"(?<![\w.])"
         for m in re.finditer(head + r"(?:\w+\.)*" + re.escape(comp.name) + r"\s*\(", masked):
             before = masked[line_start(masked, m.start()) : m.start()]
             if re.search(r"(?:\bclass|\bdef|\bfunc(?:\s*\([^)]*\))?|\bsuper\s*\()\s*$", before):
@@ -121,9 +125,13 @@ def children(comp: Component, text: str, cls: str, module: str, token: str) -> l
     """Calls of `<…module.>cls` inside the component's body, named or not."""
     s, e = comp.body
     return [
-        InComponent(**{f.name: getattr(c, f.name) for f in fields(Construct)}, component=token)
+        InComponent(
+            **{f.name: getattr(c, f.name) for f in fields(Construct)},
+            component=token,
+            module=module,
+        )
         for c in scan(comp.file, text, None, cls)
-        if s <= c.start < e and c.qualifier.endswith(f"{module}.")
+        if s <= c.start < e and trusted(c.lang, c.qualifier, c.masked, module, cls)
     ]
 
 
@@ -144,10 +152,9 @@ def rescan(c: InComponent, new_text: str) -> Construct:
     """The same call in the edited file: same component body, same name (or the only call)."""
     text = new_text.replace("\r\n", "\n")
     comps = registered(c.file, text, _mask(c.file, text), c.component)
-    module = c.qualifier.rstrip(".").rsplit(".", 1)[-1]
     if len(comps) != 1:
         raise cdk_source.unsupported(f"the edited {c.file.name}")
-    hit = pick(children(comps[0], new_text, c.cls, module, c.component), c.construct_id)
+    hit = pick(children(comps[0], new_text, c.cls, c.module, c.component), c.construct_id)
     if isinstance(hit, str):
         raise cdk_source.unsupported(f"the edited {c.file.name}")
     return hit

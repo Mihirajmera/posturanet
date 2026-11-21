@@ -27,7 +27,15 @@ from posturanet.errors import StageStop
 from posturanet.locate.codeowners import find_codeowners, owners_for
 from posturanet.models import Confidence, Config, Finding, Location
 from posturanet.pulumi import component, model, yaml_source
-from posturanet.pulumi.source import LANGS, SUFFIX, Computed, InComponent, find, props
+from posturanet.pulumi.source import (
+    LANGS,
+    SUFFIX,
+    Computed,
+    InComponent,
+    find,
+    props,
+    trusted,
+)
 
 PREFIX = "pulumi."
 STACK = "pulumi:pulumi:Stack"
@@ -100,11 +108,21 @@ class Program:
             names = [self.root / "Pulumi.yaml", self.root / "Pulumi.yml", self.main / "Main.yaml"]
             return [p for p in dict.fromkeys(names) if p.is_file()]
         suffix = SUFFIX[self.runtime]
-        if suffix == ".go":
-            skip = {"vendor", ".git", "testdata", ".pulumi"}
+        if suffix in (".go", ".cs", ".java"):
+            skip = {
+                "vendor",
+                ".git",
+                "testdata",
+                ".pulumi",
+                "bin",
+                "obj",
+                "build",
+                "target",
+                "test",
+            }
             return [
                 p
-                for p in sorted(self.main.rglob("*.go"))
+                for p in sorted(self.main.rglob(f"*{suffix}"))
                 if p.is_file() and not p.name.endswith("_test.go")
                 and not skip & set(p.relative_to(self.main).parts[:-1])
             ]  # fmt: skip
@@ -138,7 +156,7 @@ def program(repo: Path, config: Config) -> Program:
         raise StageStop(
             "locate",
             f"the Pulumi runtime is {runtime!r}; PosturaNet reads TypeScript (nodejs), Python, "
-            "Go and YAML",
+            "Go, C# (dotnet), Java and YAML",
             [_HAND],
             unknown=True,
         )
@@ -457,7 +475,9 @@ def _rule_calls(prog: Program, exp: Export, sg: Construct, ours: set[str]) -> st
     could open the group without PosturaNet seeing it."""
     known = {r.name for r in [*exp.of_type(SG_RULE), *exp.of_type(SG_INGRESS)]}
     yaml = prog.runtime == "yaml"
-    form = {"yaml": "${{{}.id}}", "go": "{}.ID()"}.get(sg.lang, "{}.id")
+    form = {"yaml": "${{{}.id}}", "go": "{}.ID()", "cs": "{}.Id", "java": "{}.id()"}.get(
+        sg.lang, "{}.id"
+    )
     here = form.format(sg.var) if sg.var else None
     try:
         refs = list(_yaml_rule_refs(prog.files()) if yaml else _rule_refs(prog.files()))
@@ -488,7 +508,7 @@ def _rule_refs(files: list[Path]) -> Iterator[tuple[str, str | None, str | None]
             at = 1 if f.suffix == ".go" else 0  # Go: New…(ctx, "name", …)
             lit = cdk_source.str_lit(text, args[at]) if len(args) > at else None
             ref = re.search(
-                r"(?:securityGroupId\s*:|security_group_id\s*=|SecurityGroupId\s*:)\s*"
+                r"(?:securityGroupId\s*[:(]|security_group_id\s*=|SecurityGroupId\s*[:=])\s*"
                 r"([\w.]+(?:\(\))?)\s*[,)}\n]",
                 masked[o : cdk_source.close_of(masked, o)],
             )
@@ -519,7 +539,7 @@ def _calls(
         lang = LANGS[f.suffix]
         masked = cdk_source.mask(text, lang)
         for m in cdk_source._call_re("New" + cls if lang == "go" else cls, lang).finditer(masked):
-            if m.group(1).endswith(f"{module}."):
+            if trusted(lang, m.group(1), masked, module, cls):
                 yield f, text, masked, m
 
 
@@ -575,7 +595,14 @@ def locate(
         )
     c = target.construct
     file_rel = _rel(c.file, repo)
-    lang = {"ts": "TypeScript", "py": "Python", "yaml": "YAML", "go": "Go"}[c.lang]
+    lang = {
+        "ts": "TypeScript",
+        "py": "Python",
+        "yaml": "YAML",
+        "go": "Go",
+        "cs": "C#",
+        "java": "Java",
+    }[c.lang]
     reasoning = [
         f"physical id matched in {exp.label}: {state.urn}",
         f"defined in {file_rel}:{c.line} ({lang}, name '{state.name}')",
