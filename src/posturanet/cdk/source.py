@@ -20,7 +20,7 @@ from posturanet.errors import StageStop
 from posturanet.synth.hcl_render import DEFAULT_DESCRIPTION
 from posturanet.synth.sg_rules import Rule, norm_proto
 
-Lang = Literal["ts", "py"]
+Lang = Literal["ts", "py", "yaml", "go", "cs", "java"]  # all but ts, py: Pulumi only (pulumi/)
 SUFFIXES: dict[str, Lang] = {".ts": "ts", ".py": "py"}
 _SKIP_DIRS = {
     "node_modules", "cdk.out", ".git", ".venv", "venv", "__pycache__", ".posturanet",
@@ -57,26 +57,61 @@ def mask(text: str, lang: Lang) -> str:
 
     while i < n:
         c = text[i]
-        if (lang == "ts" and text.startswith("//", i)) or (lang == "py" and c == "#"):
+        cstyle = lang in ("ts", "go", "cs", "java")
+        if lang in ("cs", "java") and text.startswith('"""', i):  # C# raw, Java text block
+            j = text.find('"""', i + 3)
+            j = n if j < 0 else j
+            blank(i + 3, j)
+            i = j + 3
+            while i < n and text[i] == '"':  # `""""` delimiters close with the same run
+                i += 1
+        elif lang == "cs" and c == '"' and i > 0 and text[i - 1] == "@":  # verbatim: `""`
+            j = i + 1
+            while j < n and (text[j] != '"' or text.startswith('""', j)):
+                j += 2 if text.startswith('""', j) else 1
+            blank(i + 1, j)
+            i = j + 1
+        elif (cstyle and text.startswith("//", i)) or (lang == "py" and c == "#"):
             j = text.find("\n", i)
             j = n if j < 0 else j
             blank(i, j)
             i = j
-        elif lang == "ts" and text.startswith("/*", i):
+        elif cstyle and text.startswith("/*", i):
             j = text.find("*/", i + 2)
             j = n if j < 0 else j + 2
             blank(i, j)
             i = j
-        elif c in "'\"" or (lang == "ts" and c == "`"):
+        elif c in "'\"" or (lang in ("ts", "go") and c == "`"):
             q = text[i : i + 3] if lang == "py" and text[i : i + 3] in ('"""', "'''") else c
+            raw = lang == "go" and q == "`"  # a Go raw string has no escapes
             j = i + len(q)
             while j < n and not text.startswith(q, j):
-                j += 2 if text[j] == "\\" else 1
+                j += 2 if text[j] == "\\" and not raw else 1
             blank(i + len(q), j)
             i = j + len(q)
         else:
             i += 1
+    if lang in ("cs", "java"):
+        _blank_type_args(out)
     return "".join(out)
+
+
+def _blank_type_args(out: list[str]) -> None:
+    """Blank the commas of C# and Java generic type arguments (`Dictionary<string, object?>`)
+    so they don't split argument or initializer lists."""
+    text = "".join(out)
+    for m in re.finditer(r"\w\s*<", text):
+        depth, j = 0, m.end() - 1
+        while j < len(text):
+            ch = text[j]
+            depth += (ch == "<") - (ch == ">")
+            if depth == 0 or not (ch.isalnum() or ch in "_ .,?[]<>\n\t"):
+                break
+            j += 1
+        if j < len(text) and text[j] == ">" and depth == 0:
+            for k in range(m.end(), j):
+                if out[k] == ",":
+                    out[k] = " "
 
 
 def close_of(masked: str, i: int) -> int:
@@ -165,7 +200,7 @@ class Construct:
 
 
 def _call_re(cls: str, lang: Lang) -> re.Pattern[str]:
-    head = r"\bnew\s+" if lang == "ts" else r"(?<![\w.])"
+    head = r"\bnew\s+" if lang in ("ts", "cs", "java") else r"(?<![\w.])"
     return re.compile(head + r"((?:\w+\.)*)" + cls + r"\s*\(")
 
 
@@ -953,7 +988,7 @@ def _l1_statements(c: Construct) -> list[SourceStatement]:
 def _render_list(c: Construct, span: Span, entries: list[str]) -> str:
     """A list literal of `entries` to replace the one at `span`, in its layout."""
     s, e = span
-    spans = items(c.masked, s, e - 1) if c.masked[s] == "[" else []
+    spans = items(c.masked, s, e - 1) if c.masked[s] in "[{(" else []  # C# `{`, Java `(`
     if "\n" not in c.masked[s:e] or not spans:
         return "[" + ", ".join(entries) + "]"
     indent = c.text[line_start(c.text, spans[0][0]) : spans[0][0]]

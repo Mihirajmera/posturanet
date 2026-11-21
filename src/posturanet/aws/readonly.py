@@ -33,6 +33,10 @@ ALLOWLIST: tuple[str, ...] = (
     "cloudfront:ListDistributions",
     # IAM fix verification (FR-32): AccessDenied on removed actions.
     "cloudtrail:LookupEvents",
+    # Opt-in IAM history (FR-16b, `evidence.cloudtrail_lake`): SQL over an event data store.
+    # Runs a query; changes no resource. Billed by the customer per GB scanned.
+    "cloudtrail:StartQuery",
+    "cloudtrail:GetQueryResults",
     "iam:Get*",
     "iam:List*",
     "iam:GenerateServiceLastAccessedDetails",
@@ -49,6 +53,10 @@ ALLOWLIST: tuple[str, ...] = (
     "cloudformation:GetTemplate",
     # CloudFormation drift (FR-5): the live bucket's Block Public Access, before the edit.
     "s3:GetBucketPublicAccessBlock",
+    # Live contract checks (PosturaNet Pro, FR-53): the account-wide Block Public Access, and
+    # the bucket policy text so `must_keep` requesters are judged against the deployed policy.
+    "s3:GetAccountPublicAccessBlock",
+    "s3:GetBucketPolicy",
     "access-analyzer:Get*",
     "access-analyzer:List*",
     "sts:GetCallerIdentity",
@@ -62,6 +70,7 @@ _IAM_ACTION = {
     ("s3", "list_buckets"): "s3:ListAllMyBuckets",
     ("s3", "list_objects_v2"): "s3:ListBucket",
     ("s3", "get_public_access_block"): "s3:GetBucketPublicAccessBlock",
+    ("s3control", "get_public_access_block"): "s3:GetAccountPublicAccessBlock",
 }
 
 

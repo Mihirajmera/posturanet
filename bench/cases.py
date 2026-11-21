@@ -173,6 +173,17 @@ CASES: list[Case] = [
         approved=["10.0.4.12", "10.0.40.5"],
     ),
     Case(
+        "quarterly-dr-drill-year-of-logs",
+        "The same DR drill, with a year of flow logs kept",
+        "PosturaNet reads every log the account keeps, so the drill shows up three times.",
+        [OPEN_22],
+        [
+            Source("10.0.4.12", 22, "daily", note="CI runner"),
+            Source("10.0.40.5", 22, "every120", day=100, note="DR drill"),
+        ],
+        log_days=365,
+    ),
+    Case(
         "scanner-noise",
         "Internet scanners hit the open port on a few days",
         "An open rule logs scanner traffic as ACCEPT. Allowing 'whatever connected' lets them in.",

@@ -158,7 +158,7 @@ def render_gate(
     state, _, rest = result.summary.partition(" · ")
     token = _RESULT_TOKEN.get(state, "bold")
     summary = f"{style(token, state)} · {rest}" if rest else style(token, state)
-    title = header("contract check", "", style)
+    title = header("contract live" if result.mode == "live" else "contract check", "", style)
     blocks: list[tuple[str, str, list[str]]] = []
     for r in result.results:
         if r.status == "PASS":
@@ -168,7 +168,11 @@ def render_gate(
         if r.status == "BLOCK":
             if r.caused_by:
                 body.append(style("muted", f"caused by: {r.caused_by}"))
-            fix = "keep the access, or update the contract in the same PR with owner approval"
+            fix = (
+                "restore it from code (re-apply), or update the contract with owner approval"
+                if result.mode == "live"
+                else "keep the access, or update the contract in the same PR with owner approval"
+            )
             body.append(f"{style('accent', '→')} {fix}")
         blocks.append((f"{style(sym_token, sym)} {r.address}", sym_token, body))
 
@@ -178,8 +182,13 @@ def render_gate(
         lines += [frame.step(summary, info=True, token=token), frame.bar()]
         for head, sym_token, body in blocks:
             lines += frame.box(head, body, token=sym_token)
-        done = {"PASS": "Done. Every change keeps its contracts."}
-        lines += frame.close(done.get(state, "Stopped. Fix the change or the contract first."))
+        if result.mode == "live":
+            done = {"PASS": "Done. Every live resource keeps its contract."}
+            stop = "Stopped. Restore the resource or update its contract."
+        else:
+            done = {"PASS": "Done. Every change keeps its contracts."}
+            stop = "Stopped. Fix the change or the contract first."
+        lines += frame.close(done.get(state, stop))
     else:
         lines = [title, "", summary]
         for head, _, body in blocks:

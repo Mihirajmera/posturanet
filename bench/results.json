@@ -910,6 +910,48 @@
         "verdict": "OUTAGE"
       }
     ],
+    "iam-rare-job-cloudtrail-lake": [
+      {
+        "allowed": [
+          "rds:DescribeDBInstances",
+          "rds:StartExportTask"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      },
+      {
+        "allowed": [
+          "rds:DescribeDBInstances"
+        ],
+        "broken": [
+          "rds:StartExportTask"
+        ],
+        "expect": "fix",
+        "exposed": [],
+        "note": "",
+        "status": "FIXED",
+        "tool": "Used actions only",
+        "verdict": "OUTAGE"
+      },
+      {
+        "allowed": [],
+        "broken": [
+          "rds:DescribeDBInstances",
+          "rds:StartExportTask"
+        ],
+        "expect": "fix",
+        "exposed": [],
+        "note": "",
+        "status": "FIXED",
+        "tool": "Remove wildcard",
+        "verdict": "OUTAGE"
+      }
+    ],
     "iam-rare-job-in-window": [
       {
         "allowed": [
@@ -1159,6 +1201,262 @@
     ]
   },
   "pulumi": {
+    "pulumi-component-arg-cidr": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: ingress entry 1 of 'bastion-sg' has a value that is not a literal",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-component-nested": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: bastion-sg is created inside the component acme:net:Bastion, which is not directly under the stack; PosturaNet traces one level only",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-component-two-children": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: bastion-sg is created inside the component acme:net:Bastion (Bastion, infra/network.ts:4): 2 calls of the class in the component (0 named 'bastion-sg'); can't tell which one made it",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-component-two-in-export": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: bastion-sg is created inside the component acme:net:Bastion, which the stack export has 2 times; an edit would change all",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-component-used-twice": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: bastion-sg is created inside the component acme:net:Bastion; Bastion is instantiated 2 times in the program, not once",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-cs-computed-cidr": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: ingress entry 1 of 'bastion-sg' has a value that is not a literal",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-cs-config-flag": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: blockPublicAcls of 'assets-pab' is not a literal boolean",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-cs-interpolated-name": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: no ec2.SecurityGroup call with the literal name 'bastion-sg' in the program source; the name may be computed",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-cs-unimported-class": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: no ec2.SecurityGroup call with the literal name 'bastion-sg' in the program source; the name may be computed",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-cs-variable-policy": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: the policy of 'app' is not a literal document (an object, or JSON.stringify / json.dumps / fn::toJSON / JsonSerializer.Serialize / serializeJson of one, or a Go raw string of JSON); PosturaNet won't guess",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-cs-verbatim-cidr": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: ingress entry 1 of 'bastion-sg' has a value that is not a literal",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-go-args-variable": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: the arguments of 'bastion-sg' are not a literal object; PosturaNet won't guess",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-go-computed-cidr": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: ingress entry 1 of 'bastion-sg' has a value that is not a literal",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-go-computed-name": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: no ec2.SecurityGroup call with the literal name 'bastion-sg' in the program source; the name may be computed",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-go-config-flag": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: blockPublicAcls of 'assets-pab' is not a literal boolean",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-go-marshal-policy": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: the policy of 'app' is not a literal document (an object, or JSON.stringify / json.dumps / fn::toJSON / JsonSerializer.Serialize / serializeJson of one, or a Go raw string of JSON); PosturaNet won't guess",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-iam-cs": [
+      {
+        "allowed": [
+          "ec2:DescribeInstances",
+          "ec2:DescribeVolumes",
+          "logs:CreateLogStream"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: every used action stays allowed",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "pulumi-iam-go": [
+      {
+        "allowed": [
+          "ec2:DescribeInstances",
+          "ec2:DescribeVolumes",
+          "logs:CreateLogStream"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: every used action stays allowed",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "pulumi-iam-go-component": [
+      {
+        "allowed": [
+          "ec2:DescribeInstances",
+          "ec2:DescribeVolumes",
+          "logs:CreateLogStream"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: every used action stays allowed",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "pulumi-iam-java": [
+      {
+        "allowed": [
+          "ec2:DescribeInstances",
+          "ec2:DescribeVolumes",
+          "logs:CreateLogStream"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: every used action stays allowed",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
     "pulumi-iam-program-differs": [
       {
         "allowed": [],
@@ -1209,7 +1507,95 @@
         "broken": [],
         "expect": "stop",
         "exposed": [],
-        "note": "locate unknown: the policy of 'app' is not a literal document (an object, or JSON.stringify / json.dumps of one); PosturaNet won't guess",
+        "note": "locate unknown: the policy of 'app' is not a literal document (an object, or JSON.stringify / json.dumps / fn::toJSON / JsonSerializer.Serialize / serializeJson of one, or a Go raw string of JSON); PosturaNet won't guess",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-iam-yaml": [
+      {
+        "allowed": [
+          "ec2:DescribeInstances",
+          "ec2:DescribeVolumes",
+          "logs:CreateLogStream"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: every used action stays allowed",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "pulumi-java-computed-cidr": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: ingress entry 1 of 'bastion-sg' has a value that is not a literal",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-java-concatenated-name": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: no ec2.SecurityGroup call with the literal name 'bastion-sg' in the program source; the name may be computed",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-java-config-flag": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: blockPublicAcls of 'assets-pab' is not a literal boolean",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-java-setter-twice": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: the arguments of 'bastion-sg' are not a literal object; PosturaNet won't guess",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-java-unimported-class": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: no ec2.SecurityGroup call with the literal name 'bastion-sg' in the program source; the name may be computed",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-java-variable-policy": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: the policy of 'app' is not a literal document (an object, or JSON.stringify / json.dumps / fn::toJSON / JsonSerializer.Serialize / serializeJson of one, or a Go raw string of JSON); PosturaNet won't guess",
         "status": "STOPPED",
         "tool": "PosturaNet",
         "verdict": "STOPPED"
@@ -1225,6 +1611,48 @@
         "status": "STOPPED",
         "tool": "PosturaNet",
         "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-s3-cs": [
+      {
+        "allowed": [
+          "Block Public Access: all on"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: no public use in the logs",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "pulumi-s3-go": [
+      {
+        "allowed": [
+          "Block Public Access: all on"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: no public use in the logs",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "pulumi-s3-java": [
+      {
+        "allowed": [
+          "Block Public Access: all on"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: no public use in the logs",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
       }
     ],
     "pulumi-s3-no-block": [
@@ -1253,7 +1681,35 @@
         "verdict": "CORRECT"
       }
     ],
+    "pulumi-s3-py-component": [
+      {
+        "allowed": [
+          "Block Public Access: all on"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: no public use in the logs",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
     "pulumi-s3-ts": [
+      {
+        "allowed": [
+          "Block Public Access: all on"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: no public use in the logs",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "pulumi-s3-yaml": [
       {
         "allowed": [
           "Block Public Access: all on"
@@ -1273,7 +1729,7 @@
         "broken": [],
         "expect": "stop",
         "exposed": [],
-        "note": "locate unknown: bastion-sg is created inside the component acme:net:Bastion; its name in the program may be computed, so PosturaNet can't trace it to one line",
+        "note": "locate unknown: bastion-sg is created inside the component acme:net:Bastion; 0 classes or functions in the program register acme:net:Bastion, so PosturaNet can't tell which code made it",
         "status": "STOPPED",
         "tool": "PosturaNet",
         "verdict": "STOPPED"
@@ -1289,6 +1745,42 @@
         "status": "STOPPED",
         "tool": "PosturaNet",
         "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-sg-cs": [
+      {
+        "allowed": [
+          "10.0.0.0/16:9100/tcp",
+          "10.0.4.12/32:22/tcp",
+          "10.0.4.37/32:22/tcp",
+          "10.0.5.9/32:22/tcp",
+          "203.0.113.7/32:22/tcp"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "pulumi-sg-cs-component": [
+      {
+        "allowed": [
+          "10.0.0.0/16:9100/tcp",
+          "10.0.4.12/32:22/tcp",
+          "10.0.4.37/32:22/tcp",
+          "10.0.5.9/32:22/tcp",
+          "203.0.113.7/32:22/tcp"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
       }
     ],
     "pulumi-sg-drift": [
@@ -1313,6 +1805,60 @@
         "status": "STOPPED",
         "tool": "PosturaNet",
         "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-sg-go": [
+      {
+        "allowed": [
+          "10.0.0.0/16:9100/tcp",
+          "10.0.4.12/32:22/tcp",
+          "10.0.4.37/32:22/tcp",
+          "10.0.5.9/32:22/tcp",
+          "203.0.113.7/32:22/tcp"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "pulumi-sg-java": [
+      {
+        "allowed": [
+          "10.0.0.0/16:9100/tcp",
+          "10.0.4.12/32:22/tcp",
+          "10.0.4.37/32:22/tcp",
+          "10.0.5.9/32:22/tcp",
+          "203.0.113.7/32:22/tcp"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "pulumi-sg-java-component": [
+      {
+        "allowed": [
+          "10.0.0.0/16:9100/tcp",
+          "10.0.4.12/32:22/tcp",
+          "10.0.4.37/32:22/tcp",
+          "10.0.5.9/32:22/tcp",
+          "203.0.113.7/32:22/tcp"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
       }
     ],
     "pulumi-sg-py-standalone": [
@@ -1351,6 +1897,24 @@
         "verdict": "CORRECT"
       }
     ],
+    "pulumi-sg-ts-component": [
+      {
+        "allowed": [
+          "10.0.0.0/16:9100/tcp",
+          "10.0.4.12/32:22/tcp",
+          "10.0.4.37/32:22/tcp",
+          "10.0.5.9/32:22/tcp",
+          "203.0.113.7/32:22/tcp"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
     "pulumi-sg-undeployed-rule": [
       {
         "allowed": [],
@@ -1358,6 +1922,84 @@
         "expect": "stop",
         "exposed": [],
         "note": "locate unknown: ingress rule 'bastion-rdp' in network.ts is not in the stack export, so it may change 'bastion-sg' in ways the deployed state doesn't show",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-sg-yaml": [
+      {
+        "allowed": [
+          "10.0.0.0/16:9100/tcp",
+          "10.0.4.12/32:22/tcp",
+          "10.0.4.37/32:22/tcp",
+          "10.0.5.9/32:22/tcp",
+          "203.0.113.7/32:22/tcp"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "pulumi-yaml-anchor": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: ingress entry 1 of 'bastion-sg' has a value that is not a literal",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-yaml-config-flag": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: blockPublicAcls of 'assets-pab' is not a literal boolean",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-yaml-interpolated-cidr": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: ingress entry 1 of 'bastion-sg' has a value that is not a literal",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-yaml-secret-policy": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: the policy of 'app' is not a literal document (an object, or JSON.stringify / json.dumps / fn::toJSON / JsonSerializer.Serialize / serializeJson of one, or a Go raw string of JSON); PosturaNet won't guess",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-yaml-undeployed-rule": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: ingress rule 'bastion-rdp' in Pulumi.yaml is not in the stack export, so it may change 'bastion-sg' in ways the deployed state doesn't show",
         "status": "STOPPED",
         "tool": "PosturaNet",
         "verdict": "STOPPED"
@@ -1477,6 +2119,42 @@
         "status": "FIXED",
         "tool": "PosturaNet",
         "verdict": "OUTAGE"
+      },
+      {
+        "allowed": [],
+        "broken": [
+          "partner account (every 120 days)"
+        ],
+        "expect": "stop",
+        "exposed": [],
+        "note": "",
+        "status": "FIXED",
+        "tool": "Block always",
+        "verdict": "OUTAGE"
+      },
+      {
+        "allowed": [],
+        "broken": [
+          "partner account (every 120 days)"
+        ],
+        "expect": "stop",
+        "exposed": [],
+        "note": "",
+        "status": "FIXED",
+        "tool": "Skip websites",
+        "verdict": "OUTAGE"
+      }
+    ],
+    "s3-partner-every-120-days-year-of-logs": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "1 blocker(s) \u00b7 s3 evidence file \u00b7 365 days \u00b7 100% coverage \u00b7 confidence high",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
       },
       {
         "allowed": [],
@@ -2479,6 +3157,71 @@
         "tool": "Allow all observed",
         "total_addresses": 1,
         "verdict": "OUTAGE"
+      }
+    ],
+    "quarterly-dr-drill-year-of-logs": [
+      {
+        "broken": [],
+        "exposed": [],
+        "flagged": [
+          "10.0.40.5/32:22"
+        ],
+        "internet_addresses": 0,
+        "note": "risk medium \u00b7 disruption none",
+        "rules": [
+          "10.0.4.12/32:22/tcp",
+          "10.0.40.5/32:22/tcp"
+        ],
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "total_addresses": 2,
+        "verdict": "CORRECT"
+      },
+      {
+        "broken": [
+          "10.0.4.12:22 (CI runner)",
+          "10.0.40.5:22 (DR drill)"
+        ],
+        "exposed": [],
+        "flagged": [],
+        "internet_addresses": 0,
+        "note": "",
+        "rules": [],
+        "status": "FIXED",
+        "tool": "Revoke open rule",
+        "total_addresses": 0,
+        "verdict": "OUTAGE"
+      },
+      {
+        "broken": [],
+        "exposed": [],
+        "flagged": [],
+        "internet_addresses": 0,
+        "note": "",
+        "rules": [
+          "10.0.0.0/8:22/tcp",
+          "172.16.0.0/12:22/tcp",
+          "192.168.0.0/16:22/tcp"
+        ],
+        "status": "FIXED",
+        "tool": "Private ranges only",
+        "total_addresses": 17891328,
+        "verdict": "CORRECT"
+      },
+      {
+        "broken": [],
+        "exposed": [],
+        "flagged": [],
+        "internet_addresses": 0,
+        "note": "",
+        "rules": [
+          "10.0.4.12/32:22/tcp",
+          "10.0.40.5/32:22/tcp"
+        ],
+        "status": "FIXED",
+        "tool": "Allow all observed",
+        "total_addresses": 2,
+        "verdict": "CORRECT"
       }
     ],
     "rdp-jump-host": [

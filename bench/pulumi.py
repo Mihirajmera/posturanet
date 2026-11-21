@@ -1,8 +1,10 @@
 """Pulumi benchmark: the same three fix types (open security group, public bucket, wildcard IAM
-policy) when the source is a Pulumi program (TypeScript or Python, AWS Classic provider).
+policy) when the source is a Pulumi program (TypeScript, Python, Go, C#, Java or YAML, AWS Classic
+provider).
 
 Every case runs the real pipeline (`run_fix`, check mode) on a copy of
-`tests/fixtures/pulumi/ts-program` or `py-program`, with the program or the stack export
+`tests/fixtures/pulumi/ts-program`, `py-program` or `yaml-program`, with the program or the
+stack export
 changed to set a trap: a computed value in the field the fix edits, a resource inside a
 component, a name used twice, an ingress rule written since the last deploy, a program that no
 longer matches the export, and drift between the export's inputs and outputs. No AWS call is
@@ -32,19 +34,46 @@ from posturanet.pipeline import Context, run_fix  # noqa: E402
 FIX = ROOT / "tests" / "fixtures"
 Family = Literal["sg", "s3", "iam"]
 Export = dict[str, Any]
+Edit = tuple[str, str]
 
 
 def _res(doc: Export, name: str) -> dict[str, Any]:
     return next(r for r in doc["deployment"]["resources"] if r["urn"].endswith(f"::{name}"))
 
 
-def _component(doc: Export) -> None:
-    sg = _res(doc, "bastion-sg")
-    stack = sg["parent"]
-    comp = stack.replace("pulumi:pulumi:Stack::acme-infra-prod", "acme:net:Bastion::bastion")
-    doc["deployment"]["resources"].append({"urn": comp, "type": "acme:net:Bastion"})
-    sg["urn"] = sg["urn"].replace("::aws:ec2/", "::acme:net:Bastion$aws:ec2/")
-    sg["parent"] = comp
+def _parent(name: str, typ: str, comp_name: str) -> Callable[[Export], None]:
+    """Move resource `name` under a component `typ` named `comp_name` (added under the stack)."""
+
+    def move(doc: Export) -> None:
+        r = _res(doc, name)
+        stack = r["parent"]
+        comp = stack.rsplit("::", 2)[0] + f"::{typ}::{comp_name}"
+        rows = doc["deployment"]["resources"]
+        if not any(x["urn"] == comp for x in rows):
+            rows.append({"urn": comp, "type": typ, "parent": stack})
+        r["urn"] = r["urn"].replace("::aws:", f"::{typ}$aws:")
+        r["parent"] = comp
+
+    return move
+
+
+_component = _parent("bastion-sg", "acme:net:Bastion", "bastion")
+
+
+def _two_bastions(doc: Export) -> None:
+    _component(doc)
+    rows = doc["deployment"]["resources"]
+    first = next(x for x in rows if x["type"] == "acme:net:Bastion")
+    rows.append({**first, "urn": first["urn"] + "2"})
+
+
+def _nested(doc: Export) -> None:
+    _component(doc)
+    comp = next(x for x in doc["deployment"]["resources"] if x["type"] == "acme:net:Bastion")
+    outer = comp["parent"].rsplit("::", 2)[0] + "::acme:net:Zone::z"
+    doc["deployment"]["resources"].append({"urn": outer, "type": "acme:net:Zone",
+                                           "parent": comp["parent"]})  # fmt: skip
+    comp["parent"] = outer
 
 
 def _sg_drift(doc: Export) -> None:
@@ -69,11 +98,11 @@ def _wider_policy(doc: Export) -> None:
 class PulumiCase:
     id: str
     family: Family
-    lang: Literal["ts", "py"]
+    lang: Literal["ts", "py", "yaml", "go", "cs", "java"]
     title: str
     why: str
     expect: Expect
-    edits: dict[str, tuple[str, str]] = field(default_factory=dict)  # file -> (old, new)
+    edits: dict[str, Edit | list[Edit]] = field(default_factory=dict)  # file -> (old, new)
     export: Callable[[Export], None] | None = None
     exit_code: int = 0
     says: str = ""
@@ -85,6 +114,91 @@ RDP = (
     "    securityGroupId: bastionSg.id,\n"
     '    ipProtocol: "tcp",\n    fromPort: 3389,\n    toPort: 3389,\n'
     '    cidrIpv4: "0.0.0.0/0",\n});\n'
+)
+YML, GO, GOS = "Pulumi.yaml", "main.go", "storage.go"
+CS, CSS = "Program.cs", "Storage.cs"
+_cs = (FIX / "pulumi" / "cs-program" / CS).read_text(encoding="utf-8")
+CS_SG = _cs[_cs.index("    var bastionSg") : _cs.index("\n\n    var web")]
+# The bastion group moved into a C# component class (a new file), named from the component's.
+CS_COMP: dict[str, Edit | list[Edit]] = {
+    CS: (CS_SG, '    var bastionSg = new Bastion("bastion").Sg;'),
+    "Bastion.cs": ("", "using Pulumi;\nusing Pulumi.Aws.Ec2;\nusing Aws = Pulumi.Aws;\n\n"
+                   "class Bastion : ComponentResource\n{\n"
+                   "    public SecurityGroup Sg { get; }\n\n"
+                   "    public Bastion(string name, ComponentResourceOptions? opts = null)\n"
+                   '        : base("acme:net:Bastion", name, opts)\n    {\n    '
+                   + CS_SG.replace('var bastionSg = new SecurityGroup("bastion-sg", new()',
+                                   'Sg = new SecurityGroup($"{name}-sg", new()')
+                   .replace("\n    });", "\n    }, new() { Parent = this });")
+                   .replace("\n", "\n    ")
+                   + "\n    }\n}\n"),
+}  # fmt: skip
+# The bastion group inside a TypeScript component class, named from the component's name.
+TS_COMP: list[Edit] = [
+    (
+        'const bastionSg = new aws.ec2.SecurityGroup("bastion-sg", {',
+        "class Bastion extends pulumi.ComponentResource {\n"
+        "    public readonly sg: aws.ec2.SecurityGroup;\n"
+        "    constructor(name: string, opts?: pulumi.ComponentResourceOptions) {\n"
+        '        super("acme:net:Bastion", name, {}, opts);\n'
+        "        this.sg = new aws.ec2.SecurityGroup(`${name}-sg`, {",
+    ),
+    (
+        "    ],\n});\n\nconst web",
+        "    ],\n        }, { parent: this });\n    }\n}\n"
+        'const bastionSg = new Bastion("bastion").sg;\n\nconst web',
+    ),
+]
+# The public access block inside a Python component class, with a literal name.
+PY_COMP: list[Edit] = [
+    (
+        'aws.s3.BucketPublicAccessBlock(\n    "assets-pab",',
+        "class Assets(pulumi.ComponentResource):\n"
+        "    def __init__(self, name, opts=None):\n"
+        '        super().__init__("acme:storage:Assets", name, None, opts)\n'
+        '        aws.s3.BucketPublicAccessBlock(\n    "assets-pab",',
+    ),
+    (")\n\naws.iam.Policy(", ')\n\nAssets("assets")\n\naws.iam.Policy('),
+]
+# The policy inside a Go component constructor function.
+GO_COMP: list[Edit] = [
+    (
+        '\t_, err = iam.NewPolicy(ctx, "app", &iam.PolicyArgs{',
+        '\t_, err = NewApp(ctx, "app-comp")\n\treturn err\n}\n\n'
+        "func NewApp(ctx *pulumi.Context, name string) (*pulumi.ResourceState, error) {\n"
+        "\tcomp := &pulumi.ResourceState{}\n"
+        '\tif err := ctx.RegisterComponentResource("acme:iam:App", name, comp); err != nil {\n'
+        "\t\treturn nil, err\n\t}\n"
+        '\t_, err := iam.NewPolicy(ctx, "app", &iam.PolicyArgs{',
+    ),
+    ("\t})\n\treturn err\n}\n", "\t}, pulumi.Parent(comp))\n\treturn comp, err\n}\n"),
+]
+JV, JVS = "src/main/java/acme/App.java", "src/main/java/acme/Storage.java"
+_jv = (FIX / "pulumi" / "java-program" / JV).read_text(encoding="utf-8")
+JV_SG = _jv[_jv.index("        var bastionSg") : _jv.index("\n\n        var web")]
+# The bastion group moved into a Java component class (a new file), named from the component's.
+JV_COMP: dict[str, Edit | list[Edit]] = {
+    JV: (JV_SG, '        var bastionSg = new Bastion("bastion").sg;'),
+    "src/main/java/acme/Bastion.java": (
+        "", "package acme;\n\nimport com.pulumi.resources.ComponentResource;\n"
+            "import com.pulumi.resources.CustomResourceOptions;\n"
+            "import com.pulumi.aws.ec2.SecurityGroup;\n"
+            "import com.pulumi.aws.ec2.SecurityGroupArgs;\n"
+            "import com.pulumi.aws.ec2.inputs.SecurityGroupIngressArgs;\n\n"
+            "class Bastion extends ComponentResource {\n    final SecurityGroup sg;\n\n"
+            "    Bastion(String name) {\n"
+            '        super("acme:net:Bastion", name, null);\n'
+            + JV_SG.replace('var bastionSg = new SecurityGroup("bastion-sg",',
+                            'this.sg = new SecurityGroup(name + "-sg",')
+            .replace("\n            .build());",
+                     "\n            .build(), "
+                     "CustomResourceOptions.builder().parent(this).build());")
+            + "\n    }\n}\n"),
+}  # fmt: skip
+YRDP = (
+    "\n  bastion-rdp:\n    type: aws:vpc:SecurityGroupIngressRule\n    properties:\n"
+    "      securityGroupId: ${bastion-sg.id}\n      ipProtocol: tcp\n      fromPort: 3389\n"
+    "      toPort: 3389\n      cidrIpv4: 0.0.0.0/0\n"
 )
 
 CASES: list[PulumiCase] = [
@@ -139,17 +253,200 @@ CASES: list[PulumiCase] = [
                "The stack runs a wider document than the program; a fix from the program "
                "would be wrong.", "stop", export=_wider_policy, exit_code=3,
                says="differs from the stack export"),
+    PulumiCase("pulumi-sg-yaml", "sg", "yaml", "Bastion SSH open, inline ingress (YAML)",
+               "A block-style `ingress` item becomes one item per observed source, each a copy of "
+               "the original with its CIDR replaced; the flow-style item and comments stay.",
+               "fix"),
+    PulumiCase("pulumi-s3-yaml", "s3", "yaml", "Public bucket, BucketPublicAccessBlock (YAML)",
+               "`false` becomes `true` (its comment stays); the missing flags are added as "
+               "keys at the properties' indentation.", "fix"),
+    PulumiCase("pulumi-iam-yaml", "iam", "yaml", "ec2:* and logs:* in fn::toJSON (YAML)",
+               "The block-style Action list is narrowed, quotes kept.", "fix"),
+    PulumiCase("pulumi-yaml-interpolated-cidr", "sg", "yaml", "SSH CIDR is `${adminCidr}`",
+               "An interpolation reads a variable; its value isn't a literal in the program.",
+               "stop", {YML: ('cidrBlocks: ["0.0.0.0/0"]', 'cidrBlocks: ["${adminCidr}"]')},
+               exit_code=3, says="not a literal"),
+    PulumiCase("pulumi-yaml-anchor", "sg", "yaml", "SSH port shared through a YAML anchor",
+               "`fromPort: &ssh 22`; an edit could change every alias of it.", "stop",
+               {YML: ("fromPort: 22\n", "fromPort: &ssh 22\n")}, exit_code=3,
+               says="not a literal"),
+    PulumiCase("pulumi-yaml-undeployed-rule", "sg", "yaml", "RDP rule written but not deployed",
+               "A SecurityGroupIngressRule on the group in Pulumi.yaml isn't in the stack "
+               "export.", "stop", {YML: ("\n  assets:\n", YRDP + "\n  assets:\n")}, exit_code=3,
+               says="not in the stack export"),
+    PulumiCase("pulumi-yaml-config-flag", "s3", "yaml", "blockPublicAcls comes from config",
+               "`blockPublicAcls: ${blockAcls}`; PosturaNet can't tell what it is.", "stop",
+               {YML: ("blockPublicAcls: false", "blockPublicAcls: ${blockAcls}")}, exit_code=3,
+               says="not a literal boolean"),
+    PulumiCase("pulumi-yaml-secret-policy", "iam", "yaml", "Policy wrapped in fn::secret",
+               "Only `fn::toJSON` of a literal map is read; any other `fn::` call is computed.",
+               "stop", {YML: ("fn::toJSON:", "fn::secret:")}, exit_code=3,
+               says="not a literal document"),
+    PulumiCase("pulumi-sg-go", "sg", "go", "Bastion SSH open, inline ingress (Go)",
+               "A `&ec2.SecurityGroupIngressArgs{…}` entry becomes one entry per observed "
+               "source, in the same struct type.", "fix"),
+    PulumiCase("pulumi-s3-go", "s3", "go", "Public bucket, BucketPublicAccessBlock (Go)",
+               "`pulumi.Bool(false)` becomes true; the missing flags are added to the struct "
+               "literal.", "fix"),
+    PulumiCase("pulumi-iam-go", "iam", "go", "ec2:* and logs:* in a raw-string JSON policy (Go)",
+               "The JSON Action array inside `pulumi.String(`…`)` is narrowed in its layout.",
+               "fix"),
+    PulumiCase("pulumi-go-computed-cidr", "sg", "go", "SSH CIDR is a Go variable",
+               "`pulumi.StringArray{adminCidr}`; its value isn't a literal in the program.",
+               "stop", {GO: ('pulumi.StringArray{pulumi.String("0.0.0.0/0")}',
+                             "pulumi.StringArray{adminCidr}")}, exit_code=3,
+               says="not a literal"),
+    PulumiCase("pulumi-go-marshal-policy", "iam", "go", "Policy from json.Marshal",
+               "`pulumi.String(policyJSON)`: the document is built elsewhere.", "stop",
+               {GOS: ("Policy: pulumi.String(`", "Policy: pulumi.String(policyJSON),\n\t\tX: (`")},
+               exit_code=3, says="not a literal document"),
+    PulumiCase("pulumi-go-config-flag", "s3", "go", "BlockPublicAcls comes from config",
+               "`pulumi.Bool(cfg.RequireBool(\"block\"))`; PosturaNet can't tell what it is.",
+               "stop", {GOS: ("pulumi.Bool(false)", 'pulumi.Bool(cfg.RequireBool("block"))')},
+               exit_code=3, says="not a literal boolean"),
+    PulumiCase("pulumi-go-computed-name", "sg", "go", "Group name built with fmt.Sprintf",
+               "The name argument isn't a string literal; no call can be matched to the URN.",
+               "stop", {GO: ('ctx, "bastion-sg",', 'ctx, fmt.Sprintf("%s-sg", "bastion"),')},
+               exit_code=3, says="the name may be computed"),
+    PulumiCase("pulumi-go-args-variable", "sg", "go", "Group args passed as a variable",
+               "`ec2.NewSecurityGroup(ctx, \"bastion-sg\", args)`: the struct isn't written in "
+               "the call.", "stop", {GO: ('"bastion-sg", &ec2.SecurityGroupArgs{',
+                                          '"bastion-sg", args, &ec2.SecurityGroupArgs{')},
+               exit_code=3, says="not a literal object"),
+    PulumiCase("pulumi-sg-cs", "sg", "cs", "Bastion SSH open, inline ingress (C#)",
+               "A `new …SecurityGroupIngressArgs { … }` entry becomes one entry per observed "
+               "source, in the same type; the class is bare, imported by `using Pulumi.Aws.Ec2;`.",
+               "fix"),
+    PulumiCase("pulumi-s3-cs", "s3", "cs", "Public bucket, BucketPublicAccessBlock (C#)",
+               "`BlockPublicAcls = false` becomes true; the missing flags are added to the "
+               "object initializer.", "fix"),
+    PulumiCase("pulumi-iam-cs", "iam", "cs",
+               "ec2:* and logs:* in JsonSerializer.Serialize (C#)",
+               "The `PolicyDocument` dictionary's `new[] { … }` Action array is narrowed in its "
+               "layout.", "fix"),
+    PulumiCase("pulumi-sg-cs-component", "sg", "cs", "Bastion group in a component (C#)",
+               "`class Bastion : ComponentResource` with `: base(\"acme:net:Bastion\", …)`, "
+               "instantiated once; its only SecurityGroup call is edited.", "fix", CS_COMP,
+               export=_component),
+    PulumiCase("pulumi-cs-computed-cidr", "sg", "cs", "SSH CIDR is a C# variable",
+               "`CidrBlocks = new[] { adminCidr }`; its value isn't a literal in the program.",
+               "stop", {CS: ('new[] { "0.0.0.0/0" }', "new[] { adminCidr }")}, exit_code=3,
+               says="not a literal"),
+    PulumiCase("pulumi-cs-verbatim-cidr", "sg", "cs", "SSH CIDR is a verbatim string",
+               "`@\"0.0.0.0/0\"`: only plain strings without escapes or prefixes are read.",
+               "stop", {CS: ('new[] { "0.0.0.0/0" }', 'new[] { @"0.0.0.0/0" }')}, exit_code=3,
+               says="not a literal"),
+    PulumiCase("pulumi-cs-interpolated-name", "sg", "cs", "Group name is an interpolated string",
+               "`$\"{prefix}-sg\"`: no call can be matched to the URN's name.", "stop",
+               {CS: ('new SecurityGroup("bastion-sg"', 'new SecurityGroup($"{prefix}-sg"')},
+               exit_code=3, says="the name may be computed"),
+    PulumiCase("pulumi-cs-unimported-class", "sg", "cs", "Bare SecurityGroup without its using",
+               "Without `using Pulumi.Aws.Ec2;` a bare `SecurityGroup` may be another class; "
+               "PosturaNet won't trust it.", "stop",
+               {CS: ("using Pulumi.Aws.Ec2;\n", "")}, exit_code=3,
+               says="the name may be computed"),
+    PulumiCase("pulumi-cs-config-flag", "s3", "cs", "BlockPublicAcls comes from config",
+               "`config.RequireBoolean(\"block\")`; PosturaNet can't tell what it is.", "stop",
+               {CSS: ("BlockPublicAcls = false",
+                      'BlockPublicAcls = config.RequireBoolean("block")')},
+               exit_code=3, says="not a literal boolean"),
+    PulumiCase("pulumi-cs-variable-policy", "iam", "cs", "PolicyDocument is a variable",
+               "`PolicyDocument = policyJson`: the document is built elsewhere.", "stop",
+               {CSS: ("PolicyDocument = JsonSerializer.Serialize(",
+                      "PolicyDocument = policyJson,\n            Path = "
+                      "JsonSerializer.Serialize(")},
+               exit_code=3, says="not a literal document"),
+    PulumiCase("pulumi-sg-java", "sg", "java", "Bastion SSH open, inline ingress (Java)",
+               "A `SecurityGroupIngressArgs.builder()….build()` entry of the `.ingress(…)` varargs "
+               "becomes one entry per observed source.", "fix"),
+    PulumiCase("pulumi-s3-java", "s3", "java", "Public bucket, BucketPublicAccessBlock (Java)",
+               "`.blockPublicAcls(false)` becomes true; the missing flags are added as setters "
+               "before `.build()`, one per line.", "fix"),
+    PulumiCase("pulumi-iam-java", "iam", "java", "ec2:* and logs:* in serializeJson (Java)",
+               "The `jsonArray(…)` Action is narrowed in its layout.", "fix"),
+    PulumiCase("pulumi-sg-java-component", "sg", "java", "Bastion group in a component (Java)",
+               "`class Bastion extends ComponentResource` with `super(\"acme:net:Bastion\", …)`, "
+               "instantiated once; its only SecurityGroup call is edited.", "fix", JV_COMP,
+               export=_component),
+    PulumiCase("pulumi-java-computed-cidr", "sg", "java", "SSH CIDR is a Java variable",
+               "`.cidrBlocks(adminCidr)`; its value isn't a literal in the program.", "stop",
+               {JV: ('.cidrBlocks("0.0.0.0/0")', ".cidrBlocks(adminCidr)")}, exit_code=3,
+               says="not a literal"),
+    PulumiCase("pulumi-java-concatenated-name", "sg", "java", "Group name built by concatenation",
+               "`\"bastion\" + \"-sg\"`: no call can be matched to the URN's name.", "stop",
+               {JV: ('new SecurityGroup("bastion-sg"', 'new SecurityGroup("bastion" + "-sg"')},
+               exit_code=3, says="the name may be computed"),
+    PulumiCase("pulumi-java-unimported-class", "sg", "java",
+               "Bare SecurityGroup without its import",
+               "Without `import com.pulumi.aws.ec2.SecurityGroup;` a bare `SecurityGroup` may be "
+               "another class; PosturaNet won't trust it.", "stop",
+               {JV: ("import com.pulumi.aws.ec2.SecurityGroup;\n", "")}, exit_code=3,
+               says="the name may be computed"),
+    PulumiCase("pulumi-java-setter-twice", "sg", "java", "A builder setter called twice",
+               "`.vpcId(…)` twice: the last call wins, so the chain isn't read.", "stop",
+               {JV: ('.vpcId("vpc-0example")\n', '.vpcId("vpc-0example")\n'
+                                                  "            .vpcId(otherVpc)\n")},
+               exit_code=3, says="not a literal object"),
+    PulumiCase("pulumi-java-config-flag", "s3", "java", "blockPublicAcls comes from config",
+               "`config.requireBoolean(\"block\")`; PosturaNet can't tell what it is.", "stop",
+               {JVS: (".blockPublicAcls(false)",
+                      '.blockPublicAcls(config.requireBoolean("block"))')},
+               exit_code=3, says="not a literal boolean"),
+    PulumiCase("pulumi-java-variable-policy", "iam", "java", "Policy document is a variable",
+               "`.policy(policyJson)`: the document is built elsewhere.", "stop",
+               {JVS: (".policy(serializeJson(",
+                      ".policy(policyJson)\n            .path(serializeJson(")},
+               exit_code=3, says="not a literal document"),
+    PulumiCase("pulumi-sg-ts-component", "sg", "ts", "Bastion group in a component (TypeScript)",
+               "The export puts bastion-sg under acme:net:Bastion; the one class registering "
+               "that type is instantiated once, so its only SecurityGroup call is edited.", "fix",
+               {NET: TS_COMP}, export=_component),
+    PulumiCase("pulumi-s3-py-component", "s3", "py",
+               "Public access block inside a component (Python)",
+               "The call named assets-pab inside the one `Assets` class is edited.", "fix",
+               {MAIN: PY_COMP}, export=_parent("assets-pab", "acme:storage:Assets", "assets")),
+    PulumiCase("pulumi-iam-go-component", "iam", "go", "Policy inside a component function (Go)",
+               "The call named app inside the one function that registers acme:iam:App is "
+               "edited.", "fix", {GOS: GO_COMP},
+               export=_parent("app", "acme:iam:App", "app-comp")),
+    PulumiCase("pulumi-component-used-twice", "sg", "ts", "Component class instantiated twice",
+               "Both instances run the same constructor call; an edit would change both groups.",
+               "stop", {NET: [*TS_COMP, ("\nexport const", '\nnew Bastion("spare");\n\n'
+                                                            "export const")]},
+               export=_component, exit_code=3, says="instantiated 2 times"),
+    PulumiCase("pulumi-component-two-in-export", "sg", "ts", "Two Bastion components deployed",
+               "The program has one call, but the stack holds two components of the type "
+               "(another stack file, a loop): an edit would change all.", "stop",
+               {NET: TS_COMP}, export=_two_bastions, exit_code=3, says="2 times"),
+    PulumiCase("pulumi-component-nested", "sg", "ts", "Component inside another component",
+               "The Bastion component is a child of acme:net:Zone; PosturaNet traces one level.",
+               "stop", {NET: TS_COMP}, export=_nested, exit_code=3,
+               says="not directly under the stack"),
+    PulumiCase("pulumi-component-two-children", "sg", "ts",
+               "Two computed-name groups inside the component",
+               "Neither call's name is a literal; PosturaNet won't pick one.", "stop",
+               {NET: [*TS_COMP, ('super("acme:net:Bastion", name, {}, opts);',
+                                 'super("acme:net:Bastion", name, {}, opts);\n'
+                                 "        new aws.ec2.SecurityGroup(`${name}-x`, "
+                                 '{ description: "x" }, { parent: this });')]},
+               export=_component, exit_code=3, says="can't tell which one"),
+    PulumiCase("pulumi-component-arg-cidr", "sg", "ts", "Component group's CIDR is a parameter",
+               "`cidrBlocks: [cidr]` takes a constructor argument; it isn't a literal.", "stop",
+               {NET: [*TS_COMP, ('cidrBlocks: ["0.0.0.0/0"]', "cidrBlocks: [cidr]")]},
+               export=_component, exit_code=3, says="not a literal"),
 ]  # fmt: skip
 
 
 def _repo(case: PulumiCase, work: Path) -> Path:
     repo = work / "repo"
     shutil.copytree(FIX / "pulumi" / f"{case.lang}-program", repo)
-    for rel, (old, new) in case.edits.items():
+    for rel, change in case.edits.items():
         path = repo / rel
-        text = path.read_text(encoding="utf-8")
-        assert old in text, (case.id, old)
-        path.write_text(text.replace(old, new, 1), encoding="utf-8")
+        text = path.read_text(encoding="utf-8") if path.exists() else ""  # ("", new): a new file
+        for old, new in change if isinstance(change, list) else [change]:
+            assert old in text, (case.id, old)
+            text = text.replace(old, new, 1)
+        path.write_text(text, encoding="utf-8")
     if case.export is not None:
         path = repo / "stack-export.json"
         doc = json.loads(path.read_text(encoding="utf-8"))
@@ -200,10 +497,12 @@ def report(results: dict[str, list[Result]]) -> list[str]:
     return [
         "## Pulumi (EC2.19, S3.8, IAM.21)",
         "",
-        "The same three fix types on Pulumi programs in TypeScript and Python, mapped through a "
-        "`pulumi stack export`, plus the traps that must stop the run (a computed value, a "
-        "component resource, a repeated name, an undeployed rule, a program that differs from "
-        "the export, drift). Validation is static; `pulumi preview` is not run. PosturaNet only.",
+        "The same three fix types on Pulumi programs in TypeScript, Python, Go, C#, Java and YAML, "
+        "mapped "
+        "through a `pulumi stack export`, plus the traps that must stop the run (a computed "
+        "value, an interpolation, an anchor or `fn::` call in YAML, a component resource, a "
+        "repeated name, an undeployed rule, a program that differs from the export, drift). "
+        "Validation is static; `pulumi preview` is not run. PosturaNet only.",
         "",
         *summary("Contender", results),
         "",

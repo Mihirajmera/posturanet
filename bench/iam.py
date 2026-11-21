@@ -61,6 +61,7 @@ class IamCase:
     age_days: int = 500
     reviewed: list[str] = field(default_factory=list)  # approved contract: reviewed_services
     human: list[str] = field(default_factory=list)  # approved contract: must_allow by hand
+    lake: dict[str, int] = field(default_factory=dict)  # CloudTrail Lake: action -> days ago
 
 
 def _covers(pattern: str, action: str) -> bool:
@@ -90,12 +91,17 @@ def evidence(case: IamCase) -> dict[str, object]:
                 else [],
             }
         )
-    return {
+    out: dict[str, object] = {
         "policy_arn": ARN,
         "created": (TODAY - timedelta(days=case.age_days)).isoformat(),
         "principals": ["role/app"],
         "services": services,
     }
+    if case.lake:
+        out["cloudtrail_lake"] = {
+            "actions": [{"action": a, "last_seen": day(b)} for a, b in case.lake.items()]
+        }
+    return out
 
 
 def _hcl(actions: list[str]) -> str:
@@ -257,6 +263,16 @@ CASES = [
         ["rds:*"],
         ["rds:DescribeDBInstances", "rds:StartExportTask"],
         [Svc("rds", {"rds:DescribeDBInstances": 1}, ("rds:StartExportTask",))],
+    ),
+    IamCase(
+        "iam-rare-job-cloudtrail-lake",
+        "The same yearly job, with CloudTrail Lake history turned on",
+        "Last-accessed forgot the export; two years of Lake history still show it.",
+        "fix",
+        ["rds:*"],
+        ["rds:DescribeDBInstances", "rds:StartExportTask"],
+        [Svc("rds", {"rds:DescribeDBInstances": 1}, ("rds:StartExportTask",))],
+        lake={"rds:StartExportTask": 430, "rds:DescribeDBInstances": 1},
     ),
     IamCase(
         "iam-s3-data-plane",

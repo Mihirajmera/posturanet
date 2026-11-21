@@ -4,6 +4,61 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-21
+
+### Added (opt-in CloudTrail Lake history for IAM, FR-16b)
+- `evidence.cloudtrail_lake` (off by default; needs `event_data_store`, an ARN or id; `lookback_days` defaults to 730): IAM fixes also read the policy's roles' and users' calls from the customer's CloudTrail Lake, so a job last run before last-accessed's ~400 days is kept. History only adds use; an unmapped event source or a group principal leaves the evidence as last-accessed reported it, and a failed query is UNKNOWN.
+- New read-only allowlist entries, also in the generated IAM policy: `cloudtrail:StartQuery` and `cloudtrail:GetQueryResults`. They run a query and change no resource. Lake bills per GB scanned.
+- IAM evidence files take an optional `cloudtrail_lake: {actions: [{action, last_seen}]}` for offline runs.
+- Benchmark: `iam-rare-job-cloudtrail-lake` is correct; `iam-rare-job-outside-tracking` (no Lake) is still an outage.
+### Added (Pulumi Java)
+- `posturanet fix` and `contract check --source` work on Pulumi Java programs (`runtime: java`), for the same three evidence-backed fixes. The resource is the one `new SecurityGroup("name", SecurityGroupArgs.builder()….build())` call (and `SecurityGroupRule`, `vpc.SecurityGroupIngressRule`, `BucketPublicAccessBlock`, `iam.Policy`) whose name is that string literal. A bare class name counts only in a file that imports it (`import com.pulumi.aws.ec2.SecurityGroup;` or `com.pulumi.aws.ec2.*`). `build/`, `target/` and `test/` directories are skipped.
+- Literals are plain `"…"` strings, integers, `true` / `false`, `List.of(…)` / `Arrays.asList(…)`, `Map.of(…)` with string keys, `…Args.builder()` chains of literal setters ending in `.build()` (a list setter such as `.ingress(…)` or `.cidrBlocks(…)` reads its varargs as the list), and `serializeJson(jsonObject(jsonProperty(…), …))` with `jsonArray(…)`, the policy form `pulumi convert` writes. Concatenation, text blocks, variables, config reads, `toBuilder()` and a setter called twice read as COMPUTED and stop with UNKNOWN. No Java parser dependency: the CDK scanner masks Java comments and strings.
+- Edits keep the program's style: a new ingress entry is a builder of the entry's own Args type, missing BPA flags are new setters before `.build()` (on their own line when the setters are), and the `jsonArray(…)` Action keeps its layout.
+- Components used exactly once work in Java too (`class X extends ComponentResource` with `super("<type>", …)`).
+- Benchmark: 10 more Pulumi cases (4 Java fixes, one inside a component; 6 Java traps); 59 in all, 0 wrongly reported safe.
+
+### Added (Pulumi C#)
+- `posturanet fix` and `contract check --source` work on Pulumi C# programs (`runtime: dotnet`), for the same three evidence-backed fixes. The resource is the one `new SecurityGroup("name", new() { … })` call (and `SecurityGroupRule`, `Vpc.SecurityGroupIngressRule`, `BucketPublicAccessBlock`, `Iam.Policy`) whose name is that string literal. A bare class name counts only in a file that imports its module (`using Pulumi.Aws.Ec2;`); otherwise it must be qualified (`Aws.Ec2.SecurityGroup`). `bin/` and `obj/` are skipped.
+- Literals are plain `"…"` strings, integers, `true` / `false`, `new[] { … }`, `new InputList<…> { … }` and `new List<…> { … }`, `new() { Key = … }` and `new …Args { … }` object initializers, and `JsonSerializer.Serialize(new Dictionary<string, object?> { ["Key"] = … })` (the policy form Pulumi documents; `PolicyDocument` is the policy). Interpolated (`$"…"`), verbatim (`@"…"`) and raw strings, variables, config reads and anonymous objects read as COMPUTED and stop with UNKNOWN. No C# parser dependency: the CDK scanner masks C# comments and strings.
+- Edits keep the program's style: a new ingress entry is a copy of the entry's own `new …Args { … }` type, missing BPA flags are added to the object initializer, and the `Action` array keeps its braces and layout. A fix that would empty an inferred `new[] { }` array (it has no element type) stops for a hand edit.
+- Components used exactly once work in C# too (`class X : ComponentResource` with `: base("<type>", …)`).
+- Benchmark: 10 more Pulumi cases (4 C# fixes, one inside a component; 6 C# traps); 49 in all, 0 wrongly reported safe.
+
+### Added (plugins)
+- Plugins: `posturanet` loads `posturanet.plugins` entry points and lets them add commands. A plugin that fails to load prints a warning; every free command keeps working. The core never imports a plugin.
+- Two read-only calls join the allowlist and the generated IAM policy, for the live contract check in PosturaNet Pro: `s3:GetAccountPublicAccessBlock` (account-wide Block Public Access, through `s3control`) and `s3:GetBucketPolicy` (the policy text, to check `must_keep` requesters). Neither writes anything.
+- S3 contracts: `must_keep` and `needs_review` entries take an optional `reason` (a contract refresh flags a requester it didn't see in the window there, and keeps it).
+
+### Changed (living contracts move to PosturaNet Pro)
+- `contract refresh`, the live contract check and the scheduled living workflow (merged to `test` for 0.5.0, never released) now ship in `posturanet-pro` behind the `living` license flag. The open core keeps `contract build` and `contract check --plan|--source`.
+
+### Changed (CSV exports point to the JSON export)
+- A Wiz, Orca or Prisma Cloud CSV file is still refused, and the message now names the API request that gives the same findings as JSON (Wiz `issuesV2`, Orca `POST /api/serving-layer/query`, Prisma Cloud `GET /v2/alert?detailed=true`) and links `docs/vendor-exports.md`, a page of copy-paste commands. The commands only read, take credentials from environment variables, and request the fields the parsers use.
+
+### Changed (evidence reads every log the account keeps)
+- `evidence.window_days` now defaults to 400 (was 90) and is a look-back cap: the window starts where the logs do. Flow logs: the later of the log group's creation and its retention limit, from `DescribeLogGroups` (already allowlisted); if that call fails, the full window is kept, which can only lower confidence. S3 access logs: the first log object. Hours or days before logs could exist no longer count as gaps, so a longer look-back doesn't lower coverage.
+- A job that runs every quarter or less is now seen when the account keeps enough logs. Benchmark: `quarterly-dr-drill-year-of-logs` is correct (the drill is kept and flagged for review) and `s3-partner-every-120-days-year-of-logs` stops on the partner's read. The 90-day versions of both are still outages: no logs, no evidence.
+- S3 live evidence past 20,000 access-log objects reads the newest 20,000 and starts the window the day after the oldest one kept, instead of stopping.
+- Cost: Logs Insights bills per GB scanned, so a 400-day look-back on a busy VPC scans up to about 4x the data of 90 days. Set `evidence.window_days: 90` to keep the old cost.
+
+### Added (Pulumi components)
+- A resource whose stack-export parent is a component (`ComponentResource`) is fixed in the constructor call inside the component's code, when that is unambiguous: exactly one TypeScript or Python class (`super("<type>", …)` / `super().__init__("<type>", …)`) or Go function (`ctx.RegisterComponentResource("<type>", …)`) registers the component's type, the program instantiates it exactly once, and the export has exactly one component of that type, directly under the stack. Inside it, the call is the one whose name is the URN's name as a literal, or else the only call of that class (a name like `` `${name}-sg` `` is accepted there).
+- Anything else stops with UNKNOWN and says why: no or several classes register the type, the class is instantiated more than once, the export holds several components of the type, a component nested in another component, several calls of the class with no literal match, or a YAML program.
+- Benchmark: 8 more Pulumi cases (a component fix in TypeScript, Python and Go; 5 traps); 39 in all, 0 wrongly reported safe.
+
+### Added (Pulumi Go)
+- `posturanet fix` and `contract check --source` work on Pulumi Go programs (`runtime: go`), for the same three evidence-backed fixes. The resource is the one constructor call `ec2.NewSecurityGroup(ctx, "name", &ec2.SecurityGroupArgs{…})` (and `vpc.NewSecurityGroupIngressRule`, `ec2.NewSecurityGroupRule`, `s3.NewBucketPublicAccessBlock`, `iam.NewPolicy`) whose name argument is that string literal. `_test.go` files and `vendor/` are skipped.
+- Literals are `pulumi.String("…")`, `pulumi.Int(…)`, `pulumi.Bool(…)` (and their `…Ptr` forms) of a literal, `…Array{…}` slices, `&…Args{Field: …}` structs, and `pulumi.String(`…`)` of a raw string holding a JSON object (the usual policy literal). Variables, `json.Marshal` results, config reads, `pulumi.Sprintf`, positional struct fields and interpreted strings with escapes read as COMPUTED and stop with UNKNOWN. No Go parser dependency: the CDK scanner masks Go comments and strings.
+- Edits keep the program's own style: new ingress entries use the struct type the entry already uses, missing BPA flags are added to the struct literal, and the JSON `Action` array keeps its layout. New lines aren't gofmt-aligned; run `gofmt` on the branch if your CI checks it.
+- Benchmark: 8 more Pulumi cases (3 Go fixes, 5 Go traps); 31 in all, 0 wrongly reported safe.
+
+### Added (Pulumi YAML)
+- `posturanet fix` and `contract check --source` work on Pulumi YAML programs (`runtime: yaml`; resources in `Pulumi.yaml`, or `Main.yaml` under `main:`), for the same three evidence-backed fixes. The resource is the entry of `resources:` whose key (or literal `name:`) is the URN's name and whose `type` is `aws:ec2:SecurityGroup` (with its rule resources), `aws:s3:BucketPublicAccessBlock` or `aws:iam:Policy`, in either token form.
+- Literals are strings, integers, booleans, lists, maps and `fn::toJSON` of a literal map. A `${…}` interpolation (a variable, config or another resource), any other `fn::` call, an anchor, alias or tag reads as COMPUTED and stops with UNKNOWN.
+- Edits replace only the characters of the values that change (positions from ruamel.yaml's parser), so comments, key order, quotes and indentation stay. Validation, the stack-export checks and the "`pulumi preview` not run" note are unchanged.
+- Benchmark: 8 more Pulumi cases (3 YAML fixes, 5 YAML traps); 23 in all, 0 wrongly reported safe.
+
 ## [0.4.0] - 2026-11-19
 
 ### Added (Wiz, Orca and Prisma Cloud findings, R5)

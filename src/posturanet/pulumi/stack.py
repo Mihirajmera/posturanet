@@ -26,10 +26,19 @@ from posturanet.cfn.locate import CfnResource
 from posturanet.errors import StageStop
 from posturanet.locate.codeowners import find_codeowners, owners_for
 from posturanet.models import Confidence, Config, Finding, Location
-from posturanet.pulumi import model
-from posturanet.pulumi.source import SUFFIX, Computed, find, props
+from posturanet.pulumi import component, model, yaml_source
+from posturanet.pulumi.source import (
+    LANGS,
+    SUFFIX,
+    Computed,
+    InComponent,
+    find,
+    props,
+    trusted,
+)
 
 PREFIX = "pulumi."
+STACK = "pulumi:pulumi:Stack"
 _SECRET_SIG = "4dabf18193072939515e22adb298388d"  # Pulumi's marker for a secret value
 _NAME = re.compile(r"[\w.-]+")
 _STACK = re.compile(r"[\w-]+")
@@ -41,6 +50,7 @@ SG_RULE = "aws:ec2/securityGroupRule:SecurityGroupRule"
 SG_INGRESS = "aws:vpc/securityGroupIngressRule:SecurityGroupIngressRule"
 BPA = "aws:s3/bucketPublicAccessBlock:BucketPublicAccessBlock"
 POLICY = "aws:iam/policy:Policy"
+BUCKET_POLICY = "aws:s3/bucketPolicy:BucketPolicy"
 CLASSES = {
     SG: ("ec2", "SecurityGroup"),
     SG_RULE: ("ec2", "SecurityGroupRule"),
@@ -91,10 +101,31 @@ def is_pulumi(repo: Path, config: Config) -> bool:
 class Program:
     root: Path  # holds Pulumi.yaml
     main: Path  # where the source is (`main:`)
-    runtime: str  # nodejs | python
+    runtime: str  # nodejs | python | yaml
 
     def files(self) -> list[Path]:
+        if self.runtime == "yaml":  # the resources are in Pulumi.yaml, or Main.yaml with `main:`
+            names = [self.root / "Pulumi.yaml", self.root / "Pulumi.yml", self.main / "Main.yaml"]
+            return [p for p in dict.fromkeys(names) if p.is_file()]
         suffix = SUFFIX[self.runtime]
+        if suffix in (".go", ".cs", ".java"):
+            skip = {
+                "vendor",
+                ".git",
+                "testdata",
+                ".pulumi",
+                "bin",
+                "obj",
+                "build",
+                "target",
+                "test",
+            }
+            return [
+                p
+                for p in sorted(self.main.rglob(f"*{suffix}"))
+                if p.is_file() and not p.name.endswith("_test.go")
+                and not skip & set(p.relative_to(self.main).parts[:-1])
+            ]  # fmt: skip
         return [p for p in cdk_source.source_files(self.main) if p.suffix == suffix]
 
 
@@ -121,10 +152,11 @@ def program(repo: Path, config: Config) -> Program:
     runtime = doc.get("runtime") if isinstance(doc, dict) else None
     if isinstance(runtime, dict):
         runtime = runtime.get("name")
-    if runtime not in SUFFIX:
+    if runtime not in (*SUFFIX, "yaml"):
         raise StageStop(
             "locate",
-            f"the Pulumi runtime is {runtime!r}; PosturaNet reads TypeScript (nodejs) and Python",
+            f"the Pulumi runtime is {runtime!r}; PosturaNet reads TypeScript (nodejs), Python, "
+            "Go, C# (dotnet), Java and YAML",
             [_HAND],
             unknown=True,
         )
@@ -146,6 +178,7 @@ class StateResource:
     inputs: dict[str, Any]
     outputs: dict[str, Any]
     parent_type: str | None
+    parent: str | None = None  # the parent's URN
 
 
 def _unsecret(v: Any) -> Any:
@@ -220,6 +253,7 @@ def load_export(repo: Path, config: Config, state_path: Path | None) -> Export:
                 _unsecret(r.get("inputs") or {}),
                 _unsecret(r.get("outputs") or {}),
                 parent[1] if parent else None,
+                str(r.get("parent")) if parent else None,
             )
         )
     return out
@@ -295,6 +329,7 @@ class PulumiTarget:
     program: Path
     label: str  # the export's file name
     rules: list[Part] = field(default_factory=list)  # standalone ingress (security groups)
+    files: list[Path] = field(default_factory=list)  # the program's source files
     res: CfnResource = field(init=False)
 
     def __post_init__(self) -> None:
@@ -323,32 +358,69 @@ class PulumiTarget:
         return model.read(self.state.type, self.parts(), texts or {})
 
 
-def _construct(prog: Program, r: StateResource, repo: Path) -> Construct | str:
+def _construct(prog: Program, r: StateResource, repo: Path, exp: Export) -> Construct | str:
     cls = CLASSES.get(r.type)
     if cls is None:
         return f"{r.name} is a {r.type}; PosturaNet edits Pulumi code for {', '.join(CLASSES)}"
-    if "$" in r.urn.split("::")[2] or (r.parent_type and r.parent_type != "pulumi:pulumi:Stack"):
-        return (
-            f"{r.name} is created inside the component {r.parent_type or 'resource'}; its name "
-            "in the program may be computed, so PosturaNet can't trace it to one line"
-        )
+    if "$" in r.urn.split("::")[2] or (r.parent_type and r.parent_type != STACK):
+        return _in_component(prog, r, repo, exp, cls)
     if not _NAME.fullmatch(r.name) or not _STACK.fullmatch(r.stack):
         return f"the URN {r.urn} has characters PosturaNet doesn't put in file names"
+    yaml = prog.runtime == "yaml"
     try:
-        hits = find(prog.files(), r.name, cls[1], cls[0])
+        hits = (
+            yaml_source.find(prog.files(), r.name, r.type)
+            if yaml
+            else find(prog.files(), r.name, cls[1], cls[0])
+        )
     except StageStop as exc:
         return f"can't read the program source to find '{r.name}': {exc.reason}"
     if not hits:
+        what = f"{yaml_source.short(r.type)} resource" if yaml else f"{cls[0]}.{cls[1]} call"
         return (
-            f"no {cls[0]}.{cls[1]} call with the literal name '{r.name}' in the program "
-            "source; the name may be computed"
+            f"no {what} with the literal name '{r.name}' in the program source; the name may "
+            "be computed"
         )
     if len(hits) > 1:
         where = ", ".join(f"{_rel(h.file, repo)}:{h.line}" for h in hits)
-        return f"{len(hits)} {cls[1]} calls use the name '{r.name}' ({where}); can't tell which"
+        what = "resources" if yaml else f"{cls[1]} calls"
+        return f"{len(hits)} {what} use the name '{r.name}' ({where}); can't tell which"
     if props(hits[0]).computed:
         return f"the arguments of '{r.name}' are not a literal object; PosturaNet won't guess"
     return hits[0]
+
+
+def _in_component(
+    prog: Program, r: StateResource, repo: Path, exp: Export, cls: tuple[str, str]
+) -> Construct | str:
+    """The call inside a component used exactly once (see `component.py`), or why not."""
+    comp_type = r.parent_type or "resource"
+    why = f"{r.name} is created inside the component {comp_type}"
+    parent = exp.by_urn(r.parent or "")
+    if parent is None or parent.parent_type != STACK or r.urn.split("::")[2].count("$") != 1:
+        return f"{why}, which is not directly under the stack; PosturaNet traces one level only"
+    if prog.runtime == "yaml":
+        return f"{why}; a YAML program can't define a component, so its code isn't here"
+    instances = len(exp.of_type(parent.type))
+    if instances != 1:
+        return f"{why}, which the stack export has {instances} times; an edit would change all"
+    comps = component.find(prog.files(), parent.type)
+    if len(comps) != 1:
+        return (
+            f"{why}; {len(comps)} classes or functions in the program register {parent.type}, "
+            "so PosturaNet can't tell which code made it"
+        )
+    comp = comps[0]
+    used = component.uses(prog.files(), comp)
+    if used != 1:
+        return f"{why}; {comp.name} is instantiated {used} times in the program, not once"
+    text = comp.file.read_bytes().decode("utf-8", errors="replace")
+    hit = component.pick(component.children(comp, text, cls[1], cls[0], parent.type), r.name)
+    if isinstance(hit, str):
+        return f"{why} ({comp.name}, {_rel(comp.file, repo)}:{comp.line}): {hit}"
+    if props(hit).computed:
+        return f"the arguments of '{r.name}' in {comp.name} are not a literal object"
+    return hit
 
 
 def _standalone(exp: Export, sg: StateResource) -> list[StateResource]:
@@ -374,7 +446,7 @@ def _standalone(exp: Export, sg: StateResource) -> list[StateResource]:
 def resolve(repo: Path, config: Config, exp: Export, state: StateResource) -> PulumiTarget | str:
     """The program code behind `state`, or why it can't be found with confidence."""
     prog = program(repo, config)
-    c = _construct(prog, state, repo)
+    c = _construct(prog, state, repo, exp)
     if isinstance(c, str):
         return c
     rules = []
@@ -384,7 +456,7 @@ def resolve(repo: Path, config: Config, exp: Export, state: StateResource) -> Pu
         except StageStop as exc:
             return exc.reason
         for r in standalone:
-            rc = _construct(prog, r, repo)
+            rc = _construct(prog, r, repo, exp)
             if isinstance(rc, str):
                 return f"ingress rule {r.name}: {rc}"
             rules.append(Part(r, rc))
@@ -392,7 +464,7 @@ def resolve(repo: Path, config: Config, exp: Export, state: StateResource) -> Pu
         if unowned is not None:
             return unowned
     try:
-        return PulumiTarget(state, c, prog.main, exp.label, rules)
+        return PulumiTarget(state, c, prog.main, exp.label, rules, prog.files())
     except StageStop as exc:
         return exc.reason
 
@@ -402,29 +474,60 @@ def _rule_calls(prog: Program, exp: Export, sg: Construct, ours: set[str]) -> st
     at this group exactly when the export says it does; a rule written since the last deploy
     could open the group without PosturaNet seeing it."""
     known = {r.name for r in [*exp.of_type(SG_RULE), *exp.of_type(SG_INGRESS)]}
-    here = f"{sg.var}.id" if sg.var else None
+    yaml = prog.runtime == "yaml"
+    form = {"yaml": "${{{}.id}}", "go": "{}.ID()", "cs": "{}.Id", "java": "{}.id()"}.get(
+        sg.lang, "{}.id"
+    )
+    here = form.format(sg.var) if sg.var else None
+    try:
+        refs = list(_yaml_rule_refs(prog.files()) if yaml else _rule_refs(prog.files()))
+    except StageStop as exc:
+        return exc.reason
+    for fname, name, ref in refs:
+        if name is None or name not in known:
+            what = f"'{name}' in {fname} is not in the stack export" if name else (
+                f"in {fname} has a computed name")  # fmt: skip
+            return (
+                f"ingress rule {what}, so it may change '{sg.construct_id}' in ways the "
+                "deployed state doesn't show"
+            )
+        if (ref is not None and ref == here) != (name in ours):
+            return (
+                f"ingress rule '{name}' points at a different group in the program "
+                "than in the stack export"
+            )
+    return None
+
+
+def _rule_refs(files: list[Path]) -> Iterator[tuple[str, str | None, str | None]]:
+    """(file name, literal name, group reference) of every standalone ingress call."""
     for module, cls in (CLASSES[SG_RULE], CLASSES[SG_INGRESS]):
-        for f, text, masked, m in _calls(prog.files(), module, cls):
+        for f, text, masked, m in _calls(files, module, cls):
             o = m.end() - 1
             args = cdk_source.items(masked, o, cdk_source.close_of(masked, o))
-            lit = cdk_source.str_lit(text, args[0]) if args else None
-            if lit is None or lit[0] not in known:
-                what = f"'{lit[0]}' in {f.name} is not in the stack export" if lit else (
-                    f"in {f.name} has a computed name")  # fmt: skip
-                return (
-                    f"ingress rule {what}, so it may change '{sg.construct_id}' in ways the "
-                    "deployed state doesn't show"
-                )
+            at = 1 if f.suffix == ".go" else 0  # Go: New…(ctx, "name", …)
+            lit = cdk_source.str_lit(text, args[at]) if len(args) > at else None
             ref = re.search(
-                r"(?:securityGroupId\s*:|security_group_id\s*=)\s*([\w.]+)\s*[,)}\n]",
+                r"(?:securityGroupId\s*[:(]|security_group_id\s*=|SecurityGroupId\s*[:=])\s*"
+                r"([\w.]+(?:\(\))?)\s*[,)}\n]",
                 masked[o : cdk_source.close_of(masked, o)],
             )
-            if (ref is not None and ref.group(1) == here) != (lit[0] in ours):
-                return (
-                    f"ingress rule '{lit[0]}' points at a different group in the program "
-                    "than in the stack export"
-                )
-    return None
+            yield f.name, lit[0] if lit else None, ref.group(1) if ref else None
+
+
+def _yaml_rule_refs(files: list[Path]) -> Iterator[tuple[str, str | None, str | None]]:
+    """The same for YAML; a resource whose type isn't a literal may be a rule, so it counts."""
+    for f in files:
+        text = f.read_bytes().decode("utf-8", errors="replace").replace("\r\n", "\n")
+        for r in yaml_source.resources(f, text):
+            if r.type is not None and not any(
+                yaml_source.is_type(r, t) for t in (SG_RULE, SG_INGRESS)
+            ):
+                continue
+            p = r.node.get("properties")
+            gid = p.get("securityGroupId") if p is not None else None
+            ref = gid.value.strip() if gid is not None and gid.kind == "scalar" else None
+            yield f.name, r.name if r.type is not None else None, ref
 
 
 def _calls(
@@ -433,10 +536,10 @@ def _calls(
     """(file, LF text, masked text, match) for every `<…module.>cls(` call in `files`."""
     for f in files:
         text = f.read_bytes().decode("utf-8", errors="replace").replace("\r\n", "\n")
-        lang = cdk_source.SUFFIXES[f.suffix]
+        lang = LANGS[f.suffix]
         masked = cdk_source.mask(text, lang)
-        for m in cdk_source._call_re(cls, lang).finditer(masked):
-            if m.group(1).endswith(f"{module}."):
+        for m in cdk_source._call_re("New" + cls if lang == "go" else cls, lang).finditer(masked):
+            if trusted(lang, m.group(1), masked, module, cls):
                 yield f, text, masked, m
 
 
@@ -492,10 +595,25 @@ def locate(
         )
     c = target.construct
     file_rel = _rel(c.file, repo)
-    lang = "TypeScript" if c.lang == "ts" else "Python"
+    lang = {
+        "ts": "TypeScript",
+        "py": "Python",
+        "yaml": "YAML",
+        "go": "Go",
+        "cs": "C#",
+        "java": "Java",
+    }[c.lang]
     reasoning = [
         f"physical id matched in {exp.label}: {state.urn}",
         f"defined in {file_rel}:{c.line} ({lang}, name '{state.name}')",
+        *(
+            [
+                f"inside component {c.component}, defined and instantiated once in the program; "
+                "the edit is to the component's code"
+            ]
+            if isinstance(c, InComponent)
+            else []
+        ),  # fmt: skip
         *(
             f"ingress rule {p.state.name} in {_rel(p.construct.file, repo)}:{p.construct.line}"
             for p in target.rules
@@ -524,5 +642,10 @@ def locate(
 
 def bucket_policies(t: PulumiTarget) -> bool:
     """Whether the program defines any aws.s3.BucketPolicy (not judged on Pulumi yet)."""
-    files = [f for f in cdk_source.source_files(t.program) if f.suffix == t.construct.file.suffix]
-    return any(True for _ in _calls(files, "s3", "BucketPolicy"))
+    if t.construct.lang == "yaml":
+        return any(
+            r.type is None or yaml_source.is_type(r, BUCKET_POLICY)
+            for f in t.files
+            for r in yaml_source.resources(f, f.read_text(encoding="utf-8"))
+        )
+    return any(True for _ in _calls(t.files, "s3", "BucketPolicy"))

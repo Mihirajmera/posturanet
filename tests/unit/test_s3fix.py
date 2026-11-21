@@ -433,4 +433,24 @@ def test_live_source_reads_logs_with_allowlisted_calls_only() -> None:
     assert all(is_allowed(c) for c in calls), calls
 
 
+class _ManyLogs(_FakeS3):
+    def list_objects_v2(self, **kw: Any) -> Any:
+        keys = [
+            f"s3/2026-10-{d:02d}-0{h}-00-00-ABCDEF0123456789" for d in (5, 6, 7) for h in (1, 2)
+        ]
+        return {"Contents": [{"Key": k} for k in keys], "IsTruncated": False}
+
+
+def test_live_window_starts_at_the_first_log_day(monkeypatch: pytest.MonkeyPatch) -> None:
+    src = LiveS3Source(_ManyLogs([]), _FakeCloudFront([]), "123456789012")
+    # Logs exist from Oct 5 only: the 400-day look-back starts there, not a year earlier.
+    facts = src.bucket("acme-assets", date(2025, 10, 1), date(2026, 10, 30))
+    assert facts.start == date(2026, 10, 5)
+    # Past the object cap the newest objects are kept and the partial first day is left out.
+    monkeypatch.setattr("posturanet.s3fix.evidence.MAX_LOG_OBJECTS", 3)
+    facts = src.bucket("acme-assets", date(2025, 10, 1), date(2026, 10, 30))
+    assert facts.start == date(2026, 10, 7)
+    assert facts.buckets[0].log_days == {date(2026, 10, 7)}
+
+
 Clock = Callable[[], datetime]

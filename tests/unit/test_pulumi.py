@@ -150,9 +150,9 @@ def test_secret_in_state_is_unknown_never_matched(ts: Path) -> None:
 
 
 def test_unsupported_runtime_stops_unknown(ts: Path) -> None:
-    (ts / "Pulumi.yaml").write_text("name: x\nruntime: go\n", "utf-8")
+    (ts / "Pulumi.yaml").write_text("name: x\nruntime: scala\n", "utf-8")
     record = run_fix(str(SG), ts, load_config(ts)[0], Context())
-    assert "runtime is 'go'" in _stop(record, "locate") and record.exit_code == 3
+    assert "runtime is 'scala'" in _stop(record, "locate") and record.exit_code == 3
 
 
 def test_scanner_and_attribute_findings_stop(ts: Path) -> None:

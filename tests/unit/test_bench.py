@@ -20,6 +20,7 @@ S3_EXPECTED = {
     "s3-cloudfront-oac": "CORRECT",
     "s3-partner-public-policy": "STOPPED",
     "s3-partner-every-120-days": "OUTAGE",  # known miss: invisible in a 90-day log window
+    "s3-partner-every-120-days-year-of-logs": "STOPPED",  # the same partner, seen in a year of logs
     "s3-public-no-logs": "STOPPED",
     "s3-unknown-requester-approved": "CORRECT",
 }
@@ -29,6 +30,7 @@ IAM_EXPECTED = {
     "iam-unused-service": "CORRECT",
     "iam-rare-job-in-window": "CORRECT",
     "iam-rare-job-outside-tracking": "OUTAGE",  # known miss: past IAM's tracking period
+    "iam-rare-job-cloudtrail-lake": "CORRECT",  # the same job, seen in Lake history
     "iam-s3-data-plane": "STOPPED",
     "iam-s3-reviewed": "CORRECT",
     "iam-passrole": "STOPPED",
@@ -89,7 +91,7 @@ def test_cdk_cases_fix_or_stop_for_the_stated_reason() -> None:
 
 
 def test_pulumi_cases_fix_or_stop_for_the_stated_reason() -> None:
-    """Pulumi: TypeScript and Python programs fix; every trap stops with its own reason."""
+    """Pulumi: TypeScript, Python and YAML programs fix; every trap stops with its own reason."""
     results = {c.id: pulumi.run_case(c) for c in pulumi.CASES}
     for case in pulumi.CASES:
         result, exit_code = results[case.id]
@@ -101,4 +103,12 @@ def test_pulumi_cases_fix_or_stop_for_the_stated_reason() -> None:
         assert {c.lang for c in pulumi.CASES if c.family == fam and c.expect == "fix"} == {
             "ts",
             "py",
+            "yaml",
+            "go",
+            "cs",
+            "java",
         }
+    # One component fix per language, and every component trap stops.
+    comp = [c for c in pulumi.CASES if "component" in c.id]
+    assert {c.lang for c in comp if c.expect == "fix"} == {"ts", "py", "go", "cs", "java"}
+    assert sum(c.expect == "stop" for c in comp) >= 5

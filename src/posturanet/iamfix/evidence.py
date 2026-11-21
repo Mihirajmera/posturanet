@@ -11,6 +11,7 @@ Read-only, through `aws/readonly.py`. Offline: an evidence file in the same shap
 from __future__ import annotations
 
 import json
+import re
 import time
 from collections.abc import Callable
 from datetime import UTC, date, datetime
@@ -85,7 +86,8 @@ def _evidence(
 class FileIamSource:
     """JSON export:
     `{"policy_arn", "created", "principals": [...], "services": [{"namespace",
-      "last_accessed", "action_level", "actions": [{"name", "last_accessed"}]}]}`
+      "last_accessed", "action_level", "actions": [{"name", "last_accessed"}]}],
+      "cloudtrail_lake"?: {"actions": [{"action": "rds:StartExportTask", "last_seen"}]}}`
     """
 
     source = "iam_evidence_file"
@@ -117,11 +119,17 @@ class FileIamSource:
             ]
             principals = [str(p) for p in raw.get("principals", [])]
             created = _day(raw.get("created"))
+            history: dict[str, date] = {}
+            for h in raw.get("cloudtrail_lake", {}).get("actions", []):
+                day = _day(h["last_seen"])
+                if day is not None:
+                    history[str(h["action"])] = day
         except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
             raise StageStop(
                 "evidence", f"evidence file {self.path.name} is not an IAM evidence export: {exc}"
             ) from exc
-        return _evidence(policy_arn, self.source, created, principals, services, today)
+        ev = _evidence(policy_arn, self.source, created, principals, services, today)
+        return with_history(ev, history)
 
 
 class LiveIamSource:
@@ -198,3 +206,99 @@ class LiveIamSource:
                 )
             )
         return _evidence(policy_arn, self.source, created, principals, services, today)
+
+
+# --- CloudTrail Lake history (FR-16b, opt-in) ---------------------------------------------
+
+# CloudTrail event sources whose IAM prefix differs from the host name.
+# shortcut: only the common renames; an unmapped source adds no evidence (today's behavior),
+# extend when a customer's history shows another.
+_EVENT_PREFIX = {"monitoring": "cloudwatch", "email": "ses"}
+_IAM_NAME = re.compile(r"^[\w+=,.@-]{1,128}$")
+
+
+def with_history(ev: IamEvidence, seen: dict[str, date]) -> IamEvidence:
+    """Add older use from CloudTrail history. It only ever adds use, never removes it, so a
+    gap in the history leaves the evidence exactly as last-accessed reported it."""
+    if not seen:
+        return ev
+    by_ns: dict[str, dict[str, date]] = {}
+    for action, day in seen.items():
+        ns, _, name = action.partition(":")
+        by_ns.setdefault(ns.lower(), {})[name.lower()] = day
+    services: list[ServiceAccess] = []
+    for s in ev.services:
+        hits = by_ns.get(s.namespace.lower(), {})
+        if not hits:
+            services.append(s)
+            continue
+        last = max([*hits.values(), *([s.last_accessed] if s.last_accessed else [])])
+        actions: list[TrackedUse] = []
+        for a in s.actions:
+            known = [d for d in (a.last_seen, hits.get(a.action.split(":", 1)[1].lower())) if d]
+            newest = max(known) if known else None
+            actions.append(a.model_copy(update={"last_seen": newest}))
+        services.append(s.model_copy(update={"last_accessed": last, "actions": actions}))
+    return ev.model_copy(update={"services": services, "source": f"{ev.source}+cloudtrail_lake"})
+
+
+class CloudTrailLake:
+    """Which actions the policy's roles and users called, from a CloudTrail Lake event data
+    store. Read through `aws/readonly.py` (`cloudtrail:StartQuery`, `GetQueryResults`)."""
+
+    def __init__(
+        self, cloudtrail: Any, event_data_store: str, sleep: Callable[[float], None] = time.sleep
+    ) -> None:
+        self.ct, self.sleep = cloudtrail, sleep
+        self.store = event_data_store.rsplit("/", 1)[-1]  # the SQL names the store by its id
+        if not _IAM_NAME.match(self.store):
+            raise StageStop(
+                "evidence", f"not a CloudTrail Lake event data store: {event_data_store}"
+            )
+
+    def actions(self, principals: list[str], start: date, end: date) -> dict[str, date]:
+        roles = [p.split("/", 1)[1] for p in principals if p.startswith("role/")]
+        users = [p.split("/", 1)[1] for p in principals if p.startswith("user/")]
+        names = [*roles, *users]
+        if not names:
+            return {}
+        if not all(_IAM_NAME.match(n) for n in names):  # IAM names can't hold quotes; refuse
+            raise StageStop("evidence", "an IAM principal name isn't valid for a Lake query")
+
+        def listed(values: list[str]) -> str:
+            return ", ".join(f"'{v}'" for v in values) or "''"
+
+        sql = (
+            "SELECT eventSource, eventName, max(eventTime) AS last FROM "
+            f"{self.store} WHERE eventTime >= '{start.isoformat()} 00:00:00' "
+            f"AND eventTime < '{end.isoformat()} 00:00:00' AND ("
+            "(userIdentity.sessionContext.sessionIssuer.type = 'Role' AND "
+            f"userIdentity.sessionContext.sessionIssuer.userName IN ({listed(roles)})) OR "
+            f"(userIdentity.type = 'IAMUser' AND userIdentity.userName IN ({listed(users)})))"
+            " GROUP BY eventSource, eventName"
+        )
+        qid = self.ct.start_query(QueryStatement=sql)["QueryId"]
+        seen: dict[str, date] = {}
+        token: str | None = None
+        for _ in range(_MAX_POLLS * 5):
+            kw: dict[str, Any] = {"QueryId": qid}
+            if token:
+                kw["NextToken"] = token
+            page = self.ct.get_query_results(**kw)
+            status = page.get("QueryStatus")
+            if status in ("FAILED", "CANCELLED", "TIMED_OUT"):
+                raise StageStop("evidence", f"CloudTrail Lake query {status.lower()}", unknown=True)
+            if status != "FINISHED":
+                self.sleep(2.0)
+                continue
+            for row in page.get("QueryResultRows", []):
+                cols = {k: v for col in row for k, v in col.items()}
+                host = str(cols.get("eventSource", "")).split(".", 1)[0].lower()
+                name, last = cols.get("eventName"), _day(cols.get("last"))
+                if host and name and last:
+                    action = f"{_EVENT_PREFIX.get(host, host)}:{name}"
+                    seen[action] = max(last, seen.get(action, last))
+            token = page.get("NextToken")
+            if not token:
+                return seen
+        raise StageStop("evidence", "CloudTrail Lake query didn't finish in time", unknown=True)

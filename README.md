@@ -6,7 +6,7 @@ PosturaNet is a source-available remediation agent for AWS + Terraform. It takes
 
 It also checks every security group, S3 and IAM policy change, written by a person or an AI agent, against those contracts before it merges: a `PosturaNet contract` check on PRs, a step in any CI, a Claude Code plugin, and MCP setups for Cursor, Codex, Copilot, Gemini, Windsurf, Cline, Kiro, Continue, Zed and Goose.
 
-> Status: early access. 0.4.0 is on PyPI: fixes in CloudFormation, CDK and Pulumi code, Wiz, Orca and Prisma Cloud findings, and an opt-in outcome share are new.
+> Status: early access. 0.5.0 is on PyPI: Pulumi YAML, Go, C# and Java, evidence that reads every log the account keeps, and opt-in CloudTrail Lake history for IAM are new.
 >
 > 88 controls: security groups, S3 public access and IAM least privilege from usage evidence, plus 74 settings controls. Findings from Security Hub, Prowler, Checkov or Trivy.
 
@@ -141,6 +141,7 @@ PosturaNet doesn't detect; it fixes what your scanner already found. It reads fi
 | Prowler | `prowler aws --output-formats json-ocsf` (or its ASFF output) | 72, from Prowler's own mapping to Security Hub controls |
 | Checkov | `checkov -d . -o json` | 52, from 56 Checkov checks |
 | Trivy | `trivy config -f json .` | 31, from 36 Trivy checks |
+| Wiz, Orca, Prisma Cloud | the vendor's API as JSON ([commands](docs/vendor-exports.md)); CSV exports are refused | controls the export names, plus your own `detectors.<vendor>.rules` mapping |
 
 Run several scanners? Pass all their files: `posturanet findings list securityhub.json prowler.ocsf.json`. The same control on the same resource is listed once, with the other scanners noted, and `findings split` writes one file for it. PRs are keyed on the control and the Terraform address, so a problem gets one PR whichever scanner reported it, including Checkov and Trivy.
 

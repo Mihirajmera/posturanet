@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import deque
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
@@ -35,6 +36,11 @@ _CANONICAL_ID = re.compile(r"^[0-9a-f]{64}$")
 _TOKENS = re.compile(r'\[[^\]]*\]|"[^"]*"|\S+')
 _LOG_KEY_DATE = re.compile(r"(\d{4})-(\d{2})-(\d{2})-\d{2}-\d{2}-\d{2}-[0-9A-F]+$")
 MAX_LOG_OBJECTS = 20_000
+
+
+def _key_day(key: str) -> date | None:
+    m = _LOG_KEY_DATE.search(key)
+    return date(int(m[1]), int(m[2]), int(m[3])) if m else None
 
 
 @dataclass
@@ -409,13 +415,16 @@ class LiveS3Source:
                 return out
             marker = page.get("NextMarker")
 
-    def _logs(self, name: str, start: date, end: date) -> tuple[bool, list[LogRow], set[date]]:
+    def _logs(
+        self, name: str, start: date, end: date
+    ) -> tuple[bool, list[LogRow], set[date], date]:
+        """(logging on, rows, days with logs, where the readable window starts)."""
         try:
             cfg = self.s3.get_bucket_logging(Bucket=name).get("LoggingEnabled")
         except Exception as exc:
             raise StageStop("evidence", f"can't read {name} logging: {self._err(exc)}") from exc
         if not cfg:
-            return False, [], set()
+            return False, [], set(), start
         if cfg.get("TargetObjectKeyFormat", {}).get("PartitionedPrefix") is not None:
             raise StageStop(
                 "evidence",
@@ -423,7 +432,9 @@ class LiveS3Source:
                 ["export the logs with Athena and pass --evidence-file (docs/02 §14.2)"],
             )
         target, prefix = cfg["TargetBucket"], cfg.get("TargetPrefix", "")
-        keys: list[str] = []
+        # The newest MAX_LOG_OBJECTS keys: past the cap the window shortens instead of stopping.
+        keys: deque[str] = deque(maxlen=MAX_LOG_OBJECTS)
+        dropped = False
         token: str | None = None
         past_end = False
         while not past_end:
@@ -438,16 +449,16 @@ class LiveS3Source:
                 if m and date(int(m[1]), int(m[2]), int(m[3])) >= end:
                     past_end = True
                     break
+                dropped = dropped or len(keys) == MAX_LOG_OBJECTS
                 keys.append(obj["Key"])
-            if len(keys) > MAX_LOG_OBJECTS:
-                raise StageStop(
-                    "evidence",
-                    f"{name} has more than {MAX_LOG_OBJECTS:,} log objects in the window",
-                    ["export the logs with Athena and pass --evidence-file (docs/02 §14.2)"],
-                )
             if not page.get("IsTruncated"):
                 break
             token = page.get("NextContinuationToken")
+        first = _key_day(keys[0]) if keys else None
+        if first is not None:
+            # Days before the first log object aren't gaps: logging wasn't on, or the logs are
+            # gone. After a cap the first kept day may be partial, so it's left out too.
+            start = max(start, first + timedelta(days=1 if dropped else 0))
         rows: list[LogRow] = []
         days: set[date] = set()
         for key in keys:
@@ -459,16 +470,16 @@ class LiveS3Source:
                 if row is not None and row.bucket == name and start <= row.day < end:
                     rows.append(row)
                     days.add(row.day)
-            m = _LOG_KEY_DATE.search(key)
-            if m:
-                days.add(date(int(m[1]), int(m[2]), int(m[3])))
-        return True, rows, days
+            day = _key_day(key)
+            if day is not None and day >= start:
+                days.add(day)
+        return True, rows, days, start
 
     def bucket(self, name: str, start: date, end: date) -> S3Facts:
         exposure = self._exposure(name)
         logging, rows, days = False, list[LogRow](), set[date]()
         if exposure.needs_logs:
-            logging, rows, days = self._logs(name, start, end)
+            logging, rows, days, start = self._logs(name, start, end)
         facts = BucketFacts(name, exposure, logging, rows, days)
         cloudfront = self._cloudfront() if exposure.public else []
         return S3Facts(self.account_id, start, end, [facts], cloudfront)
