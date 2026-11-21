@@ -224,6 +224,60 @@ class GitHub:
             return None
         return str(self._ok(resp, "comment on the pull request").get("html_url", ""))
 
+    def upsert_issue(
+        self,
+        marker: str,
+        title: str,
+        body: str,
+        labels: list[str],
+        *,
+        create: bool,
+        close: bool = False,
+    ) -> str | None:
+        """Edit the open `posturanet` issue whose body starts with `marker` (closing it if
+        `close`), or open one if `create`. Returns its URL, or None if nothing was written."""
+        need = "issues:write"
+        mine: dict[str, Any] | None = None
+        page = 1
+        while mine is None:
+            data = self._ok(
+                self._req(
+                    "GET",
+                    f"/repos/{self.repo}/issues?state=open&labels=posturanet&per_page=100"
+                    f"&page={page}",
+                    need=need,
+                ),
+                "list issues",
+            )
+            mine = next(
+                (
+                    i
+                    for i in data
+                    if "pull_request" not in i and str(i.get("body", "")).startswith(marker)
+                ),
+                None,
+            )
+            if len(data) < 100:
+                break
+            page += 1
+        if mine is not None:
+            update: dict[str, Any] = {"title": title, "body": body}
+            if close:
+                update["state"] = "closed"
+            resp = self._req(
+                "PATCH", f"/repos/{self.repo}/issues/{mine['number']}", need=need, json=update
+            )
+        elif create and not close:
+            resp = self._req(
+                "POST",
+                f"/repos/{self.repo}/issues",
+                need=need,
+                json={"title": title, "body": body, "labels": labels},
+            )
+        else:
+            return None
+        return str(self._ok(resp, "write the issue").get("html_url", ""))
+
     def add_labels(self, number: int, labels: list[str]) -> None:
         self._ok(
             self._req(

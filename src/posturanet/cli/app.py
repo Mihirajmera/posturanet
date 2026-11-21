@@ -500,7 +500,7 @@ def contract_check(
     from posturanet.gate import check_plan, check_source
 
     try:
-        if (plan is None) == (not source):
+        if (plan is not None) == source:
             raise UsageError("use exactly one of --plan or --source")
         if files and not source:
             raise UsageError("--file only works with --source")
@@ -1099,5 +1099,19 @@ def connect(
     _framed(f, lines)
 
 
+def _load_plugins() -> None:
+    """Pro and other plugins add commands through the `posturanet.plugins` entry point: a
+    callable taking `{"root": app, "contract": contract_app}`. Core never imports them, and a
+    plugin that fails to load only warns: every free feature keeps working (FR-43)."""
+    from importlib.metadata import entry_points
+
+    for ep in sorted(entry_points(group="posturanet.plugins"), key=lambda e: e.name):
+        try:
+            ep.load()({"root": app, "contract": contract_app})
+        except Exception as exc:  # noqa: BLE001 (a broken plugin must not break core)
+            typer.echo(f"warning: plugin {ep.name!r} not loaded: {exc}", err=True)
+
+
 def main() -> None:
+    _load_plugins()
     app()

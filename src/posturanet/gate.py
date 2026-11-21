@@ -69,9 +69,12 @@ class ContractResult:
     source_file: str | None = None  # repo-relative .tf file holding the changed resource
     source_line: int | None = None
     subject: str = "ingress"  # what changed: ingress, policy, public access block
+    live: str | None = None  # Pro `contract live`: the deployed resource that was read
 
     @property
     def caused_by(self) -> str | None:
+        if self.live is not None:
+            return f"live {self.subject} on {self.live}"
         if self.source_file is None:
             return None
         where = f"{self.source_file}:{self.source_line}" if self.source_line else self.source_file
@@ -86,6 +89,7 @@ class ContractResult:
             "violations": [v.__dict__ for v in self.violations],
             "source_file": self.source_file,
             "source_line": self.source_line,
+            **({"live": self.live} if self.live is not None else {}),
         }
 
 
@@ -93,14 +97,22 @@ class ContractResult:
 class GateResult:
     status: GateStatus
     results: list[ContractResult]
-    mode: Literal["plan", "source"] = "plan"
+    mode: Literal["plan", "source", "live"] = "plan"
 
     @property
     def summary(self) -> str:
         broken = [r for r in self.results if r.status == "BLOCK"]
+        n = len(broken) or len(self.results)
+        s = "s" * (n != 1)
+        if self.mode == "live":
+            if broken:
+                verb = "breaks its contract" if n == 1 else "break their contracts"
+                return f"BLOCK · {n} live resource{s} {verb}"
+            if self.status == "UNKNOWN":
+                return "UNKNOWN · some live resources can't be read or judged"
+            return f"PASS · {n} contract{s} checked against the live resources"
         if broken:
-            n = len(broken)
-            return f"BLOCK · this change would break {n} contract{'s' * (n != 1)}"
+            return f"BLOCK · this change would break {n} contract{s}"
         if self.status == "UNKNOWN":
             what = "until apply" if self.mode == "plan" else "from the source alone"
             return f"UNKNOWN · some planned changes can't be judged {what}"

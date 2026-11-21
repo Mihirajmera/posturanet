@@ -11,6 +11,14 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 - Components used exactly once work in C# too (`class X : ComponentResource` with `: base("<type>", …)`).
 - Benchmark: 10 more Pulumi cases (4 C# fixes, one inside a component; 6 C# traps); 49 in all, 0 wrongly reported safe.
 
+### Added (plugins)
+- Plugins: `posturanet` loads `posturanet.plugins` entry points and lets them add commands. A plugin that fails to load prints a warning; every free command keeps working. The core never imports a plugin.
+- Two read-only calls join the allowlist and the generated IAM policy, for the live contract check in PosturaNet Pro: `s3:GetAccountPublicAccessBlock` (account-wide Block Public Access, through `s3control`) and `s3:GetBucketPolicy` (the policy text, to check `must_keep` requesters). Neither writes anything.
+- S3 contracts: `must_keep` and `needs_review` entries take an optional `reason` (a contract refresh flags a requester it didn't see in the window there, and keeps it).
+
+### Changed (living contracts move to PosturaNet Pro)
+- `contract refresh`, the live contract check and the scheduled living workflow (merged to `test` for 0.5.0, never released) now ship in `posturanet-pro` behind the `living` license flag. The open core keeps `contract build` and `contract check --plan|--source`.
+
 ### Changed (CSV exports point to the JSON export)
 - A Wiz, Orca or Prisma Cloud CSV file is still refused, and the message now names the API request that gives the same findings as JSON (Wiz `issuesV2`, Orca `POST /api/serving-layer/query`, Prisma Cloud `GET /v2/alert?detailed=true`) and links `docs/vendor-exports.md`, a page of copy-paste commands. The commands only read, take credentials from environment variables, and request the fields the parsers use.
 
