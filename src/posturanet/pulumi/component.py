@@ -28,6 +28,7 @@ _REGISTER = {
     "py": re.compile(r"\bsuper\s*\([^)]*\)\s*\.\s*__init__\s*\("),
     "go": re.compile(r"\.\s*RegisterComponentResource\s*\("),
     "cs": re.compile(r":\s*base\s*\("),
+    "java": re.compile(r"\bsuper\s*\("),
 }
 
 
@@ -65,8 +66,8 @@ def _py_body(masked: str, m: re.Match[str]) -> Span:
 
 def _bodies(path: Path, text: str, masked: str) -> list[tuple[str, Span]]:
     lang = LANGS[path.suffix]
-    if lang in ("ts", "cs"):
-        rx = _TS_CLASS if lang == "ts" else _CS_CLASS
+    if lang in ("ts", "cs", "java"):
+        rx = _CS_CLASS if lang == "cs" else _TS_CLASS  # Java: `extends`, like TypeScript
         return [(m.group(1), (m.end() - 1, close_of(masked, m.end() - 1) + 1))
                 for m in rx.finditer(masked)]  # fmt: skip
     if lang == "py":
@@ -111,7 +112,7 @@ def uses(files: list[Path], comp: Component) -> int:
     for f in files:
         text, masked = _read(f)
         lang = LANGS[f.suffix]
-        head = r"\bnew\s+" if lang in ("ts", "cs") else r"(?<![\w.])"
+        head = r"\bnew\s+" if lang in ("ts", "cs", "java") else r"(?<![\w.])"
         for m in re.finditer(head + r"(?:\w+\.)*" + re.escape(comp.name) + r"\s*\(", masked):
             before = masked[line_start(masked, m.start()) : m.start()]
             if re.search(r"(?:\bclass|\bdef|\bfunc(?:\s*\([^)]*\))?|\bsuper\s*\()\s*$", before):
@@ -130,7 +131,7 @@ def children(comp: Component, text: str, cls: str, module: str, token: str) -> l
             module=module,
         )
         for c in scan(comp.file, text, None, cls)
-        if s <= c.start < e and trusted(c.lang, c.qualifier, c.masked, module)
+        if s <= c.start < e and trusted(c.lang, c.qualifier, c.masked, module, cls)
     ]
 
 

@@ -1,5 +1,6 @@
-"""Pulumi program source (TypeScript, Python, Go and C#, see `parse_go` and `parse_cs`): find a
-resource by its name and read or edit its literal arguments. YAML programs are read in
+"""Pulumi program source (TypeScript, Python, Go, C# and Java, see `parse_go`, `parse_cs` and
+`parse_java`): find a resource by its name and read or edit its literal arguments. YAML programs
+are read in
 `yaml_source.py` into the same `Lit` shapes.
 
 The scanning (comment and string masking, bracket matching) is the CDK one: no language
@@ -22,12 +23,18 @@ from posturanet.cdk import source as cdk_source
 from posturanet.cdk.source import Construct, Lang, Span, close_of, items, str_lit, unsupported
 from posturanet.errors import StageStop
 
-SUFFIX: dict[str, str] = {"nodejs": ".ts", "python": ".py", "go": ".go", "dotnet": ".cs"}
-LANGS: dict[str, Lang] = {**cdk_source.SUFFIXES, ".go": "go", ".cs": "cs"}
+SUFFIX: dict[str, str] = {
+    "nodejs": ".ts",
+    "python": ".py",
+    "go": ".go",
+    "dotnet": ".cs",
+    "java": ".java",
+}
+LANGS: dict[str, Lang] = {**cdk_source.SUFFIXES, ".go": "go", ".cs": "cs", ".java": "java"}
 _GO_ASSIGN = re.compile(r"[ \t]*(\w+)\s*(?:,\s*\w+\s*)?:?=\s*")  # `sg, err := `
 _GO_SCALAR = re.compile(r"pulumi\s*\.\s*(String|Int|Bool)(?:Ptr)?\s*\(")
 _GO_COMPOSITE = re.compile(r"(&?)((?:\w+\.)*\w+)\s*\{")
-_CS_ASSIGN = re.compile(r"[ \t]*(?:[\w.<>?\[\]]+\s+)?(\w+)\s*=\s*")  # `var sg = `
+_CS_ASSIGN = re.compile(r"[ \t]*(?:final\s+)?(?:[\w.<>?\[\]]+\s+)?(\w+)\s*=\s*")  # `var sg = `
 # `new[] {`, `new string[] {`, `new InputList<string> {`, `new List<string>() {`
 _CS_LIST = re.compile(
     r"new\s*(?:(?:\w+\??)?\s*\[\s*\]|(?:[\w.]+\.)?(?:InputList|List)\s*<[^<>{}()]*>\s*(?:\(\s*\))?)"
@@ -40,7 +47,21 @@ _CS_OBJ = re.compile(
     r"new\s*(?:((?:\w+\.)*\w+Args)\s*)?(\(\s*\))?\s*\{"
 )  # `new() {`, `new …Args {`
 _CS_KEYS = {"policyDocument": "policy"}  # C# names a property after its class, so it's renamed
-_IMPORT = {"cs": r"^\s*using\s+Pulumi\.Aws\.{m}\s*;"}
+_IMPORT = {
+    "cs": r"^\s*using\s+Pulumi\.Aws\.{M}\s*;",
+    "java": r"^\s*import\s+com\.pulumi\.aws\.{m}\.(?:{cls}|\*)\s*;",
+}
+_JAVA_BUILDER = re.compile(r"((?:\w+\.)*\w+Args)\s*\.\s*builder\s*\(\s*\)")
+_JAVA_CALL = re.compile(r"((?:\w+\.)*\w+)\s*\(")
+# Builder setters that take a list (as varargs when not given a `List.of(…)`).
+_JAVA_LISTS = {
+    "ingress",
+    "egress",
+    "cidrBlocks",
+    "ipv6CidrBlocks",
+    "prefixListIds",
+    "securityGroups",
+}
 
 
 class Computed:
@@ -233,17 +254,106 @@ def parse_cs(c: Construct, span: Span) -> Lit:
     return _computed(c, span)
 
 
-def trusted(lang: Lang, qualifier: str, masked: str, module: str) -> bool:
-    """The call is the AWS class: qualified by its module (`aws.ec2.`, `Aws.Ec2.`), or, in C#,
-    bare in a file that imports the module (`using Pulumi.Aws.Ec2;`)."""
+def trusted(lang: Lang, qualifier: str, masked: str, module: str, cls: str) -> bool:
+    """The call is the AWS class: qualified by its module (`aws.ec2.`, `Aws.Ec2.`), or bare in
+    a file that imports it (C# `using Pulumi.Aws.Ec2;`, Java `import com.pulumi.aws.ec2.<cls>;`
+    or `.*;`)."""
     if qualifier.lower().endswith(f"{module}."):
         return True
     pat = _IMPORT.get(lang)
     return (
         not qualifier
         and pat is not None
-        and bool(re.search(pat.format(m=module.capitalize()), masked, re.M))
+        and bool(re.search(pat.format(m=module, M=module.capitalize(), cls=cls), masked, re.M))
     )
+
+
+def parse_java(c: Construct, span: Span) -> Lit:
+    """The Java literal at `span`: plain `"…"` strings, integers, `true` / `false`, `List.of(…)`
+    / `Arrays.asList(…)`, `Map.of(…)` with string keys, `…Args.builder()….build()` chains whose
+    setters take literals (a list setter's varargs are its list), and
+    `serializeJson(jsonObject(jsonProperty("Key", …), …))` with `jsonArray(…)` (read as JSON).
+    Anything else is COMPUTED. A list's span is the inside of its parentheses, so a new list is
+    written as its items."""
+    s, e = span
+    raw, masked = c.text[s:e], c.masked[s:e]
+    if raw[:1] == '"':
+        lit = str_lit(c.text, span)
+        return Lit(span, "str", lit[0], '"') if lit else _computed(c, span)
+    if re.fullmatch(r"-?\d+", raw):
+        return Lit(span, "num", int(raw))
+    if raw in ("true", "false"):
+        return Lit(span, "bool", raw == "true")
+    m = _JAVA_BUILDER.match(masked)
+    if m:
+        return _java_builder(c, span, s + m.end(), m.group(1))
+    m = _JAVA_CALL.match(masked)
+    if m is None or close_of(c.masked, s + m.end() - 1) != e - 1:
+        return _computed(c, span)
+    o, name = s + m.end() - 1, m.group(1)
+    args = items(c.masked, o, e - 1)
+    if name in ("List.of", "Arrays.asList", "jsonArray"):
+        return _java_list(c, args, (o, e - 1))
+    if name == "serializeJson" and len(args) == 1:
+        doc = parse_java(c, args[0])
+        return Lit(span, "json", doc) if doc.kind == "obj" else _computed(c, span)
+    pairs: list[tuple[Span, Span]] = []
+    if name == "Map.of" and len(args) % 2 == 0:
+        pairs = list(zip(args[::2], args[1::2], strict=True))
+    elif name == "jsonObject":
+        for a, b in args:
+            p = re.match(r"jsonProperty\s*\(", c.masked[a:b])
+            if p is None or close_of(c.masked, a + p.end() - 1) != b - 1:
+                return _computed(c, span)
+            kv = items(c.masked, a + p.end() - 1, b - 1)
+            if len(kv) != 2:
+                return _computed(c, span)
+            pairs.append((kv[0], kv[1]))
+    else:
+        return _computed(c, span)
+    out: dict[str, Lit] = {}
+    for k, v in pairs:
+        key = str_lit(c.text, k)
+        if key is None or key[1] != '"' or key[0] in out:
+            return _computed(c, span)
+        out[key[0]] = parse_java(c, v)
+    return Lit(span, "obj", out, brackets=(o, e - 1), call=name)
+
+
+def _java_list(c: Construct, args: list[Span], parens: Span, call: str = "") -> Lit:
+    o, cl = parens
+    inner = (args[0][0], args[-1][1]) if args else (o + 1, o + 1)
+    return Lit(inner, "list", [parse_java(c, x) for x in args], brackets=parens, call=call)
+
+
+def _java_builder(c: Construct, span: Span, pos: int, typ: str) -> Lit:
+    """`<typ>.builder()` then `.key(…)` setters up to `.build()` at the end of `span`. The
+    object's `brackets` are (end of the last setter, the `.` of `.build()`): where a new setter
+    goes."""
+    s, e = span
+    out: dict[str, Lit] = {}
+    last = pos
+    while True:
+        k = re.match(r"\s*\.\s*(\w+)\s*\(", c.masked[pos:e])
+        if k is None:
+            return _computed(c, span)
+        o = pos + k.end() - 1
+        cl = close_of(c.masked, o)
+        args = items(c.masked, o, cl)
+        name = k.group(1)
+        if name == "build":
+            if args or cl != e - 1:
+                return _computed(c, span)
+            return Lit(span, "obj", out, brackets=(last, c.masked.index(".", pos)), call=typ)
+        if name in out:
+            return _computed(c, span)  # a setter called twice
+        v = parse_java(c, args[0]) if len(args) == 1 else None
+        if name in _JAVA_LISTS and (v is None or v.kind != "list"):
+            v = _java_list(c, args, (o, cl), "varargs")
+        if v is None:
+            return _computed(c, span)
+        out[name] = v
+        pos = last = cl + 1
 
 
 def _go_mask(text: str) -> str:
@@ -280,11 +390,13 @@ def scan(path: Path, text: str, name: str | None, cls: str) -> list[Construct]:
         args = items(masked, o, cl)
         at = 1 if go else 0  # Go: New…(ctx, "name", &…Args{…})
         lit = str_lit(text, args[at]) if len(args) > at else None
-        if lit is not None and lang in ("go", "cs") and lit[1] != '"':
+        if lit is not None and lang in ("go", "cs", "java") and lit[1] != '"':
             lit = None  # a Go rune or raw string, a C# char, is not a name PosturaNet reads
         if name is not None and (lit is None or lit[0] != name):
             continue
-        assign = {"go": _GO_ASSIGN, "cs": _CS_ASSIGN}.get(lang) or cdk_source._ASSIGN[lang]
+        assign = {"go": _GO_ASSIGN, "cs": _CS_ASSIGN, "java": _CS_ASSIGN}.get(
+            lang
+        ) or cdk_source._ASSIGN[lang]
         a = assign.fullmatch(masked[cdk_source.line_start(masked, m.start()) : m.start()])
         out.append(
             Construct(
@@ -323,7 +435,7 @@ def find(files: list[Path], name: str, cls: str, module: str) -> list[Construct]
             out += [
                 c
                 for c in scan(p, text, name, cls)
-                if trusted(c.lang, c.qualifier, c.masked, module)
+                if trusted(c.lang, c.qualifier, c.masked, module, cls)
             ]
     return out
 
@@ -362,6 +474,13 @@ def props(c: Construct) -> Props:
 
         return yaml_source.props(c)
     args = c.args
+    if c.lang == "java":  # new SecurityGroup("name", SecurityGroupArgs.builder()….build(), opts)
+        if len(args) < 2 or c.text[args[1][0] : args[1][1]] == "null":
+            return Props({}, None, "java")
+        lit = parse_java(c, args[1])
+        if lit.kind != "obj":
+            return Props({}, None, "java", computed=True)
+        return Props(lit.value, lit.brackets, "java")
     if c.lang == "cs":  # new SecurityGroup("name", new() { … }, options)
         if len(args) < 2 or c.text[args[1][0] : args[1][1]] == "null":
             return Props({}, None, "cs")
@@ -401,7 +520,11 @@ def arg_key(c: Construct, key: str) -> str:
     if c.lang in ("go", "cs"):
         key = next((k for k, v in _CS_KEYS.items() if v == key), key) if c.lang == "cs" else key
         return key[0].upper() + key[1:]
-    return key if c.lang == "ts" else re.sub(r"([A-Z])", lambda m: "_" + m.group(1).lower(), key)
+    return (
+        key
+        if c.lang in ("ts", "java")
+        else re.sub(r"([A-Z])", lambda m: "_" + m.group(1).lower(), key)
+    )
 
 
 def render(v: Any, c: Construct, quote: str, *, py_keys: bool = False) -> str:
@@ -420,6 +543,14 @@ def render(v: Any, c: Construct, quote: str, *, py_keys: bool = False) -> str:
         if isinstance(v, list) and all(isinstance(x, str) for x in v):
             return "pulumi.StringArray{" + ", ".join(render(x, c, quote) for x in v) + "}"
         raise unsupported("a Go value PosturaNet doesn't write")
+    if c.lang == "java":  # a list is written as its items: varargs, or inside `List.of(…)`
+        if isinstance(v, list) and all(isinstance(x, str) for x in v):
+            return ", ".join(render(x, c, quote) for x in v)
+        if isinstance(v, (list, dict)):
+            raise unsupported("a Java value PosturaNet doesn't write")
+        if isinstance(v, bool):
+            return "true" if v else "false"
+        return json.dumps(v) if isinstance(v, str) else str(v)
     if c.lang == "cs":
         if isinstance(v, list) and v and all(isinstance(x, str) for x in v):
             return "new[] { " + ", ".join(render(x, c, quote) for x in v) + " }"

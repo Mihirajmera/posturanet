@@ -172,7 +172,8 @@ def _read_policy(v: View, parts: list[Part]) -> None:
     if doc is None or doc.kind != "obj" or has_computed(doc.plain()):
         raise _stop(
             f"the policy of '{name}' is not a literal document (an object, or "
-            "JSON.stringify / json.dumps / fn::toJSON / JsonSerializer.Serialize of one, or a "
+            "JSON.stringify / json.dumps / fn::toJSON / JsonSerializer.Serialize / serializeJson "
+            "of one, or a "
             "Go raw string of JSON); PosturaNet won't guess"
         )
     st = doc.value.get("Statement")

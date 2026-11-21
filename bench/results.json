@@ -1273,7 +1273,7 @@
         "broken": [],
         "expect": "stop",
         "exposed": [],
-        "note": "locate unknown: the policy of 'app' is not a literal document (an object, or JSON.stringify / json.dumps / fn::toJSON / JsonSerializer.Serialize of one, or a Go raw string of JSON); PosturaNet won't guess",
+        "note": "locate unknown: the policy of 'app' is not a literal document (an object, or JSON.stringify / json.dumps / fn::toJSON / JsonSerializer.Serialize / serializeJson of one, or a Go raw string of JSON); PosturaNet won't guess",
         "status": "STOPPED",
         "tool": "PosturaNet",
         "verdict": "STOPPED"
@@ -1345,7 +1345,7 @@
         "broken": [],
         "expect": "stop",
         "exposed": [],
-        "note": "locate unknown: the policy of 'app' is not a literal document (an object, or JSON.stringify / json.dumps / fn::toJSON / JsonSerializer.Serialize of one, or a Go raw string of JSON); PosturaNet won't guess",
+        "note": "locate unknown: the policy of 'app' is not a literal document (an object, or JSON.stringify / json.dumps / fn::toJSON / JsonSerializer.Serialize / serializeJson of one, or a Go raw string of JSON); PosturaNet won't guess",
         "status": "STOPPED",
         "tool": "PosturaNet",
         "verdict": "STOPPED"
@@ -1384,6 +1384,22 @@
       }
     ],
     "pulumi-iam-go-component": [
+      {
+        "allowed": [
+          "ec2:DescribeInstances",
+          "ec2:DescribeVolumes",
+          "logs:CreateLogStream"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: every used action stays allowed",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "pulumi-iam-java": [
       {
         "allowed": [
           "ec2:DescribeInstances",
@@ -1449,7 +1465,7 @@
         "broken": [],
         "expect": "stop",
         "exposed": [],
-        "note": "locate unknown: the policy of 'app' is not a literal document (an object, or JSON.stringify / json.dumps / fn::toJSON / JsonSerializer.Serialize of one, or a Go raw string of JSON); PosturaNet won't guess",
+        "note": "locate unknown: the policy of 'app' is not a literal document (an object, or JSON.stringify / json.dumps / fn::toJSON / JsonSerializer.Serialize / serializeJson of one, or a Go raw string of JSON); PosturaNet won't guess",
         "status": "STOPPED",
         "tool": "PosturaNet",
         "verdict": "STOPPED"
@@ -1469,6 +1485,78 @@
         "status": "FIXED",
         "tool": "PosturaNet",
         "verdict": "CORRECT"
+      }
+    ],
+    "pulumi-java-computed-cidr": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: ingress entry 1 of 'bastion-sg' has a value that is not a literal",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-java-concatenated-name": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: no ec2.SecurityGroup call with the literal name 'bastion-sg' in the program source; the name may be computed",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-java-config-flag": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: blockPublicAcls of 'assets-pab' is not a literal boolean",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-java-setter-twice": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: the arguments of 'bastion-sg' are not a literal object; PosturaNet won't guess",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-java-unimported-class": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: no ec2.SecurityGroup call with the literal name 'bastion-sg' in the program source; the name may be computed",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
+      }
+    ],
+    "pulumi-java-variable-policy": [
+      {
+        "allowed": [],
+        "broken": [],
+        "expect": "stop",
+        "exposed": [],
+        "note": "locate unknown: the policy of 'app' is not a literal document (an object, or JSON.stringify / json.dumps / fn::toJSON / JsonSerializer.Serialize / serializeJson of one, or a Go raw string of JSON); PosturaNet won't guess",
+        "status": "STOPPED",
+        "tool": "PosturaNet",
+        "verdict": "STOPPED"
       }
     ],
     "pulumi-s3-computed-flag": [
@@ -1498,6 +1586,20 @@
       }
     ],
     "pulumi-s3-go": [
+      {
+        "allowed": [
+          "Block Public Access: all on"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none expected: no public use in the logs",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "pulumi-s3-java": [
       {
         "allowed": [
           "Block Public Access: all on"
@@ -1681,6 +1783,42 @@
         "verdict": "CORRECT"
       }
     ],
+    "pulumi-sg-java": [
+      {
+        "allowed": [
+          "10.0.0.0/16:9100/tcp",
+          "10.0.4.12/32:22/tcp",
+          "10.0.4.37/32:22/tcp",
+          "10.0.5.9/32:22/tcp",
+          "203.0.113.7/32:22/tcp"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "pulumi-sg-java-component": [
+      {
+        "allowed": [
+          "10.0.0.0/16:9100/tcp",
+          "10.0.4.12/32:22/tcp",
+          "10.0.4.37/32:22/tcp",
+          "10.0.5.9/32:22/tcp",
+          "203.0.113.7/32:22/tcp"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "risk medium \u00b7 disruption none",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
     "pulumi-sg-py-standalone": [
       {
         "allowed": [
@@ -1807,7 +1945,7 @@
         "broken": [],
         "expect": "stop",
         "exposed": [],
-        "note": "locate unknown: the policy of 'app' is not a literal document (an object, or JSON.stringify / json.dumps / fn::toJSON / JsonSerializer.Serialize of one, or a Go raw string of JSON); PosturaNet won't guess",
+        "note": "locate unknown: the policy of 'app' is not a literal document (an object, or JSON.stringify / json.dumps / fn::toJSON / JsonSerializer.Serialize / serializeJson of one, or a Go raw string of JSON); PosturaNet won't guess",
         "status": "STOPPED",
         "tool": "PosturaNet",
         "verdict": "STOPPED"

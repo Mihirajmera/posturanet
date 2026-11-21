@@ -20,7 +20,7 @@ from posturanet.errors import StageStop
 from posturanet.synth.hcl_render import DEFAULT_DESCRIPTION
 from posturanet.synth.sg_rules import Rule, norm_proto
 
-Lang = Literal["ts", "py", "yaml", "go", "cs"]  # yaml, go, cs: Pulumi programs only (pulumi/)
+Lang = Literal["ts", "py", "yaml", "go", "cs", "java"]  # all but ts, py: Pulumi only (pulumi/)
 SUFFIXES: dict[str, Lang] = {".ts": "ts", ".py": "py"}
 _SKIP_DIRS = {
     "node_modules", "cdk.out", ".git", ".venv", "venv", "__pycache__", ".posturanet",
@@ -57,8 +57,8 @@ def mask(text: str, lang: Lang) -> str:
 
     while i < n:
         c = text[i]
-        cstyle = lang in ("ts", "go", "cs")
-        if lang == "cs" and text.startswith('"""', i):  # a raw string: no escapes
+        cstyle = lang in ("ts", "go", "cs", "java")
+        if lang in ("cs", "java") and text.startswith('"""', i):  # C# raw, Java text block
             j = text.find('"""', i + 3)
             j = n if j < 0 else j
             blank(i + 3, j)
@@ -91,14 +91,14 @@ def mask(text: str, lang: Lang) -> str:
             i = j + len(q)
         else:
             i += 1
-    if lang == "cs":
+    if lang in ("cs", "java"):
         _blank_type_args(out)
     return "".join(out)
 
 
 def _blank_type_args(out: list[str]) -> None:
-    """Blank the commas of C# generic type arguments (`Dictionary<string, object?>`) so they
-    don't split argument or initializer lists."""
+    """Blank the commas of C# and Java generic type arguments (`Dictionary<string, object?>`)
+    so they don't split argument or initializer lists."""
     text = "".join(out)
     for m in re.finditer(r"\w\s*<", text):
         depth, j = 0, m.end() - 1
@@ -200,7 +200,7 @@ class Construct:
 
 
 def _call_re(cls: str, lang: Lang) -> re.Pattern[str]:
-    head = r"\bnew\s+" if lang in ("ts", "cs") else r"(?<![\w.])"
+    head = r"\bnew\s+" if lang in ("ts", "cs", "java") else r"(?<![\w.])"
     return re.compile(head + r"((?:\w+\.)*)" + cls + r"\s*\(")
 
 
@@ -988,7 +988,7 @@ def _l1_statements(c: Construct) -> list[SourceStatement]:
 def _render_list(c: Construct, span: Span, entries: list[str]) -> str:
     """A list literal of `entries` to replace the one at `span`, in its layout."""
     s, e = span
-    spans = items(c.masked, s, e - 1) if c.masked[s] in "[{" else []  # `{`: a C# array
+    spans = items(c.masked, s, e - 1) if c.masked[s] in "[{(" else []  # C# `{`, Java `(`
     if "\n" not in c.masked[s:e] or not spans:
         return "[" + ", ".join(entries) + "]"
     indent = c.text[line_start(c.text, spans[0][0]) : spans[0][0]]
