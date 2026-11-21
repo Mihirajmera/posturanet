@@ -155,6 +155,33 @@ It then shows the full run with the before/after diff, writing nothing, and asks
 ### 4.7 Error messages
 Format: **what happened**, then **why** (if known), then **what to do**. Never print a stack trace unless `--verbose` or an internal error (exit 10). On an internal error, print the run-record path and ask the user to file an issue, with no secrets in the record.
 
+### 4.8 Contract refresh and live check
+`contract refresh` (FR-52): one box per contract, symbol by status (`✓` PASS, `!` PROPOSED, `?` UNKNOWN, `–` SKIPPED). Rows: the evidence line (muted), `+ <section> <entry> <detail>` per proposed addition, `! <section> <entry> <detail> (flagged, kept)` per entry not seen, reasons, and `PR <url> (opened|updated|unchanged)`.
+```text
+┌  PosturaNet 0.5.0 · contract refresh · 2 contracts
+│
+●  UNKNOWN · 1 with proposed changes · 1 unknown
+│
+◇  ! module.bastion.aws_security_group.this ─────────────────────────────────────╮
+│                                                                                 │
+│  flow logs file · 89 days · confidence high                                     │
+│  + must_allow    10.0.6.20/32 → 22/tcp     1,204 conns · daily                  │
+│  ! must_allow    10.0.5.9/32 → 22/tcp      not seen in 89 days (flagged, kept)  │
+│                                                                                 │
+├─────────────────────────────────────────────────────────────────────────────────╯
+│
+◇  ? aws_iam_policy.app ──────────────────────────────────────────────────╮
+│                                                                          │
+│  confidence low; needs medium to propose changes (the same rule as fix)  │
+│                                                                          │
+├──────────────────────────────────────────────────────────────────────────╯
+│
+└  Stopped where the evidence was weak or unreadable. Nothing was changed there.
+```
+Closing lines: `Done. Every approved contract matches the evidence.` · `Done. Nothing was changed; add --open-pr to propose these updates.` · `Done. Review the PR; a person approves contract changes.` · the UNKNOWN line above.
+
+`contract check --live` (FR-53) uses the gate layout (§7) with header `contract check · --live`, summary `BLOCK · 1 live resource breaks its contract` / `UNKNOWN · some live resources can't be read or judged` / `PASS · 3 contracts checked against the live resources`, `caused by: live ingress on sg-0a91f3c2`, next step `→ restore it from code (re-apply), or update the contract with owner approval`, and closing `Stopped. Restore the resource or update its contract.` (or `Done. Every live resource keeps its contract.`).
+
 ## 5. Behavior contract files (YAML)
 - File name: the sanitized Terraform address with `[`, `]` and `"` replaced, plus `.yaml`.
 - Key order: `schema, resource, account, region, kind, observed, must_allow, must_deny, needs_review, unknown_risk, status, approved_by, approved_at, generated_by`.
@@ -225,6 +252,9 @@ PosturaNet re-checks the finding and watches for blocked traffic from kept sourc
 ### 6.3 Labels
 `posturanet` (always) · `security` · `risk:low|medium|high` · `needs-review` (when any needs-review source exists).
 
+### 6.4 Contract-update PR (FR-52)
+Title `PosturaNet: update contract for <contract file stem>` (no emoji: nothing in AWS changes). Body: the FR-28 markers (issue `contract-refresh@<address>`), one sentence saying nothing in AWS changed, a Contract / Evidence table, `New since approval (proposed additions)` (Section · Entry · Seen), `Not seen in the window (flagged, not removed)` with the rare-job warning, and `Before you merge`: confirm owners, decide on flagged entries, set `status: approved`, `approved_by`, `approved_at`. Labels `posturanet`, `contract-update`.
+
 ## 7. Check runs
 - Name: `PosturaNet contract` (gate) · `PosturaNet fix` (fix PRs).
 - Conclusion mapping: PASS → `success`, BLOCK → `failure`, INCOMPLETE/UNKNOWN → `neutral` (with an explanation; never silently green).
@@ -236,6 +266,9 @@ PosturaNet re-checks the finding and watches for blocked traffic from kept sourc
   caused by: ingress rule removed in infra/modules/bastion/main.tf:44
   → keep the access, or update the contract in the same PR with owner approval
 ```
+
+### 7.1 Drift issue (FR-54)
+Title `PosturaNet: <address> drifted from its contract`. Body: a marker, the result in one sentence (`breaks its behavior contract` / `can't be judged against its contract` / `matches its contract again`), the `✗|?|✓ address · contract file` line, one bullet per reason, and on BLOCK: the resource was most likely changed outside the code, `→ restore it from code (re-apply), or update the code and the contract together with owner approval`. Labels `posturanet`, `drift`.
 
 ## 8. MCP responses
 Return structured JSON first (matching the architecture models) and a `summary` string following the CLI result format (`Result … Next …`). Never return raw state, credentials or full log extracts.

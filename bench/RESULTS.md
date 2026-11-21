@@ -1141,3 +1141,24 @@ Neither call's name is a literal; PosturaNet won't pick one. Ground truth: no sa
 | Contender | Verdict | Detail |
 |---|---|---|
 | PosturaNet | Stopped | locate unknown: ingress entry 1 of 'bastion-sg' has a value that is not a literal |
+
+## Living contracts (drift and refresh)
+
+An approved security-group contract over time: the deployed group changed outside the code (`contract check --live`), and usage changed after approval (`contract refresh`). Wrongly safe means a PASS on a group that breaks its contract, or a proposal that drops an approved entry, approves a scanner, or comes from weak evidence. PosturaNet only.
+
+12 of 12 correct · 0 wrongly safe
+
+| Case | Expected | PosturaNet | Verdict | Detail |
+|---|---|---|---|---|
+| `drift-none`: Live group matches the code | PASS | PASS | Correct | - |
+| `drift-console-ssh`: Someone reopens 0.0.0.0/0 on port 22 in the console | BLOCK | BLOCK | Correct | breaks must_deny: 0.0.0.0/0 → 22/tcp is allowed |
+| `drift-console-all-traffic`: Someone adds an all-traffic rule from 0.0.0.0/0 | BLOCK | BLOCK | Correct | breaks must_deny: 0.0.0.0/0 → 22/tcp is allowed |
+| `drift-console-ipv6`: Someone opens port 22 to ::/0 | BLOCK | BLOCK | Correct | breaks must_deny: ::/0 → 22/tcp is allowed |
+| `drift-partner-removed`: The partner's address is removed by hand | BLOCK | BLOCK | Correct | breaks must_allow: 203.0.113.7/32 → 22/tcp |
+| `drift-prefix-list`: A prefix-list source is added (it may hold 0.0.0.0/0) | UNKNOWN | UNKNOWN | Correct | 1 prefix-list source(s) aren't expanded; they may admit must_deny |
+| `drift-read-denied`: The read-only role can't describe the group | UNKNOWN | UNKNOWN | Correct | reading the live ingress failed (UnauthorizedOperation) |
+| `refresh-none`: Usage hasn't changed | PASS | PASS | Correct | - |
+| `refresh-new-internal-user`: A new internal host starts using SSH every day | PROPOSED | PROPOSED | Correct | 10.0.6.20/32 → 22/tcp |
+| `refresh-source-stopped`: An approved host stops appearing (retired, or a job rarer than the window) | PROPOSED | PROPOSED | Correct | 10.0.5.9/32 → 22/tcp |
+| `refresh-new-scanner`: An internet scanner starts probing port 22 (scan-sized flows) | PASS | PASS | Correct | - |
+| `refresh-short-history`: Flow logs only cover the last week | UNKNOWN | UNKNOWN | Correct | confidence low; needs medium to propose changes (the same rule as fix) |

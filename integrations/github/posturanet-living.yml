@@ -1,0 +1,39 @@
+# Copy to .github/workflows/posturanet-living.yml in your infrastructure repo.
+# Living contracts: once a week, PosturaNet re-reads the evidence behind every approved
+# contract and the deployed resources, read-only, and asks a person about what changed:
+#   - a contract-update PR per contract when real usage changed (new users proposed, unseen
+#     ones flagged but kept), updated in place on later runs, never merged by PosturaNet;
+#   - an issue per resource whose live state breaks its contract (someone reopened
+#     0.0.0.0/0 in the console), updated on later runs and closed when it matches again.
+# Nothing in AWS is changed: the role below only needs PosturaNet's read-only policy
+# (`posturanet init` prints it).
+name: PosturaNet living contracts
+on:
+  schedule:
+    - cron: "17 6 * * 1" # Mondays 06:17 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: write       # push the contract-update branch (never the base branch)
+  pull-requests: write  # open or update the contract-update PR
+  issues: write         # one drift issue per resource
+  id-token: write       # only for the AWS OIDC role below
+
+concurrency:
+  group: posturanet-living
+  cancel-in-progress: false
+
+jobs:
+  living:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.POSTURANET_READONLY_ROLE_ARN }}
+          aws-region: us-east-1
+      - uses: Mihirajmera/posturanet/action@v0.5.0
+        with:
+          command: living
+          version: "0.5.0"
+          # fail-on-unknown: "false"  # don't fail the job when evidence is weak or unreadable

@@ -4,6 +4,12 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Added (living contracts, R11)
+- `posturanet contract refresh <resource>|--all` (FR-52) re-reads the evidence behind each approved contract, read-only, with the same collectors, window and confidence rules as `fix`, and compares it with the contract. New real users are proposed additions; entries not seen in the whole window are flagged (in the file and the PR) and kept, never removed. Weak evidence is UNKNOWN (exit 3) and proposes nothing; draft contracts are skipped. The approved file is never edited: `--dry-run` (the default) prints the proposal, `--open-pr` opens or updates one contract-update PR per contract (FR-28 markers, `delivery.max_open_prs`), with the contract back at `status: draft` for a person to approve.
+- `posturanet contract check --live` (FR-53) reads the deployed security groups, buckets and policies with existing allowlisted calls (no new AWS call, no IAM policy change) and judges them with the `contract check` rules: a console change that reopens `0.0.0.0/0` is BLOCK (exit 5) with the contract line. Prefix-list and security-group sources, read errors, other accounts, Pulumi groups and the account-level Block Public Access are UNKNOWN, never PASS. `--github-issues` keeps one issue per drifted resource and closes it when the resource matches again.
+- The Action's `living` command (FR-54) and the example scheduled workflow `integrations/github/posturanet-living.yml` run both every week (needs `contents`, `pull-requests` and `issues: write`).
+- Benchmark: a living-contracts family (7 drift and 5 refresh cases); 12 correct, 0 wrongly reported safe.
+
 ### Changed (CSV exports point to the JSON export)
 - A Wiz, Orca or Prisma Cloud CSV file is still refused, and the message now names the API request that gives the same findings as JSON (Wiz `issuesV2`, Orca `POST /api/serving-layer/query`, Prisma Cloud `GET /v2/alert?detailed=true`) and links `docs/vendor-exports.md`, a page of copy-paste commands. The commands only read, take credentials from environment variables, and request the fields the parsers use.
 

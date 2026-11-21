@@ -10,6 +10,7 @@ publishes PosturaNet's misses next to its wins.
 | S3 public access (S3.8) | 11 | 4 | 4 / 2 | 1 | 3 |
 | IAM least privilege (IAM.1, IAM.21) | 12 | 6 | 4 / 1 | 1 | 7 |
 | CloudFormation and SAM (all three) | 21 | 9 | 12 / 0 | 0 | - |
+| Living contracts (drift and refresh) | 12 | 12 | - | 0 wrongly safe | - |
 
 "Needed" stops are cases with no safe automatic fix (a public website, a role that passes an
 untracked `iam:PassRole`). "Unneeded" stops are safe fixes PosturaNet declined for lack of
