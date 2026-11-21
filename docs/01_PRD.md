@@ -181,7 +181,8 @@ Vendors now generate fix PRs (Wiz, Gomboc, Cloudgeni and others). Their public m
 - **FR-13** Detect periodicity (daily, weekly, one-off) and flag rare sources for review.
 - **FR-14** Build a `BehaviorContract` (draft). Load approved contracts from the repo.
 - **FR-15** Confidence `none` → produce a report only, never a PR.
-- **FR-16** (R2) IAM usage from action-level `GenerateServiceLastAccessedDetails` on the policy (about 400 days of tracking). Confidence from the policy's age: 60+ days high, 14+ medium, else low; no attached principal → unknown. CloudTrail and Access Analyzer inputs are later work.
+- **FR-16** (R2) IAM usage from action-level `GenerateServiceLastAccessedDetails` on the policy (about 400 days of tracking). Confidence from the policy's age: 60+ days high, 14+ medium, else low; no attached principal → unknown. Access Analyzer inputs are later work.
+- **FR-16b** Opt-in (`evidence.cloudtrail_lake`, off by default): IAM action history from the customer's CloudTrail Lake event data store, `lookback_days` (default 730, up to 3,653), for jobs last run before last-accessed's ~400 days. One SQL query (`cloudtrail:StartQuery`, `GetQueryResults`) for the policy's roles and users; each event's source and name map to an action. History only adds use, never removes it: an unmapped source or a principal Lake can't attribute (groups) leaves the evidence as last-accessed reported it. A failed or timed-out query is UNKNOWN. Lake bills the customer per GB scanned.
 - **FR-17** (R2) S3 usage from server access logs / CloudTrail data events and CloudFront origins.
 
 ### Synthesis

@@ -72,6 +72,14 @@ class FlowLogsConfig(_Strict):
     log_group: str | None = None
 
 
+class CloudTrailLakeConfig(_Strict):
+    # Opt-in (FR-16b): IAM action history from the customer's CloudTrail Lake, for jobs that
+    # last ran before IAM's ~400-day last-accessed period. Lake bills per GB scanned.
+    enabled: bool = False
+    event_data_store: str | None = None  # the event data store's ARN or id
+    lookback_days: int = Field(default=730, ge=1, le=3653)
+
+
 class EvidenceConfig(_Strict):
     flow_logs: FlowLogsConfig = Field(default_factory=FlowLogsConfig)
     # How far back to look. The window starts where the logs do (log group creation or
@@ -79,6 +87,7 @@ class EvidenceConfig(_Strict):
     # that runs every quarter shows up only if the logs reach back that far.
     window_days: int = Field(default=400, ge=1, le=400)
     min_confidence_for_pr: Literal["high", "medium"] = "medium"
+    cloudtrail_lake: CloudTrailLakeConfig = Field(default_factory=CloudTrailLakeConfig)
 
 
 class ContractsConfig(_Strict):
@@ -157,6 +166,13 @@ class Config(_Strict):
                 "outcome_share.enabled needs outcome_share.endpoint (an https:// URL); "
                 "PosturaNet ships no default endpoint"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _lake_store(self) -> Config:
+        lake = self.evidence.cloudtrail_lake
+        if lake.enabled and not lake.event_data_store:
+            raise ValueError("evidence.cloudtrail_lake.enabled needs event_data_store (ARN or id)")
         return self
 
     @model_validator(mode="after")

@@ -30,6 +30,7 @@ IAM_EXPECTED = {
     "iam-unused-service": "CORRECT",
     "iam-rare-job-in-window": "CORRECT",
     "iam-rare-job-outside-tracking": "OUTAGE",  # known miss: past IAM's tracking period
+    "iam-rare-job-cloudtrail-lake": "CORRECT",  # the same job, seen in Lake history
     "iam-s3-data-plane": "STOPPED",
     "iam-s3-reviewed": "CORRECT",
     "iam-passrole": "STOPPED",

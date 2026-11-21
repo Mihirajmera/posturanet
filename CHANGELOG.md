@@ -4,6 +4,12 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Added (opt-in CloudTrail Lake history for IAM, FR-16b)
+- `evidence.cloudtrail_lake` (off by default; needs `event_data_store`, an ARN or id; `lookback_days` defaults to 730): IAM fixes also read the policy's roles' and users' calls from the customer's CloudTrail Lake, so a job last run before last-accessed's ~400 days is kept. History only adds use; an unmapped event source or a group principal leaves the evidence as last-accessed reported it, and a failed query is UNKNOWN.
+- New read-only allowlist entries, also in the generated IAM policy: `cloudtrail:StartQuery` and `cloudtrail:GetQueryResults`. They run a query and change no resource. Lake bills per GB scanned.
+- IAM evidence files take an optional `cloudtrail_lake: {actions: [{action, last_seen}]}` for offline runs.
+- Benchmark: `iam-rare-job-cloudtrail-lake` is correct; `iam-rare-job-outside-tracking` (no Lake) is still an outage.
+
 ### Added (plugins)
 - Plugins: `posturanet` loads `posturanet.plugins` entry points and lets them add commands. A plugin that fails to load prints a warning; every free command keeps working. The core never imports a plugin.
 - Two read-only calls join the allowlist and the generated IAM policy, for the live contract check in PosturaNet Pro: `s3:GetAccountPublicAccessBlock` (account-wide Block Public Access, through `s3control`) and `s3:GetBucketPolicy` (the policy text, to check `must_keep` requesters). Neither writes anything.
