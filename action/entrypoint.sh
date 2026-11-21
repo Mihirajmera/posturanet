@@ -77,8 +77,34 @@ case "${PN_COMMAND}" in
     [[ -n "${PN_TARGET}" ]] || { echo "error: contract-check needs target (plan JSON)" >&2; exit 2; }
     args=(contract check --plan "${PN_TARGET}" --repo . --format json "${check_args[@]}")
     ;;
+  living)
+    # Scheduled run (FR-54): propose contract updates from fresh evidence (one PR per contract,
+    # updated in place, within delivery.max_open_prs), then read the deployed resources.
+    refresh_out="$(mktemp)"
+    refresh_args=(contract refresh --all --repo . --format json)
+    [[ "${PN_DRY_RUN}" == "true" ]] || refresh_args+=(--open-pr)
+    posturanet "${refresh_args[@]}" >"${refresh_out}"
+    refresh_code=$?
+    python - "${refresh_out}" <<'PY' >>"${GITHUB_STEP_SUMMARY}"
+import json, sys
+try:
+    doc = json.load(open(sys.argv[1], encoding="utf-8"))
+except (OSError, ValueError):
+    sys.exit(0)
+print(f"### PosturaNet contract refresh · {doc.get('status', '')}\n")
+for r in doc.get("results", []):
+    sym = {"PASS": "✓", "PROPOSED": "!", "UNKNOWN": "?", "SKIPPED": "–"}.get(r["status"], "?")
+    pr = f" · {r['pr_url']}" if r.get("pr_url") else ""
+    print(f"- {sym} `{r['resource']}` {r['status']}{pr}")
+    for reason in r.get("reasons", []):
+        print(f"  - {reason}")
+print()
+PY
+    args=(contract check --live --repo . --format json)
+    [[ "${PN_OPEN_ISSUES}" == "true" && "${PN_DRY_RUN}" != "true" ]] && args+=(--github-issues)
+    ;;
   *)
-    echo "error: unknown command '${PN_COMMAND}' (use fix, check or contract-check)" >&2
+    echo "error: unknown command '${PN_COMMAND}' (use fix, check, contract-check or living)" >&2
     exit 2
     ;;
 esac
@@ -120,6 +146,11 @@ else:
 PY
 )"
 echo "${posturanet_summary}" >>"${GITHUB_STEP_SUMMARY}"
+
+# living: a BLOCK from the live check wins; otherwise a refresh that stopped (UNKNOWN) shows.
+if [[ "${PN_COMMAND}" == "living" && "${code}" == "0" ]]; then
+  code="${refresh_code}"
+fi
 
 # UNKNOWN (exit 3) passes only when the workflow opted out of failing on it.
 if [[ "${code}" == "3" && "${PN_COMMAND}" != "fix" && "${PN_FAIL_ON_UNKNOWN}" != "true" ]]; then

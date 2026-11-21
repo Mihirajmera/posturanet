@@ -22,7 +22,7 @@ from posturanet.aws.readonly import iam_policy
 from posturanet.errors import PosturaNetError, StageStop, UsageError
 from posturanet.evidence import FileSource
 from posturanet.models import RunRecord
-from posturanet.models.config import load_config
+from posturanet.models.config import Config, load_config
 from posturanet.models.iam import IamApproval
 from posturanet.outcomes import EXCEPTIONS_FILE, load_exceptions, outcome, runbook_for
 from posturanet.output import banner, console
@@ -32,6 +32,7 @@ from posturanet.output.symbols import to_ascii
 from posturanet.pipeline import Context, Mode, run_fix
 
 if TYPE_CHECKING:
+    from posturanet.deliver.github import GitHub
     from posturanet.gate import GateResult
     from posturanet.ingest import Entry, FindingsFile
     from posturanet.models.exceptions import AcceptedRisk
@@ -462,6 +463,7 @@ def _comment(result: GateResult, pr: int, check_url: str | None) -> str | None:
     ("posturanet contract check --source --file infra/sg.tf", "only groups in one file"),
     ("posturanet contract check --source --file templates/net.yaml", "one CloudFormation template"),
     ("terraform show -json plan.out > plan.json && posturanet contract check --plan plan.json", "in CI, from a plan"),  # noqa: E501 (copyable example)
+    ("posturanet contract check --live --repo infra/", "the deployed resources, read-only: catches console changes"),  # noqa: E501 (copyable example)
 ))  # fmt: skip
 def contract_check(
     plan: Annotated[
@@ -474,6 +476,25 @@ def contract_check(
             help="Check the Terraform or CloudFormation source instead of a plan (offline).",
         ),
     ] = False,
+    live: Annotated[
+        bool,
+        typer.Option(
+            "--live",
+            help="Check the deployed resources (read-only AWS) against their contracts.",
+        ),
+    ] = False,
+    resource: Annotated[
+        str | None,
+        typer.Option("--resource", help="With --live: only this contract (address or file)."),
+    ] = None,
+    github_issues: Annotated[
+        bool,
+        typer.Option(
+            "--github-issues",
+            help="With --live: keep one issue per drifted resource (needs issues:write).",
+        ),
+    ] = False,
+    state: StateOpt = None,
     files: Annotated[
         list[Path] | None,
         typer.Option(
@@ -500,12 +521,19 @@ def contract_check(
     from posturanet.gate import check_plan, check_source
 
     try:
-        if (plan is None) == (not source):
-            raise UsageError("use exactly one of --plan or --source")
+        if sum([plan is not None, source, live]) != 1:
+            raise UsageError("use exactly one of --plan, --source or --live")
         if files and not source:
             raise UsageError("--file only works with --source")
+        if (resource or github_issues) and not live:
+            raise UsageError("--resource and --github-issues only work with --live")
         config, _ = load_config(repo)
-        if plan is not None:
+        if live:
+            from posturanet.aws.session import boto3_factory
+            from posturanet.living import check_live
+
+            result = check_live(repo, config, boto3_factory(config.aws), resource, state)
+        elif plan is not None:
             if not plan.is_file():
                 raise UsageError(f"--plan not found: {plan}")
             try:
@@ -519,6 +547,7 @@ def contract_check(
     except PosturaNetError as exc:
         raise _fail(exc) from exc
     comment_url = _comment(result, github_comment, check_url) if github_comment else None
+    issues = _drift_issues(result, config) if github_issues else []
 
     if output_format is OutputFormat.JSON:
         doc = result.to_dict()
@@ -526,11 +555,130 @@ def contract_check(
             doc["check_url"] = check_url
         if comment_url:
             doc["comment_url"] = comment_url
+        if issues:
+            doc["issue_urls"] = issues
         console.write(json.dumps(doc, indent=2) + "\n")
     else:
         f = _frame(ascii_mode)
         console.write(console.render_gate(result, f.ascii_mode, f.style, width=f.width))
     raise typer.Exit(_GATE_EXIT[result.status])
+
+
+def _gh(config: Config) -> GitHub:
+    from posturanet.deliver.github import GitHub
+
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    slug = config.delivery.github.repo or os.environ.get("GITHUB_REPOSITORY")
+    if not token or not slug:
+        raise UsageError(
+            "GitHub delivery needs GITHUB_TOKEN and delivery.github.repo (or GITHUB_REPOSITORY)"
+        )
+    return GitHub(token, slug)
+
+
+def _drift_issues(result: GateResult, config: Config) -> list[str]:
+    """One issue per drifted resource (FR-54). Like the PR comment, a write that fails warns
+    and keeps the check's own result and exit code."""
+    from posturanet.living import deliver_drift
+
+    urls: list[str] = []
+    try:
+        gh = _gh(config)
+        for r in result.results:
+            url = deliver_drift(gh, r)
+            if url:
+                urls.append(url)
+    except (StageStop, UsageError) as exc:
+        typer.echo(f"warning: drift issue not written: {exc}", err=True)
+    return urls
+
+
+@contract_app.command("refresh", epilog=_examples(
+    ("posturanet contract refresh module.bastion.aws_security_group.this --repo infra/", "re-read one contract's evidence; print what changed"),  # noqa: E501 (copyable example)
+    ("posturanet contract refresh --all --repo infra/ --open-pr", "every approved contract; one update PR per contract"),  # noqa: E501 (copyable example)
+))  # fmt: skip
+def contract_refresh(
+    target: Annotated[
+        str | None, typer.Argument(help="The contract's resource address or file.")
+    ] = None,
+    refresh_all: Annotated[
+        bool, typer.Option("--all", help="Every contract in the contracts directory.")
+    ] = False,
+    open_pr: Annotated[
+        bool, typer.Option("--open-pr", help="Open or update one PR per contract update.")
+    ] = False,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Print the proposals only (the default).")
+    ] = False,
+    repo: RepoOpt = Path("."),
+    state: StateOpt = None,
+    evidence_file: Annotated[
+        Path | None,
+        typer.Option(
+            "--evidence-file", help="One contract's evidence export instead of AWS (FR-12)."
+        ),
+    ] = None,
+    window: WindowOpt = None,
+    output_format: FormatOpt = OutputFormat.TEXT,
+    ascii_mode: AsciiOpt = False,
+) -> None:
+    """Compare approved contracts with fresh evidence and propose updates. Never edits them.
+
+    Exit 3 when any contract is UNKNOWN (weak or unreadable evidence) or a PR couldn't be
+    opened; 0 otherwise, proposals included."""
+    from posturanet.aws.session import boto3_factory
+    from posturanet.living import deliver_refresh, refresh
+    from posturanet.output.console import refresh_status, render_refresh
+
+    try:
+        if (target is None) == (not refresh_all):
+            raise UsageError("give a contract's resource address or file, or --all")
+        if open_pr and dry_run:
+            raise UsageError("use --open-pr or --dry-run, not both")
+        if evidence_file is not None and not evidence_file.is_file():
+            raise UsageError(f"--evidence-file not found: {evidence_file}")
+        config, _ = load_config(repo)
+        results = refresh(
+            repo,
+            config,
+            target=target,
+            aws=boto3_factory(config.aws),
+            evidence_file=evidence_file,
+            window_days=_window(window),
+            state_path=state,
+        )
+        undelivered = False
+        if open_pr and any(r.status == "PROPOSED" for r in results):
+            gh = _gh(config)
+            for r in results:
+                if r.status != "PROPOSED":
+                    continue
+                try:
+                    d = deliver_refresh(
+                        gh,
+                        r,
+                        repo,
+                        base=config.delivery.github.base,
+                        max_open=config.delivery.max_open_prs,
+                    )
+                    r.pr_url, r.pr_action = d.url, d.action
+                except StageStop as exc:  # PR limit, base moved: say so, keep the rest going
+                    r.reasons.append(f"no PR: {exc.reason}")
+                    undelivered = True
+    except PosturaNetError as exc:
+        raise _fail(exc) from exc
+
+    if output_format is OutputFormat.JSON:
+        doc = {"status": refresh_status(results), "results": [r.model_dump() for r in results]}
+        console.write(json.dumps(doc, indent=2) + "\n")
+    else:
+        f = _frame(ascii_mode)
+        console.write(
+            render_refresh(
+                results, open_pr=open_pr, ascii_mode=f.ascii_mode, style=f.style, width=f.width
+            )
+        )
+    raise typer.Exit(3 if refresh_status(results) == "UNKNOWN" or undelivered else 0)
 
 
 @hook_app.command("claude-code", epilog=_examples(

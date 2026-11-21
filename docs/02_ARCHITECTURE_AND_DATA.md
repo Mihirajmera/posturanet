@@ -454,6 +454,8 @@ posturanet fix <finding-id|resource-id|finding.json> [--dry-run | --open-pr] [--
 posturanet contract build <resource> [--evidence-file flows.json] [--window 90d] [--dry-run]
 posturanet contract check --plan tfplan.json          # exit 5 on BLOCK, 3 on UNKNOWN
 posturanet contract check --source [--file x.tf]      # offline, from HCL; same exit codes
+posturanet contract check --live [--resource r] [--github-issues]   # deployed resources, read-only (FR-53)
+posturanet contract refresh <resource>|--all [--open-pr | --dry-run] [--evidence-file f] [--window 90d]   # FR-52; exit 3 on UNKNOWN
            [--github-check --sha <commit>]            # publish a "PosturaNet contract" check run
 posturanet hook claude-code                           # Claude Code PostToolUse hook (stdin event)
 posturanet mcp                                        # read-only MCP server (stdio)
@@ -479,6 +481,21 @@ posturanet schema export
 R1 ships `command: fix | contract-check`, `target`, `open-pr`, `dry-run`, `evidence-file`, `working-directory`, `version`; outputs `result` and `pr-url`.
 R1.5 adds `command: check` (runs `terraform plan -lock=false` itself, or takes `plan`), `source-only`, `fail-on-unknown`, `check-run`, `github-token`; output `check-url`.
 0.3.1 adds `comment` (default on): one sticky PR comment, marked `<!-- posturanet:contract-check -->`, posted on BLOCK or UNKNOWN and edited on later runs; a PASS never posts a new one. A refused comment (fork PR, no `pull-requests: write`) is a warning and never changes the result. Output `comment-url`. CLI: `contract check --github-comment <PR>`. The Action's metadata is also at the repo root (`action.yml`, `uses: Mihirajmera/posturanet@<tag>`) so it can be listed on GitHub Marketplace; `action/action.yml` stays for existing workflows.
+
+### Living contracts (R11, FR-52..FR-54)
+Code: `contracts/refresh.py` (pure: approved contract + fresh evidence → `ContractRefresh`), `living.py` (I/O: contract → deployed id, live reads, refresh orchestration, PR and issue delivery), `models/living.py`.
+
+`ContractRefresh` (one per contract): `resource`, `contract_file`, `kind`, `status` (`PASS` · `PROPOSED` · `UNKNOWN` · `SKIPPED`), `evidence` (one line), `additions[]` and `removals[]` (`{section, entry, detail}`), `reasons[]`, `proposed` (the proposed contract YAML), `pr_url`, `pr_action`. `contract refresh --format json` prints `{"status", "results": [ContractRefresh…]}`.
+
+| Contract kind | Fresh evidence | Addition | Flagged removal |
+|---|---|---|---|
+| `network` | flow logs for the group (id from the Terraform state, or `DescribeStackResources` for CloudFormation and CDK) | a source the draft builder puts in `must_allow`/`needs_review` that no entry admits | an entry no observed flow falls inside; `reason: not seen <from>..<to>; delete only if retired` |
+| `iam` | last-accessed for `policy_arn` | a used action no `must_allow` pattern covers | a `last_accessed` entry IAM tracks at action level with no use; a `needs_review` line. Human entries never |
+| `s3_public` | access logs (only read for a public bucket or one with ACLs enabled) | a requester not in `must_keep`/`needs_review` | a `must_keep` requester with no requests (PR only) |
+
+Live check: `GateResult(mode="live")`; each `ContractResult` carries `live` (the group id, bucket names or policy ARN), so `caused_by` reads `live ingress on sg-…`. The rules are the gate's (`_judge`, `s3fix/gate.judge_flags`, `iamfix/gate.judge`). Non-CIDR sources turn a `must_allow` miss into UNKNOWN, and a prefix list makes `must_deny` UNKNOWN.
+
+Delivery reuses `push_pr` (FR-28 markers, `max_open_prs`, base-matches-checkout check). Drift issues use `GitHub.upsert_issue` (open `posturanet`-labelled issues, `<!-- posturanet:drift=<sha256(address)[:16]> -->` marker; needs `issues: write`).
 
 ## 13. Reuse from `postura-backend`
 | Source | Target | Change |

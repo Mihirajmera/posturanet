@@ -1158,6 +1158,128 @@
       }
     ]
   },
+  "living": {
+    "drift-console-all-traffic": [
+      {
+        "expect": "BLOCK",
+        "note": "breaks must_deny: 0.0.0.0/0 \u2192 22/tcp is allowed",
+        "safe_ok": true,
+        "status": "BLOCK",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "drift-console-ipv6": [
+      {
+        "expect": "BLOCK",
+        "note": "breaks must_deny: ::/0 \u2192 22/tcp is allowed",
+        "safe_ok": true,
+        "status": "BLOCK",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "drift-console-ssh": [
+      {
+        "expect": "BLOCK",
+        "note": "breaks must_deny: 0.0.0.0/0 \u2192 22/tcp is allowed",
+        "safe_ok": true,
+        "status": "BLOCK",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "drift-none": [
+      {
+        "expect": "PASS",
+        "note": "",
+        "safe_ok": true,
+        "status": "PASS",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "drift-partner-removed": [
+      {
+        "expect": "BLOCK",
+        "note": "breaks must_allow: 203.0.113.7/32 \u2192 22/tcp",
+        "safe_ok": true,
+        "status": "BLOCK",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "drift-prefix-list": [
+      {
+        "expect": "UNKNOWN",
+        "note": "1 prefix-list source(s) aren't expanded; they may admit must_deny",
+        "safe_ok": true,
+        "status": "UNKNOWN",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "drift-read-denied": [
+      {
+        "expect": "UNKNOWN",
+        "note": "reading the live ingress failed (UnauthorizedOperation)",
+        "safe_ok": true,
+        "status": "UNKNOWN",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "refresh-new-internal-user": [
+      {
+        "expect": "PROPOSED",
+        "note": "10.0.6.20/32 \u2192 22/tcp",
+        "safe_ok": true,
+        "status": "PROPOSED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "refresh-new-scanner": [
+      {
+        "expect": "PASS",
+        "note": "",
+        "safe_ok": true,
+        "status": "PASS",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "refresh-none": [
+      {
+        "expect": "PASS",
+        "note": "",
+        "safe_ok": true,
+        "status": "PASS",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "refresh-short-history": [
+      {
+        "expect": "UNKNOWN",
+        "note": "confidence low; needs medium to propose changes (the same rule as fix)",
+        "safe_ok": true,
+        "status": "UNKNOWN",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ],
+    "refresh-source-stopped": [
+      {
+        "expect": "PROPOSED",
+        "note": "10.0.5.9/32 \u2192 22/tcp",
+        "safe_ok": true,
+        "status": "PROPOSED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      }
+    ]
+  },
   "pulumi": {
     "pulumi-component-arg-cidr": [
       {
