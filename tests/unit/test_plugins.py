@@ -59,8 +59,8 @@ def test_live_check_reads_are_allowlisted_and_in_the_policy() -> None:
 def test_s3_use_reason_is_written_and_read_back(tmp_path: Path) -> None:
     from datetime import date
 
-    from posturanet.models.contract import ObservedMeta, ObservedWindow
     from posturanet.models import Confidence
+    from posturanet.models.contract import ObservedMeta, ObservedWindow
     from posturanet.models.s3 import S3Contract, S3Use
     from posturanet.s3fix import contract as s3contract
 
