@@ -4,6 +4,13 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Added (Pulumi C#)
+- `posturanet fix` and `contract check --source` work on Pulumi C# programs (`runtime: dotnet`), for the same three evidence-backed fixes. The resource is the one `new SecurityGroup("name", new() { … })` call (and `SecurityGroupRule`, `Vpc.SecurityGroupIngressRule`, `BucketPublicAccessBlock`, `Iam.Policy`) whose name is that string literal. A bare class name counts only in a file that imports its module (`using Pulumi.Aws.Ec2;`); otherwise it must be qualified (`Aws.Ec2.SecurityGroup`). `bin/` and `obj/` are skipped.
+- Literals are plain `"…"` strings, integers, `true` / `false`, `new[] { … }`, `new InputList<…> { … }` and `new List<…> { … }`, `new() { Key = … }` and `new …Args { … }` object initializers, and `JsonSerializer.Serialize(new Dictionary<string, object?> { ["Key"] = … })` (the policy form Pulumi documents; `PolicyDocument` is the policy). Interpolated (`$"…"`), verbatim (`@"…"`) and raw strings, variables, config reads and anonymous objects read as COMPUTED and stop with UNKNOWN. No C# parser dependency: the CDK scanner masks C# comments and strings.
+- Edits keep the program's style: a new ingress entry is a copy of the entry's own `new …Args { … }` type, missing BPA flags are added to the object initializer, and the `Action` array keeps its braces and layout. A fix that would empty an inferred `new[] { }` array (it has no element type) stops for a hand edit.
+- Components used exactly once work in C# too (`class X : ComponentResource` with `: base("<type>", …)`).
+- Benchmark: 10 more Pulumi cases (4 C# fixes, one inside a component; 6 C# traps); 49 in all, 0 wrongly reported safe.
+
 ### Added (plugins)
 - Plugins: `posturanet` loads `posturanet.plugins` entry points and lets them add commands. A plugin that fails to load prints a warning; every free command keeps working. The core never imports a plugin.
 - Two read-only calls join the allowlist and the generated IAM policy, for the live contract check in PosturaNet Pro: `s3:GetAccountPublicAccessBlock` (account-wide Block Public Access, through `s3control`) and `s3:GetBucketPolicy` (the policy text, to check `must_keep` requesters). Neither writes anything.

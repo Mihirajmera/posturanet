@@ -1,6 +1,6 @@
-"""Pulumi program source (TypeScript, Python and Go, see `parse_go`): find a resource by its
-name and read or edit its literal arguments. YAML programs are read in `yaml_source.py` into
-the same `Lit` shapes.
+"""Pulumi program source (TypeScript, Python, Go and C#, see `parse_go` and `parse_cs`): find a
+resource by its name and read or edit its literal arguments. YAML programs are read in
+`yaml_source.py` into the same `Lit` shapes.
 
 The scanning (comment and string masking, bracket matching) is the CDK one: no language
 parser, only shapes PosturaNet can be certain of. A constructor call whose first argument is
@@ -22,11 +22,25 @@ from posturanet.cdk import source as cdk_source
 from posturanet.cdk.source import Construct, Lang, Span, close_of, items, str_lit, unsupported
 from posturanet.errors import StageStop
 
-SUFFIX: dict[str, str] = {"nodejs": ".ts", "python": ".py", "go": ".go"}
-LANGS: dict[str, Lang] = {**cdk_source.SUFFIXES, ".go": "go"}
+SUFFIX: dict[str, str] = {"nodejs": ".ts", "python": ".py", "go": ".go", "dotnet": ".cs"}
+LANGS: dict[str, Lang] = {**cdk_source.SUFFIXES, ".go": "go", ".cs": "cs"}
 _GO_ASSIGN = re.compile(r"[ \t]*(\w+)\s*(?:,\s*\w+\s*)?:?=\s*")  # `sg, err := `
 _GO_SCALAR = re.compile(r"pulumi\s*\.\s*(String|Int|Bool)(?:Ptr)?\s*\(")
 _GO_COMPOSITE = re.compile(r"(&?)((?:\w+\.)*\w+)\s*\{")
+_CS_ASSIGN = re.compile(r"[ \t]*(?:[\w.<>?\[\]]+\s+)?(\w+)\s*=\s*")  # `var sg = `
+# `new[] {`, `new string[] {`, `new InputList<string> {`, `new List<string>() {`
+_CS_LIST = re.compile(
+    r"new\s*(?:(?:\w+\??)?\s*\[\s*\]|(?:[\w.]+\.)?(?:InputList|List)\s*<[^<>{}()]*>\s*(?:\(\s*\))?)"
+    r"\s*\{"
+)
+_CS_DICT = re.compile(
+    r"new\s+(?:[\w.]+\.)?(?:Dictionary|InputMap)\s*<[^{}()]*>\s*(?:\(\s*\))?\s*\{"
+)
+_CS_OBJ = re.compile(
+    r"new\s*(?:((?:\w+\.)*\w+Args)\s*)?(\(\s*\))?\s*\{"
+)  # `new() {`, `new …Args {`
+_CS_KEYS = {"policyDocument": "policy"}  # C# names a property after its class, so it's renamed
+_IMPORT = {"cs": r"^\s*using\s+Pulumi\.Aws\.{m}\s*;"}
 
 
 class Computed:
@@ -176,6 +190,62 @@ def parse_go(c: Construct, span: Span) -> Lit:
     return _computed(c, span)
 
 
+def parse_cs(c: Construct, span: Span) -> Lit:
+    """The C# literal at `span`: plain `"…"` strings, integers, `true` / `false`, array and
+    `InputList` / `List` collection initializers, `new() { Key = … }` / `new …Args { … }`
+    object initializers, `new Dictionary<…> { ["Key"] = … }`, and `JsonSerializer.Serialize`
+    of a dictionary (read as JSON). Anything else is COMPUTED."""
+    s, e = span
+    raw, masked = c.text[s:e], c.masked[s:e]
+    if raw[:1] == '"':
+        lit = str_lit(c.text, span)
+        return Lit(span, "str", lit[0], '"') if lit else _computed(c, span)
+    if re.fullmatch(r"-?\d+", raw):
+        return Lit(span, "num", int(raw))
+    if raw in ("true", "false"):
+        return Lit(span, "bool", raw == "true")
+    m = re.match(r"(?:System\.Text\.Json\.)?JsonSerializer\s*\.\s*Serialize\s*\(", masked)
+    if m and close_of(c.masked, s + m.end() - 1) == e - 1:
+        args = items(c.masked, s + m.end() - 1, e - 1)
+        doc = parse_cs(c, args[0]) if len(args) == 1 else None
+        return Lit(span, "json", doc) if doc and doc.kind == "obj" else _computed(c, span)
+    for rx in (_CS_LIST, _CS_DICT, _CS_OBJ):
+        m = rx.match(masked)
+        if m is None or close_of(c.masked, s + m.end() - 1) != e - 1:
+            continue
+        o = s + m.end() - 1
+        parts = items(c.masked, o, e - 1)
+        head = c.text[s:o].rstrip()
+        if rx is _CS_LIST:
+            return Lit(span, "list", [parse_cs(c, x) for x in parts], brackets=(o, e - 1),
+                       call=head)  # fmt: skip
+        if rx is _CS_OBJ and not (m.group(1) or m.group(2)):
+            break  # `new { … }`: an anonymous type, not Pulumi args
+        out: dict[str, Lit] = {}
+        key = r'\[\s*"([^"\\\n]*)"\s*\]' if rx is _CS_DICT else r"([A-Z]\w*)"
+        for a, b in parts:
+            k = re.match(key + r"\s*=(?!=)\s*", c.text[a:b])
+            if k is None or c.masked[a] == "{":
+                return _computed(c, span)  # a computed key, or a collection-style entry
+            name = k.group(1) if rx is _CS_DICT else k.group(1)[0].lower() + k.group(1)[1:]
+            out[name] = parse_cs(c, (a + k.end(), b))
+        return Lit(span, "obj", out, brackets=(o, e - 1), call=head)
+    return _computed(c, span)
+
+
+def trusted(lang: Lang, qualifier: str, masked: str, module: str) -> bool:
+    """The call is the AWS class: qualified by its module (`aws.ec2.`, `Aws.Ec2.`), or, in C#,
+    bare in a file that imports the module (`using Pulumi.Aws.Ec2;`)."""
+    if qualifier.lower().endswith(f"{module}."):
+        return True
+    pat = _IMPORT.get(lang)
+    return (
+        not qualifier
+        and pat is not None
+        and bool(re.search(pat.format(m=module.capitalize()), masked, re.M))
+    )
+
+
 def _go_mask(text: str) -> str:
     """Go masking, with raw strings that hold a JSON object masked as JSON instead of blanked,
     so their brackets and strings can be read like a TypeScript object literal."""
@@ -210,11 +280,11 @@ def scan(path: Path, text: str, name: str | None, cls: str) -> list[Construct]:
         args = items(masked, o, cl)
         at = 1 if go else 0  # Go: New…(ctx, "name", &…Args{…})
         lit = str_lit(text, args[at]) if len(args) > at else None
-        if lit is not None and go and lit[1] != '"':
-            lit = None  # a Go rune or raw string is not a name PosturaNet reads
+        if lit is not None and lang in ("go", "cs") and lit[1] != '"':
+            lit = None  # a Go rune or raw string, a C# char, is not a name PosturaNet reads
         if name is not None and (lit is None or lit[0] != name):
             continue
-        assign = _GO_ASSIGN if go else cdk_source._ASSIGN[lang]
+        assign = {"go": _GO_ASSIGN, "cs": _CS_ASSIGN}.get(lang) or cdk_source._ASSIGN[lang]
         a = assign.fullmatch(masked[cdk_source.line_start(masked, m.start()) : m.start()])
         out.append(
             Construct(
@@ -240,6 +310,7 @@ class InComponent(Construct):
     """A constructor call inside the one class (or Go function) that registers `component`."""
 
     component: str = ""  # the component's type token
+    module: str = ""  # the AWS module of `cls` (`ec2`), which a bare C# class doesn't show
 
 
 def find(files: list[Path], name: str, cls: str, module: str) -> list[Construct]:
@@ -249,7 +320,11 @@ def find(files: list[Path], name: str, cls: str, module: str) -> list[Construct]
     for p in files:
         text = p.read_bytes().decode("utf-8", errors="replace")
         if name in text:
-            out += [c for c in scan(p, text, name, cls) if c.qualifier.endswith(f"{module}.")]
+            out += [
+                c
+                for c in scan(p, text, name, cls)
+                if trusted(c.lang, c.qualifier, c.masked, module)
+            ]
     return out
 
 
@@ -287,6 +362,13 @@ def props(c: Construct) -> Props:
 
         return yaml_source.props(c)
     args = c.args
+    if c.lang == "cs":  # new SecurityGroup("name", new() { … }, options)
+        if len(args) < 2 or c.text[args[1][0] : args[1][1]] == "null":
+            return Props({}, None, "cs")
+        lit = parse_cs(c, args[1])
+        if lit.kind != "obj":
+            return Props({}, None, "cs", computed=True)
+        return Props({_CS_KEYS.get(k, k): v for k, v in lit.value.items()}, lit.brackets, "cs")
     if c.lang == "go":
         if len(args) < 3 or c.text[args[2][0] : args[2][1]] == "nil":
             return Props({}, None, "go")
@@ -316,7 +398,8 @@ def props(c: Construct) -> Props:
 
 
 def arg_key(c: Construct, key: str) -> str:
-    if c.lang == "go":
+    if c.lang in ("go", "cs"):
+        key = next((k for k, v in _CS_KEYS.items() if v == key), key) if c.lang == "cs" else key
         return key[0].upper() + key[1:]
     return key if c.lang == "ts" else re.sub(r"([A-Z])", lambda m: "_" + m.group(1).lower(), key)
 
@@ -337,6 +420,14 @@ def render(v: Any, c: Construct, quote: str, *, py_keys: bool = False) -> str:
         if isinstance(v, list) and all(isinstance(x, str) for x in v):
             return "pulumi.StringArray{" + ", ".join(render(x, c, quote) for x in v) + "}"
         raise unsupported("a Go value PosturaNet doesn't write")
+    if c.lang == "cs":
+        if isinstance(v, list) and v and all(isinstance(x, str) for x in v):
+            return "new[] { " + ", ".join(render(x, c, quote) for x in v) + " }"
+        if isinstance(v, (list, dict)):
+            raise unsupported("a C# value PosturaNet doesn't write")  # `new[] { }` has no type
+        if isinstance(v, bool):
+            return "true" if v else "false"
+        return json.dumps(v) if isinstance(v, str) else str(v)
     if isinstance(v, bool):
         return ("True" if v else "False") if c.lang == "py" else ("true" if v else "false")
     if isinstance(v, int):
