@@ -4,6 +4,8 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-21
+
 ### Added (opt-in CloudTrail Lake history for IAM, FR-16b)
 - `evidence.cloudtrail_lake` (off by default; needs `event_data_store`, an ARN or id; `lookback_days` defaults to 730): IAM fixes also read the policy's roles' and users' calls from the customer's CloudTrail Lake, so a job last run before last-accessed's ~400 days is kept. History only adds use; an unmapped event source or a group principal leaves the evidence as last-accessed reported it, and a failed query is UNKNOWN.
 - New read-only allowlist entries, also in the generated IAM policy: `cloudtrail:StartQuery` and `cloudtrail:GetQueryResults`. They run a query and change no resource. Lake bills per GB scanned.
