@@ -159,6 +159,10 @@ evidence:
   flow_logs: { mode: logs_insights, log_group: /vpc/flowlogs }   # or { mode: athena, database: ..., table: ..., workgroup: ... }
   window_days: 400                 # look-back cap; the window starts where the logs start
   min_confidence_for_pr: medium     # high | medium   (low/none never open PRs)
+  cloudtrail_lake:                  # FR-16b, opt-in IAM history; off by default
+    enabled: false
+    event_data_store: arn:aws:cloudtrail:us-east-1:123456789012:eventdatastore/EXAMPLE
+    lookback_days: 730
 contracts:
   dir: posturanet/contracts
   require_approved_for_auto: true   # auto/event mode needs approved contracts
@@ -378,7 +382,7 @@ R1 reads the default flow-log format only. With a custom format the fields aren'
 Athena mode uses the equivalent SQL with partition pruning (`year/month/day`). Query cost guardrail: refuse if the estimated scan exceeds `evidence.max_scan_gb` (default 50).
 
 ### 7.2 Last-accessed (IAM, R2, FR-16)
-`iamfix/evidence.py`. `GetPolicy` (age), `ListEntitiesForPolicy` (principals), `GenerateServiceLastAccessedDetails` on the policy ARN with `Granularity=ACTION_LEVEL`, then `GetServiceLastAccessedDetails` until done. A tracked action with a last-accessed time was used; a used service without action-level data is a blocker. Confidence comes from the policy's age (60+ days high, 14+ medium, else low); no principals → none.
+`iamfix/evidence.py`. `GetPolicy` (age), `ListEntitiesForPolicy` (principals), `GenerateServiceLastAccessedDetails` on the policy ARN with `Granularity=ACTION_LEVEL`, then `GetServiceLastAccessedDetails` until done. A tracked action with a last-accessed time was used; a used service without action-level data is a blocker. Confidence comes from the policy's age (60+ days high, 14+ medium, else low); no principals → none. With `evidence.cloudtrail_lake` on (FR-16b), one Lake SQL query (`StartQuery`, then `GetQueryResults` pages) returns the last call of each `eventSource`/`eventName` by the policy's roles (`sessionIssuer.userName`) and users over `lookback_days`; names are checked against IAM's name characters before they go in the query. `with_history` adds that use to the report and never removes any, so a miss leaves today's evidence; the source becomes `iam_last_accessed+cloudtrail_lake`.
 Not covered: data-plane actions (hence the `reviewed_services` gate), `iam:PassRole` (never tracked; a removed wildcard covering it is a blocker until a human keeps it or reviews `iam`), use older than the tracking period, and resource-level scope. Denied attempts count as access, so the kept set can be larger than needed (never smaller); the PR lists this as an unknown.
 
 Offline export (`--evidence-file`): `{"policy_arn", "created", "principals", "services": [{"namespace", "last_accessed", "action_level", "actions": [{"name", "last_accessed"}]}]}`.
@@ -387,7 +391,7 @@ Verify (`verify/iam_signals.py`): CloudTrail `LookupEvents` per removed service 
 
 ### 7.3 Read-only allowlist (NFR-2)
 `aws/readonly.py` wraps boto3 clients and allows only listed operations. Anything else raises `MutatingCallBlocked`. The current allowlist:
-`ec2:Describe*`, `logs:StartQuery`, `logs:GetQueryResults`, `logs:DescribeLogGroups`, `athena:StartQueryExecution`, `athena:GetQueryExecution`, `athena:GetQueryResults`, `s3:GetObject` (state bucket, Athena results, access logs), `s3:ListBucket`, `s3:ListAllMyBuckets`, `s3:GetBucketPolicyStatus`, `s3:GetBucketAcl`, `s3:GetBucketOwnershipControls`, `s3:GetBucketWebsite`, `s3:GetBucketLogging`, `cloudfront:ListDistributions`, `iam:Get*`, `iam:List*`, `iam:GenerateServiceLastAccessedDetails`, `iam:SimulatePrincipalPolicy`, `cloudtrail:LookupEvents`, `securityhub:GetFindings`, `securityhub:GetFindingsV2`, `securityhub:GetRemediationsV2`, `securityhub:ListExposuresByRemediationV2`, `cloudformation:DescribeStackResources`, `cloudformation:DescribeStacks`, `cloudformation:GetTemplate`, `s3:GetBucketPublicAccessBlock` (CloudFormation drift: the live bucket), `s3:GetAccountPublicAccessBlock` and `s3:GetBucketPolicy` (Pro live contract check, FR-53), `access-analyzer:Get*`, `access-analyzer:List*`, `sts:GetCallerIdentity`, `sts:AssumeRole`.
+`ec2:Describe*`, `logs:StartQuery`, `logs:GetQueryResults`, `logs:DescribeLogGroups`, `athena:StartQueryExecution`, `athena:GetQueryExecution`, `athena:GetQueryResults`, `s3:GetObject` (state bucket, Athena results, access logs), `s3:ListBucket`, `s3:ListAllMyBuckets`, `s3:GetBucketPolicyStatus`, `s3:GetBucketAcl`, `s3:GetBucketOwnershipControls`, `s3:GetBucketWebsite`, `s3:GetBucketLogging`, `cloudfront:ListDistributions`, `iam:Get*`, `iam:List*`, `iam:GenerateServiceLastAccessedDetails`, `iam:SimulatePrincipalPolicy`, `cloudtrail:LookupEvents`, `cloudtrail:StartQuery` and `cloudtrail:GetQueryResults` (opt-in Lake history, FR-16b; runs a query, changes no resource), `securityhub:GetFindings`, `securityhub:GetFindingsV2`, `securityhub:GetRemediationsV2`, `securityhub:ListExposuresByRemediationV2`, `cloudformation:DescribeStackResources`, `cloudformation:DescribeStacks`, `cloudformation:GetTemplate`, `s3:GetBucketPublicAccessBlock` (CloudFormation drift: the live bucket), `s3:GetAccountPublicAccessBlock` and `s3:GetBucketPolicy` (Pro live contract check, FR-53), `access-analyzer:Get*`, `access-analyzer:List*`, `sts:GetCallerIdentity`, `sts:AssumeRole`.
 (Athena `StartQueryExecution` writes query results to the customer's results bucket. That's documented and is the only side effect.)
 
 **Customer IAM policy** is generated by `posturanet init` from the same allowlist, so the two can't drift apart.

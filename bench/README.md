@@ -1,14 +1,14 @@
 # PosturaNet benchmark (v1)
 
 How safe is an automatic fix for an open security group, a public bucket or a wildcard IAM
-policy? This benchmark answers that with 58 cases whose right answer is known in advance, and
+policy? This benchmark answers that with 59 cases whose right answer is known in advance, and
 publishes PosturaNet's misses next to its wins.
 
 | Family | Cases | PosturaNet correct | Stopped (needed / unneeded) | Outage | Fewest outages, any baseline |
 |---|---|---|---|---|---|
 | Security groups | 14 | 11 | 2 | 1 | 3 |
 | S3 public access (S3.8) | 11 | 4 | 4 / 2 | 1 | 3 |
-| IAM least privilege (IAM.1, IAM.21) | 12 | 6 | 4 / 1 | 1 | 7 |
+| IAM least privilege (IAM.1, IAM.21) | 13 | 7 | 4 / 1 | 1 | 8 |
 | CloudFormation and SAM (all three) | 21 | 9 | 12 / 0 | 0 | - |
 
 "Needed" stops are cases with no safe automatic fix (a public website, a role that passes an
@@ -96,7 +96,7 @@ See [RESULTS.md](RESULTS.md) for every case. In short (PosturaNet 0.4.0):
 | `logs-10-days`, `no-flow-logs` | Stopped | Too little evidence. Safe, but the finding stays open. | By design: PosturaNet explains how to enable logs and waits. |
 
 | `s3-partner-every-120-days` | Outage | A partner admitted by the public bucket policy reads every 120 days, outside the 90-day log window, so Block Public Access cuts it off. | Keep a year of access logs: PosturaNet now reads all retained logs and stops (`s3-partner-every-120-days-year-of-logs`); owners list rare requesters in the contract; read the policy's named principals; S3 post-merge watch on 403s (verify has `watch_hours: 0` for S3 today). |
-| `iam-rare-job-outside-tracking` | Outage | A yearly job last ran 430 days ago, past IAM's ~400-day tracking period; last-accessed reports it as unused. | Owners add rare actions to `must_allow`; CloudTrail Lake history when the account keeps it longer. |
+| `iam-rare-job-outside-tracking` | Outage | A yearly job last ran 430 days ago, past IAM's ~400-day tracking period; last-accessed reports it as unused. | Owners add rare actions to `must_allow`, or turn on `evidence.cloudtrail_lake`: with two years of Lake history the job is kept (`iam-rare-job-cloudtrail-lake` is correct). |
 | `s3-anonymous-scrapers`, `s3-public-no-logs`, `iam-admin-star` | Stopped (unneeded) | Logs can't tell a scraper from a customer; no logs means no evidence; `"*"` covers the untracked `iam:PassRole`. | By design: the PR draft contract asks a human, and the `-approved` / `-reviewed` cases show the path to a fix. |
 
 The byte threshold is a heuristic. A scanner that completes full sessions, or a legit client

@@ -910,6 +910,48 @@
         "verdict": "OUTAGE"
       }
     ],
+    "iam-rare-job-cloudtrail-lake": [
+      {
+        "allowed": [
+          "rds:DescribeDBInstances",
+          "rds:StartExportTask"
+        ],
+        "broken": [],
+        "expect": "fix",
+        "exposed": [],
+        "note": "",
+        "status": "FIXED",
+        "tool": "PosturaNet",
+        "verdict": "CORRECT"
+      },
+      {
+        "allowed": [
+          "rds:DescribeDBInstances"
+        ],
+        "broken": [
+          "rds:StartExportTask"
+        ],
+        "expect": "fix",
+        "exposed": [],
+        "note": "",
+        "status": "FIXED",
+        "tool": "Used actions only",
+        "verdict": "OUTAGE"
+      },
+      {
+        "allowed": [],
+        "broken": [
+          "rds:DescribeDBInstances",
+          "rds:StartExportTask"
+        ],
+        "expect": "fix",
+        "exposed": [],
+        "note": "",
+        "status": "FIXED",
+        "tool": "Remove wildcard",
+        "verdict": "OUTAGE"
+      }
+    ],
     "iam-rare-job-in-window": [
       {
         "allowed": [

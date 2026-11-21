@@ -33,6 +33,10 @@ ALLOWLIST: tuple[str, ...] = (
     "cloudfront:ListDistributions",
     # IAM fix verification (FR-32): AccessDenied on removed actions.
     "cloudtrail:LookupEvents",
+    # Opt-in IAM history (FR-16b, `evidence.cloudtrail_lake`): SQL over an event data store.
+    # Runs a query; changes no resource. Billed by the customer per GB scanned.
+    "cloudtrail:StartQuery",
+    "cloudtrail:GetQueryResults",
     "iam:Get*",
     "iam:List*",
     "iam:GenerateServiceLastAccessedDetails",

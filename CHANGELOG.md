@@ -4,6 +4,11 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Added (opt-in CloudTrail Lake history for IAM, FR-16b)
+- `evidence.cloudtrail_lake` (off by default; needs `event_data_store`, an ARN or id; `lookback_days` defaults to 730): IAM fixes also read the policy's roles' and users' calls from the customer's CloudTrail Lake, so a job last run before last-accessed's ~400 days is kept. History only adds use; an unmapped event source or a group principal leaves the evidence as last-accessed reported it, and a failed query is UNKNOWN.
+- New read-only allowlist entries, also in the generated IAM policy: `cloudtrail:StartQuery` and `cloudtrail:GetQueryResults`. They run a query and change no resource. Lake bills per GB scanned.
+- IAM evidence files take an optional `cloudtrail_lake: {actions: [{action, last_seen}]}` for offline runs.
+- Benchmark: `iam-rare-job-cloudtrail-lake` is correct; `iam-rare-job-outside-tracking` (no Lake) is still an outage.
 ### Added (Pulumi Java)
 - `posturanet fix` and `contract check --source` work on Pulumi Java programs (`runtime: java`), for the same three evidence-backed fixes. The resource is the one `new SecurityGroup("name", SecurityGroupArgs.builder()….build())` call (and `SecurityGroupRule`, `vpc.SecurityGroupIngressRule`, `BucketPublicAccessBlock`, `iam.Policy`) whose name is that string literal. A bare class name counts only in a file that imports it (`import com.pulumi.aws.ec2.SecurityGroup;` or `com.pulumi.aws.ec2.*`). `build/`, `target/` and `test/` directories are skipped.
 - Literals are plain `"…"` strings, integers, `true` / `false`, `List.of(…)` / `Arrays.asList(…)`, `Map.of(…)` with string keys, `…Args.builder()` chains of literal setters ending in `.build()` (a list setter such as `.ingress(…)` or `.cidrBlocks(…)` reads its varargs as the list), and `serializeJson(jsonObject(jsonProperty(…), …))` with `jsonArray(…)`, the policy form `pulumi convert` writes. Concatenation, text blocks, variables, config reads, `toBuilder()` and a setter called twice read as COMPUTED and stop with UNKNOWN. No Java parser dependency: the CDK scanner masks Java comments and strings.

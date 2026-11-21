@@ -45,7 +45,13 @@ from posturanet.evidence.periodicity import describe
 from posturanet.iamfix import contract as iamcontract
 from posturanet.iamfix import pr as iampr
 from posturanet.iamfix.doc import PolicyDoc
-from posturanet.iamfix.evidence import FileIamSource, IamSource, LiveIamSource
+from posturanet.iamfix.evidence import (
+    CloudTrailLake,
+    FileIamSource,
+    IamSource,
+    LiveIamSource,
+    with_history,
+)
 from posturanet.iamfix.evidence import usage as iam_usage
 from posturanet.iamfix.shrink import shrink
 from posturanet.iamfix.validate import validate_iam_fix
@@ -1273,6 +1279,13 @@ def _run_iam(
         return record, None
     today = ctx.clock().date()
     ev = source.policy(arn, today)
+    lake = config.evidence.cloudtrail_lake
+    if lake.enabled and lake.event_data_store and isinstance(source, LiveIamSource):
+        assert ctx.aws is not None  # LiveIamSource is only built with AWS access
+        history = CloudTrailLake(ctx.aws("cloudtrail"), lake.event_data_store)
+        ev = with_history(
+            ev, history.actions(ev.principals, today - timedelta(days=lake.lookback_days), today)
+        )
     record.iam_evidence = ev
     use = iam_usage(ev)
 

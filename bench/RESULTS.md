@@ -292,9 +292,9 @@ A canonical-id requester PosturaNet can't tie to an account; the team reviews it
 
 | Contender | Correct | Stopped | Outage | Still Exposed | Unneeded stops |
 |---|---|---|---|---|---|
-| PosturaNet | 6 | 5 | 1 | 0 | 1 |
-| Used actions only | 5 | 0 | 7 | 0 | 0 |
-| Remove wildcard | 1 | 0 | 11 | 0 | 0 |
+| PosturaNet | 7 | 5 | 1 | 0 | 1 |
+| Used actions only | 5 | 0 | 8 | 0 | 0 |
+| Remove wildcard | 1 | 0 | 12 | 0 | 0 |
 
 #### `iam-ec2-describe`: ec2:* used only for Describe calls
 
@@ -333,6 +333,16 @@ A yearly audit export last ran 430 days ago, past IAM's ~400-day tracking period
 | Contender | Verdict | Detail |
 |---|---|---|
 | PosturaNet | Outage | breaks rds:StartExportTask; allows rds:DescribeDBInstances |
+| Used actions only | Outage | breaks rds:StartExportTask; allows rds:DescribeDBInstances |
+| Remove wildcard | Outage | breaks rds:DescribeDBInstances, rds:StartExportTask |
+
+#### `iam-rare-job-cloudtrail-lake`: The same yearly job, with CloudTrail Lake history turned on
+
+Last-accessed forgot the export; two years of Lake history still show it. Ground truth: a safe fix exists.
+
+| Contender | Verdict | Detail |
+|---|---|---|
+| PosturaNet | Correct | allows rds:DescribeDBInstances, rds:StartExportTask |
 | Used actions only | Outage | breaks rds:StartExportTask; allows rds:DescribeDBInstances |
 | Remove wildcard | Outage | breaks rds:DescribeDBInstances, rds:StartExportTask |
 
