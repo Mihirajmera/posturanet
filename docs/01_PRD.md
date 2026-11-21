@@ -112,7 +112,7 @@ Vendors now generate fix PRs (Wiz, Gomboc, Cloudgeni and others). Their public m
 | **R8: Pulumi** | Fix PRs to Pulumi programs (TypeScript, Python, Go, C#, Java, YAML, AWS Classic), mapped through a `pulumi stack export`; static validation with the CloudFormation checks (`pulumi preview` not run: it needs write-capable credentials); contract check on the program's literals | Merging into `test` |
 | **R9: Outcome share** | Opt-in anonymous outcomes (FR-45a) and the "which fixes break prod" dataset | Client on `test`; receiving service not built |
 | **R10: Team plan (Pro)** | Org-wide contract gate, event triggers (US-3), license keys, contract history, audit evidence, team view. Lives in the private `pro` branch of the postura repo | First feature not chosen yet |
-| **R11: Living contracts** | New-behavior and drift PRs, periodicity, policy packs | Later |
+| **R11: Living contracts (Pro)** | `contract refresh` (new-behavior proposals as contract-update PRs, FR-52), `contract live` (drift of the deployed resource, FR-53), a scheduled workflow (FR-54). Policy packs later | In `posturanet-pro` (private `pro` branch), `living` license flag |
 
 ## 6. User stories with acceptance criteria
 
@@ -209,6 +209,13 @@ Vendors now generate fix PRs (Wiz, Gomboc, Cloudgeni and others). Their public m
 - **FR-29** Publish a check run with the summary.
 - **FR-30** Never merge. Never apply.
 
+### Living contracts (R11, Pro: `living` license flag)
+Shipped in `posturanet-pro`, which adds these commands through the `posturanet.plugins` entry point; the open core has no living-contracts code.
+
+- **FR-52** `posturanet contract refresh <resource>|--all` re-collects each approved contract's evidence with the same read-only collectors, window and confidence rules as `fix` (flow logs for `network`, last-accessed for `iam`, access logs for `s3_public`) and compares it with the contract. A user the contract doesn't cover, placed where `fix` would place it (`must_allow`, or `needs_review`; likely scanners stay out), is a proposed addition. An entry not seen in the whole window is a proposed removal: flagged in the file (`reason` on a network entry or an S3 `must_keep` requester, a `needs_review` line for IAM) and in the PR, and never removed, because a job rarer than the window looks the same. IAM entries a human added (`source: human`) are never flagged. The approved file in the checkout is never edited: the result is printed (`--dry-run`, the default) or delivered as a contract-update PR (`--open-pr`) whose contract goes back to `status: draft`, so approving it is the normal merge with `status: approved` and `approved_by` (US-2 AC3). Confidence below `evidence.min_confidence_for_pr` (or none) → UNKNOWN, no proposal. Draft contracts are skipped. A private S3 bucket with ACLs disabled has no access logs read (as in `fix`), so it is skipped. `--evidence-file` holds one contract's evidence and needs one named contract (FR-12). Exit 3 if any contract is UNKNOWN or a PR couldn't be opened, else 0.
+- **FR-53** `posturanet contract live [--resource <r>]` reads each contracted resource as deployed, read-only (`ec2:DescribeSecurityGroups`, `s3:GetBucketPublicAccessBlock`, `s3:GetAccountPublicAccessBlock`, `s3:GetBucketPolicyStatus`, `s3:GetBucketPolicy`, `iam:GetPolicy`, `iam:GetPolicyVersion`, `cloudformation:DescribeStackResources` for CloudFormation and CDK groups, `sts:GetCallerIdentity`; Pulumi group ids come from the offline `pulumi stack export`), and judges it with the same rules as `contract check`: a reopened `0.0.0.0/0`, a removed `must_allow` source, a Block Public Access flag turned off (bucket or account), a public bucket policy, a deployed policy that no longer grants a `must_keep` requester, a `must_remove` wildcard back or a `must_allow` action gone is BLOCK (exit 5) with the contract line. A group with security-group or prefix-list sources (not expanded), a read error, a resource not in the state, a contract for another account and a Pulumi group missing from the stack export are UNKNOWN (exit 3), never PASS.
+- **FR-54** A scheduled workflow (shipped with `posturanet-pro`) runs `contract refresh --all --open-pr` then `contract live --github-issues`. One contract-update PR per contract, found again by its issue marker (`contract-refresh@<address>`) and updated in place, unchanged when the proposal is the same (FR-28), and within `delivery.max_open_prs`. One issue per resource whose live state breaks its contract, found again by a marker: a BLOCK opens or updates it, an UNKNOWN only updates an open one, a PASS updates and closes it. The job's exit code is the live check's on BLOCK, else the refresh's.
+
 ### Verification
 - **FR-31** After apply, re-run the finding check on live state.
 - **FR-32** Watch REJECT (network) or AccessDenied (IAM) signals from contracted sources for the tier window (24h / 72h / 7d).
@@ -221,7 +228,7 @@ Vendors now generate fix PRs (Wiz, Gomboc, Cloudgeni and others). Their public m
 - **FR-37** OSCAL assessment-results export plus readable summary. `evidence verify`.
 
 ### Interfaces
-- **FR-38** CLI commands: `init`, `fix`, `fixes list|show`, `contract build|check`, `verify`, `evidence export|verify`, `license status`.
+- **FR-38** CLI commands: `init`, `fix`, `fixes list|show`, `contract build|check` (Pro adds `contract refresh|live`), `verify`, `evidence export|verify`, `license status`.
 - **FR-39** GitHub Action supporting `workflow_dispatch`, schedule, `repository_dispatch` (pro), `pull_request` (pro gate).
 - **FR-40** MCP server (stdio) with tools `explain_finding`, `propose_fix`, `check_change` (read-only) and `open_fix_pr` (needs confirmation).
 - **FR-41** Claude skill (`plugin/skills/posturanet/SKILL.md`) describing when and how to call the tools, shipped as a Claude Code plugin (`plugin/`) through the repo's marketplace (`.claude-plugin/marketplace.json`).
@@ -264,7 +271,7 @@ Vendors now generate fix PRs (Wiz, Gomboc, Cloudgeni and others). Their public m
 | Event triggers (FR-39 dispatch) | — | ✓ | ✓ | ✓ |
 | Contract check: CLI, CI, PR check run (per repo), agent hooks | ✓ | ✓ | ✓ | ✓ |
 | Org-wide contract gate (one config, all repos) | — | ✓ | ✓ | ✓ |
-| Living contracts (R5) | — | ✓ | ✓ | ✓ |
+| Living contracts (R11; `posturanet-pro`, `living` flag) | — | ✓ | ✓ | ✓ |
 | Monitoring window | 24h | 72h | 7d | Custom |
 | Slack | — | ✓ | ✓ | ✓ |
 | Signed OSCAL evidence | — | — | ✓ | ✓ |

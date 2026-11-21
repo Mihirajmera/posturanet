@@ -45,6 +45,9 @@ class S3Use(BaseModel):
     last_seen: date
     owner: str | None = None
     ref: str | None = None
+    # Set by a contract refresh when the requester wasn't seen in the window (FR-52); kept, never
+    # removed, because a job rarer than the window looks the same.
+    reason: str | None = None
 
 
 class CloudFrontOrigin(BaseModel):
