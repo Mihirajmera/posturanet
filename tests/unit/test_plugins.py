@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -53,3 +54,33 @@ def test_live_check_reads_are_allowlisted_and_in_the_policy() -> None:
         assert is_allowed(a) and a in actions
     assert not is_allowed("s3:PutAccountPublicAccessBlock")
     assert not is_allowed("s3:PutBucketPolicy")
+
+
+def test_s3_use_reason_is_written_and_read_back(tmp_path: Path) -> None:
+    from datetime import date
+
+    from posturanet.models.contract import ObservedMeta, ObservedWindow
+    from posturanet.models import Confidence
+    from posturanet.models.s3 import S3Contract, S3Use
+    from posturanet.s3fix import contract as s3contract
+
+    use = S3Use(
+        requester="arn:aws:iam::123456789012:role/batch",
+        kind="in_account",
+        count=1,
+        last_seen=date(2026, 7, 1),
+        reason="not seen 2026-08-01..2026-10-29; delete only if retired",
+    )
+    c = S3Contract(
+        resource="aws_s3_bucket_public_access_block.assets",
+        observed=ObservedMeta(
+            source="s3_access_logs",
+            window=ObservedWindow(start=date(2026, 8, 1), end=date(2026, 10, 29), days=89),
+            confidence=Confidence.HIGH,
+        ),
+        must_keep=[use],
+    )
+    path = tmp_path / "c.yaml"
+    s3contract.write(path, c)
+    loaded = s3contract.load(path)
+    assert loaded is not None and loaded.must_keep[0].reason == use.reason
