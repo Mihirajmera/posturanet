@@ -13,7 +13,6 @@ from posturanet.output.symbols import ASCII, UNICODE, to_ascii
 
 if TYPE_CHECKING:
     from posturanet.gate import GateResult
-    from posturanet.models.living import ContractRefresh
 
 _NAME_WIDTH = 12
 _LABEL_WIDTH = 12
@@ -195,76 +194,5 @@ def render_gate(
         for head, _, body in blocks:
             sym, _, address = head.partition(" ")
             lines += ["", f"{sym} {style('bold', address)}"] + [f"  {x}" for x in body]
-    text = "\n".join(lines) + "\n"
-    return to_ascii(text) if ascii_mode else text
-
-
-_REFRESH_SYMBOL = {
-    "PASS": ("✓", "success"),
-    "PROPOSED": ("!", "warning"),
-    "UNKNOWN": ("?", "muted"),
-    "SKIPPED": ("–", "muted"),
-}
-
-
-def refresh_status(results: list[ContractRefresh]) -> str:
-    states = {r.status for r in results}
-    return next((s for s in ("UNKNOWN", "PROPOSED") if s in states), "PASS")
-
-
-def render_refresh(
-    results: list[ContractRefresh],
-    *,
-    open_pr: bool,
-    ascii_mode: bool = False,
-    style: Style = PLAIN,
-    width: int | None = None,
-) -> str:
-    """`contract refresh` output (design system section 4.8)."""
-    state = refresh_status(results)
-    counts = [
-        (sum(r.status == s for r in results), label)
-        for s, label in (
-            ("PROPOSED", "with proposed changes"),
-            ("PASS", "match the evidence"),
-            ("UNKNOWN", "unknown"),
-            ("SKIPPED", "skipped"),
-        )
-    ]
-    summary = " · ".join(
-        [style(_RESULT_TOKEN.get(state, "warning"), state)]
-        + [f"{n} {label}" for n, label in counts if n]
-    )
-    n = len(results)
-    frame = Frame(ascii_mode, style, width)
-    lines = frame.open(header("contract refresh", f"{n} contract{'s' * (n != 1)}", style))
-    lines += [
-        frame.step(summary, info=True, token=_RESULT_TOKEN.get(state, "warning")),
-        frame.bar(),
-    ]
-    for r in results:
-        sym, token = _REFRESH_SYMBOL[r.status]
-        rows = [style("muted", r.evidence)] if r.evidence else []
-        w = max([24, *(len(c.entry) for c in [*r.additions, *r.removals])])
-        rows += [f"+ {c.section:<13} {c.entry:<{w}} {c.detail}" for c in r.additions]
-        rows += [
-            f"{style('warning', '!')} {c.section:<13} {c.entry:<{w}} {c.detail} (flagged, kept)"
-            for c in r.removals
-        ]
-        rows += list(r.reasons)
-        if r.pr_url:
-            rows.append(f"{'PR':<{_LABEL_WIDTH}}{r.pr_url} ({r.pr_action})")
-        lines += frame.box(f"{style(token, sym)} {r.resource}", rows or ["no change"], token=token)
-    if state == "UNKNOWN":
-        close = "Stopped where the evidence was weak or unreadable. Nothing was changed there."
-    elif state == "PROPOSED":
-        close = (
-            "Done. Review the PR; a person approves contract changes."
-            if open_pr
-            else "Done. Nothing was changed; add --open-pr to propose these updates."
-        )
-    else:
-        close = "Done. Every approved contract matches the evidence."
-    lines += frame.close(close)
     text = "\n".join(lines) + "\n"
     return to_ascii(text) if ascii_mode else text

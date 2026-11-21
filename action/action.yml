@@ -7,7 +7,7 @@ branding:
 
 inputs:
   command:
-    description: "fix | check (contract check on a PR) | contract-check (check an existing plan file) | living (scheduled: contract refresh + live drift check)"
+    description: "fix | check (contract check on a PR) | contract-check (check an existing plan file)"
     required: false
     default: fix
   target:
@@ -46,12 +46,8 @@ inputs:
     description: "check / contract-check on a pull request: keep one PR comment with the result (needs `pull-requests: write`). Posted on BLOCK or UNKNOWN; a later PASS edits it. Never fails the job."
     required: false
     default: "true"
-  open-issues:
-    description: "living: keep one issue per resource whose live state breaks its contract (needs `issues: write`). Closed again when it matches."
-    required: false
-    default: "true"
   github-token:
-    description: Token for check runs, PRs and issues.
+    description: Token for check runs and PRs.
     required: false
     default: ${{ github.token }}
   working-directory:
@@ -65,7 +61,7 @@ inputs:
 
 outputs:
   result:
-    description: "Run result: OPENED, VALIDATED, DRY RUN, STOPPED, PASS, BLOCK or UNKNOWN. living: the live check's result."
+    description: "Run result: OPENED, VALIDATED, DRY RUN, STOPPED, PASS, BLOCK or UNKNOWN."
     value: ${{ steps.run.outputs.result }}
   pr-url:
     description: URL of the opened or updated PR, if any.
@@ -103,6 +99,5 @@ runs:
         PN_FAIL_ON_UNKNOWN: ${{ inputs.fail-on-unknown }}
         PN_CHECK_RUN: ${{ inputs.check-run }}
         PN_COMMENT: ${{ inputs.comment }}
-        PN_OPEN_ISSUES: ${{ inputs.open-issues }}
         GITHUB_TOKEN: ${{ inputs.github-token }}
       run: bash "${GITHUB_ACTION_PATH}/entrypoint.sh"
