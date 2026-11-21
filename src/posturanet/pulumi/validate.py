@@ -106,6 +106,12 @@ def _ingress_item(c: Construct, item: Lit, r: Rule, desc: str | None, quote: str
             + ", ".join(f"{arg_key(c, k)}: {render(v, c, q)}" for k, v in vals.items())
             + "}"
         )
+    if c.lang == "cs":  # `new Aws.Ec2.Inputs.SecurityGroupIngressArgs { … }`, or `new() { … }`
+        return (
+            f"{item.call} {{ "
+            + ", ".join(f"{arg_key(c, k)} = {render(v, c, q)}" for k, v in vals.items())
+            + " }"
+        )
     if item.call:  # Python `…SecurityGroupIngressArgs(` call
         return (
             f"{item.call}("
@@ -120,6 +126,8 @@ def _list_edits(c: Construct, lst: Lit, new: dict[int, list[str]]) -> list[tuple
     its: list[Lit] = lst.value
     gone = {i for i, v in new.items() if not v}
     if len(gone) == len(its):
+        if c.lang == "cs":  # `new[] { }` has no element type to infer
+            raise _hand("the fix removes every ingress entry; empty the C# list by hand")
         return [(lst.span[0], lst.span[1], f"{lst.call}{{}}" if c.lang == "go" else "[]")]
     out = []
     k = max(i for i in range(len(its)) if i not in gone)
@@ -251,9 +259,11 @@ def s3_diff(repo: Path, t: PulumiTarget) -> Diff:
         brackets = props(c).brackets
         if brackets is None:
             raise _hand(f"'{name}' has no arguments object to add {f} to")
-        item = {"ts": f"{f}: true", "go": f"{arg_key(c, f)}: pulumi.Bool(true)"}.get(
-            c.lang, f"{arg_key(c, f)}=True"
-        )
+        item = {
+            "ts": f"{f}: true",
+            "go": f"{arg_key(c, f)}: pulumi.Bool(true)",
+            "cs": f"{arg_key(c, f)} = true",
+        }.get(c.lang, f"{arg_key(c, f)}=True")
         text = cdk_source.append_item(c.text, c.masked, brackets, item)
     summary = f"{name}: {', '.join(off)} → true"
     return _diff(repo, t, {c.file: (v.constructs[0], text)}, summary, "template:s3_public@1:pulumi")
@@ -272,6 +282,12 @@ def iam_diff(repo: Path, t: PulumiTarget, changes: list[StatementChange]) -> Dif
             raise _hand(f"statement {ch.statement.index + 1} has no literal Action")
         if lit.kind == "list" and all(x.kind == "str" for x in lit.value) and c.lang == "yaml":
             spans.append((lit.span[0], lit.span[1], yaml_source.list_text(c.text, lit, ch.after)))
+        elif lit.kind == "list" and all(x.kind == "str" for x in lit.value) and c.lang == "cs":
+            assert lit.brackets is not None  # `new[] { … }`: only the items between the braces
+            o, cl = lit.brackets
+            inner = render_actions(c, SourceStatement([], (o, cl + 1), '"'), ch.after)[1:-1]
+            pad = " " if "\n" not in inner and c.text[o + 1 : o + 2] == " " else ""
+            spans.append((o + 1, cl, f"{pad}{inner}{pad}"))
         elif lit.kind == "list" and all(x.kind == "str" for x in lit.value):
             q = lit.value[0].quote if lit.value else '"'
             st = SourceStatement([x.value for x in lit.value], lit.span, q)

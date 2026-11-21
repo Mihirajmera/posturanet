@@ -1,5 +1,6 @@
 """Pulumi benchmark: the same three fix types (open security group, public bucket, wildcard IAM
-policy) when the source is a Pulumi program (TypeScript, Python or YAML, AWS Classic provider).
+policy) when the source is a Pulumi program (TypeScript, Python, Go, C# or YAML, AWS Classic
+provider).
 
 Every case runs the real pipeline (`run_fix`, check mode) on a copy of
 `tests/fixtures/pulumi/ts-program`, `py-program` or `yaml-program`, with the program or the
@@ -97,7 +98,7 @@ def _wider_policy(doc: Export) -> None:
 class PulumiCase:
     id: str
     family: Family
-    lang: Literal["ts", "py", "yaml", "go"]
+    lang: Literal["ts", "py", "yaml", "go", "cs"]
     title: str
     why: str
     expect: Expect
@@ -115,6 +116,23 @@ RDP = (
     '    cidrIpv4: "0.0.0.0/0",\n});\n'
 )
 YML, GO, GOS = "Pulumi.yaml", "main.go", "storage.go"
+CS, CSS = "Program.cs", "Storage.cs"
+_cs = (FIX / "pulumi" / "cs-program" / CS).read_text(encoding="utf-8")
+CS_SG = _cs[_cs.index("    var bastionSg") : _cs.index("\n\n    var web")]
+# The bastion group moved into a C# component class (a new file), named from the component's.
+CS_COMP: dict[str, Edit | list[Edit]] = {
+    CS: (CS_SG, '    var bastionSg = new Bastion("bastion").Sg;'),
+    "Bastion.cs": ("", "using Pulumi;\nusing Pulumi.Aws.Ec2;\nusing Aws = Pulumi.Aws;\n\n"
+                   "class Bastion : ComponentResource\n{\n"
+                   "    public SecurityGroup Sg { get; }\n\n"
+                   "    public Bastion(string name, ComponentResourceOptions? opts = null)\n"
+                   '        : base("acme:net:Bastion", name, opts)\n    {\n    '
+                   + CS_SG.replace('var bastionSg = new SecurityGroup("bastion-sg", new()',
+                                   'Sg = new SecurityGroup($"{name}-sg", new()')
+                   .replace("\n    });", "\n    }, new() { Parent = this });")
+                   .replace("\n", "\n    ")
+                   + "\n    }\n}\n"),
+}  # fmt: skip
 # The bastion group inside a TypeScript component class, named from the component's name.
 TS_COMP: list[Edit] = [
     (
@@ -273,6 +291,49 @@ CASES: list[PulumiCase] = [
                "the call.", "stop", {GO: ('"bastion-sg", &ec2.SecurityGroupArgs{',
                                           '"bastion-sg", args, &ec2.SecurityGroupArgs{')},
                exit_code=3, says="not a literal object"),
+    PulumiCase("pulumi-sg-cs", "sg", "cs", "Bastion SSH open, inline ingress (C#)",
+               "A `new …SecurityGroupIngressArgs { … }` entry becomes one entry per observed "
+               "source, in the same type; the class is bare, imported by `using Pulumi.Aws.Ec2;`.",
+               "fix"),
+    PulumiCase("pulumi-s3-cs", "s3", "cs", "Public bucket, BucketPublicAccessBlock (C#)",
+               "`BlockPublicAcls = false` becomes true; the missing flags are added to the "
+               "object initializer.", "fix"),
+    PulumiCase("pulumi-iam-cs", "iam", "cs",
+               "ec2:* and logs:* in JsonSerializer.Serialize (C#)",
+               "The `PolicyDocument` dictionary's `new[] { … }` Action array is narrowed in its "
+               "layout.", "fix"),
+    PulumiCase("pulumi-sg-cs-component", "sg", "cs", "Bastion group in a component (C#)",
+               "`class Bastion : ComponentResource` with `: base(\"acme:net:Bastion\", …)`, "
+               "instantiated once; its only SecurityGroup call is edited.", "fix", CS_COMP,
+               export=_component),
+    PulumiCase("pulumi-cs-computed-cidr", "sg", "cs", "SSH CIDR is a C# variable",
+               "`CidrBlocks = new[] { adminCidr }`; its value isn't a literal in the program.",
+               "stop", {CS: ('new[] { "0.0.0.0/0" }', "new[] { adminCidr }")}, exit_code=3,
+               says="not a literal"),
+    PulumiCase("pulumi-cs-verbatim-cidr", "sg", "cs", "SSH CIDR is a verbatim string",
+               "`@\"0.0.0.0/0\"`: only plain strings without escapes or prefixes are read.",
+               "stop", {CS: ('new[] { "0.0.0.0/0" }', 'new[] { @"0.0.0.0/0" }')}, exit_code=3,
+               says="not a literal"),
+    PulumiCase("pulumi-cs-interpolated-name", "sg", "cs", "Group name is an interpolated string",
+               "`$\"{prefix}-sg\"`: no call can be matched to the URN's name.", "stop",
+               {CS: ('new SecurityGroup("bastion-sg"', 'new SecurityGroup($"{prefix}-sg"')},
+               exit_code=3, says="the name may be computed"),
+    PulumiCase("pulumi-cs-unimported-class", "sg", "cs", "Bare SecurityGroup without its using",
+               "Without `using Pulumi.Aws.Ec2;` a bare `SecurityGroup` may be another class; "
+               "PosturaNet won't trust it.", "stop",
+               {CS: ("using Pulumi.Aws.Ec2;\n", "")}, exit_code=3,
+               says="the name may be computed"),
+    PulumiCase("pulumi-cs-config-flag", "s3", "cs", "BlockPublicAcls comes from config",
+               "`config.RequireBoolean(\"block\")`; PosturaNet can't tell what it is.", "stop",
+               {CSS: ("BlockPublicAcls = false",
+                      'BlockPublicAcls = config.RequireBoolean("block")')},
+               exit_code=3, says="not a literal boolean"),
+    PulumiCase("pulumi-cs-variable-policy", "iam", "cs", "PolicyDocument is a variable",
+               "`PolicyDocument = policyJson`: the document is built elsewhere.", "stop",
+               {CSS: ("PolicyDocument = JsonSerializer.Serialize(",
+                      "PolicyDocument = policyJson,\n            Path = "
+                      "JsonSerializer.Serialize(")},
+               exit_code=3, says="not a literal document"),
     PulumiCase("pulumi-sg-ts-component", "sg", "ts", "Bastion group in a component (TypeScript)",
                "The export puts bastion-sg under acme:net:Bastion; the one class registering "
                "that type is instantiated once, so its only SecurityGroup call is edited.", "fix",
@@ -318,7 +379,7 @@ def _repo(case: PulumiCase, work: Path) -> Path:
     shutil.copytree(FIX / "pulumi" / f"{case.lang}-program", repo)
     for rel, change in case.edits.items():
         path = repo / rel
-        text = path.read_text(encoding="utf-8")
+        text = path.read_text(encoding="utf-8") if path.exists() else ""  # ("", new): a new file
         for old, new in change if isinstance(change, list) else [change]:
             assert old in text, (case.id, old)
             text = text.replace(old, new, 1)
@@ -373,7 +434,8 @@ def report(results: dict[str, list[Result]]) -> list[str]:
     return [
         "## Pulumi (EC2.19, S3.8, IAM.21)",
         "",
-        "The same three fix types on Pulumi programs in TypeScript, Python, Go and YAML, mapped "
+        "The same three fix types on Pulumi programs in TypeScript, Python, Go, C# and YAML, "
+        "mapped "
         "through a `pulumi stack export`, plus the traps that must stop the run (a computed "
         "value, an interpolation, an anchor or `fn::` call in YAML, a component resource, a "
         "repeated name, an undeployed rule, a program that differs from the export, drift). "

@@ -104,8 +104,9 @@ def test_pulumi_cases_fix_or_stop_for_the_stated_reason() -> None:
             "py",
             "yaml",
             "go",
+            "cs",
         }
     # One component fix per language, and every component trap stops.
     comp = [c for c in pulumi.CASES if "component" in c.id]
-    assert {c.lang for c in comp if c.expect == "fix"} == {"ts", "py", "go"}
+    assert {c.lang for c in comp if c.expect == "fix"} == {"ts", "py", "go", "cs"}
     assert sum(c.expect == "stop" for c in comp) >= 5
