@@ -109,14 +109,3 @@ def test_pulumi_cases_fix_or_stop_for_the_stated_reason() -> None:
     comp = [c for c in pulumi.CASES if "component" in c.id]
     assert {c.lang for c in comp if c.expect == "fix"} == {"ts", "py", "go"}
     assert sum(c.expect == "stop" for c in comp) >= 5
-
-
-def test_living_contracts_family_is_pinned() -> None:
-    """Drift and refresh of an approved contract: every case correct, none wrongly safe."""
-    from bench import living
-
-    results = living.run()
-    assert living.wrongly_safe(results) == []
-    assert {cid: outs[0].verdict for cid, outs in results.items()} == dict.fromkeys(
-        [c.cid for c in living.DRIFT] + [c.cid for c in living.REFRESH], "CORRECT"
-    )

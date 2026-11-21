@@ -41,22 +41,6 @@ posturanet contract check --plan plan.json
 posturanet contract check --source --file modules/bastion/main.tf
 ```
 
-## Keep contracts true over time (living contracts)
-A contract is learned once. Usage changes after that, and so does the deployed resource.
-Copy [`github/posturanet-living.yml`](github/posturanet-living.yml) to `.github/workflows/`; once a week it runs, read-only:
-
-- `posturanet contract refresh --all --open-pr`: re-reads each approved contract's evidence
-  (same collectors, window and confidence rules as `fix`). New real users become a
-  **contract-update PR** (one per contract, updated in place); entries not seen in the whole
-  window are flagged in that PR and kept, because a rare job looks exactly the same. Weak
-  evidence is UNKNOWN: nothing is proposed.
-- `posturanet contract check --live --github-issues`: reads the deployed security groups,
-  buckets and policies and judges them against their contracts. Someone reopening `0.0.0.0/0`
-  in the console is a BLOCK and opens **one issue per resource**, closed when it matches again.
-
-Both write only to GitHub (a `posturanet/contract/...` branch, a PR, an issue); nothing in AWS
-changes and nothing is merged.
-
 ## 1. GitHub pull requests
 Copy [`github/posturanet-check.yml`](github/posturanet-check.yml) to `.github/workflows/`.
 Every PR touching `*.tf` or a contract gets a **PosturaNet contract** check run. On BLOCK the

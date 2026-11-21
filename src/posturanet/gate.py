@@ -69,7 +69,7 @@ class ContractResult:
     source_file: str | None = None  # repo-relative .tf file holding the changed resource
     source_line: int | None = None
     subject: str = "ingress"  # what changed: ingress, policy, public access block
-    live: str | None = None  # contract check --live: the deployed resource that was read
+    live: str | None = None  # Pro `contract live`: the deployed resource that was read
 
     @property
     def caused_by(self) -> str | None:
