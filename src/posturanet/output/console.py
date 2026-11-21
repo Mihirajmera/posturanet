@@ -158,7 +158,7 @@ def render_gate(
     state, _, rest = result.summary.partition(" · ")
     token = _RESULT_TOKEN.get(state, "bold")
     summary = f"{style(token, state)} · {rest}" if rest else style(token, state)
-    title = header("contract check", "--live" if result.mode == "live" else "", style)
+    title = header("contract live" if result.mode == "live" else "contract check", "", style)
     blocks: list[tuple[str, str, list[str]]] = []
     for r in result.results:
         if r.status == "PASS":
