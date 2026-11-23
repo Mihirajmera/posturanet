@@ -345,13 +345,14 @@ Outcomes are stored in the repo at `posturanet/outcomes/<yyyy>/<outcome_id>.json
 
 ### 6.9 EvidenceRecord (pro)
 ```json
-{ "schema": "posturanet.evidence/v1", "id": "ev_01J…", "outcome_id": "out_01J…",
-  "controls": ["SOC2:CC6.6", "ISO27001:A.8.20", "CIS-AWS-3.0:5.2", "NIST-800-53r5:SC-7"],
-  "contract_sha256": "…", "diff_sha256": "…", "pr": "acme/infra#412", "merge_sha": "…",
-  "checks": [ { "id": "deny-internet-22", "result": "PASS" } ],
-  "verified_at": "2026-10-31T09:00:00Z", "prev_hash": "…", "hash": "…", "signature": "ed25519:…", "key_id": "acme-evidence-2026" }
+{ "schema": "posturanet.evidence/v1", "id": "ev_…", "outcome_id": "out_…", "finding_id": "…",
+  "control": "EC2.19", "fix_type": "sg_ingress", "address": "aws_security_group.bastion",
+  "controls": ["SOC2:CC6.6", "ISO27001:A.8.20", "CIS-AWS-3.0:5.2", "NIST-800-53r5:SC-7"], "mapping_version": "2026-11",
+  "pr": "acme/infra#412", "merge_sha": "…", "checks": [ { "id": "recheck", "result": "ok" } ],
+  "agent_version": "0.5.0", "verified_at": "2026-10-31T09:00:00Z",
+  "prev_hash": "…", "key_id": "acme-evidence-2026", "hash": "…", "signature": "ed25519:…" }
 ```
-Stored as JSON Lines at `posturanet/evidence/<yyyy>.jsonl`. `hash = sha256(canonical_json(record without hash, signature))`. The signature covers `hash`. Export is to OSCAL `assessment-results`.
+One record per CONFIRMED `verify` run (`posturanet evidence record run.json`), as JSON Lines at `posturanet/evidence/<yyyy>.jsonl`. `outcome_id = "out_" + sha256(pr "@" merge_sha)[:20]`; a fix is recorded once. `hash = sha256(canonical_json(record without hash, signature))`, `prev_hash` is the previous record's hash (`""` for the first), and the Ed25519 signature covers `hash`. The key is the **customer's** (`posturanet evidence keygen`): private half outside git, public half at `posturanet/evidence/keys/<key_id>.pub`, so `posturanet evidence verify` (free) detects an edit, deletion, reorder or foreign signature offline. Controls are mapped per fix type (FR-36, versioned by `mapping_version`); attribute fixes carry only their Security Hub control for now. Export is OSCAL 1.1.2 `assessment-results` plus a Markdown summary, and refuses when the chain doesn't verify.
 
 ### 6.10 RunRecord (NFR-9)
 Every run writes `run.json` (as an Actions artifact or to `.posturanet/runs/` locally): agent version, config hash, input hashes, stage results, stop reason, durations, license tier (no key material).
@@ -463,8 +464,10 @@ posturanet hook claude-code                           # Claude Code PostToolUse 
 posturanet mcp                                        # read-only MCP server (stdio)
 posturanet verify <pr-url|owner/repo#n|n> [--open-pr] [--state s.json] [--rejects-file r.json] [--applied-at ISO] [--window 72h] [--offline]
 posturanet outcomes preview <run.json>...              # what the opt-in outcome share would send; sends nothing
+posturanet evidence keygen <key-id>                             # pro
+posturanet evidence record <run.json>...                       # pro
 posturanet evidence export --period 2026Q4 --framework soc2     # pro
-posturanet evidence verify
+posturanet evidence verify                                      # free; exit 4 when anything doesn't verify
 posturanet license status
 posturanet schema export
 ```

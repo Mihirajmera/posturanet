@@ -4,6 +4,9 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Changed (docs: audit evidence is built in PosturaNet Pro)
+- PRD R2/R10 and architecture 6.9 and 12 describe the evidence records, `evidence keygen | record | export` (Pro) and the free `evidence verify`. No core code changes.
+
 ## [0.5.0] - 2026-11-21
 
 ### Added (opt-in CloudTrail Lake history for IAM, FR-16b)
