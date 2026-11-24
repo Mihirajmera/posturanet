@@ -4,6 +4,9 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Added (outcome-share receiver, FR-45a)
+- `receiver/`: the one hosted piece, a standard-library Vercel Python function. `POST /api/outcomes` accepts exactly the five shared fields and keeps counters only (no record, time, headers or IP); `GET` returns held/reverted counts per control and fix type. A test keeps its schema in step with `SharedOutcome`. AGENTS.md records the exception to "no hosted services".
+
 ### Changed (Athena.1 is retired in Security Hub)
 - The Athena.1 catalog row now says Security Hub retired the control on 2024-04-10. The fix stays: Checkov `CKV_AWS_159` and Trivy `AWS-0006` findings still reach it, and the note shows in its PR.
 

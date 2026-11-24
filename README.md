@@ -120,7 +120,7 @@ outcome_share:
   enabled: true
   endpoint: https://…            # required; PosturaNet ships no default
 ```
-The receiving service isn't live yet, so there is no endpoint to point at today. Sending is best-effort: a timeout or no network prints a warning and never changes verify's exit code.
+The receiver is [`receiver/`](receiver/): it keeps counters of those five fields and nothing else, and its README says how it's deployed. Sending is best-effort: a timeout or no network prints a warning and never changes verify's exit code.
 
 ## Try it offline (no AWS)
 From a clone of this repo:

@@ -135,7 +135,8 @@ class DetectorsConfig(_Strict):
 
 
 class OutcomeShareConfig(_Strict):
-    # Opt-in (FR-45a, golden rule 6). No default endpoint: the receiving service isn't built.
+    # Opt-in (FR-45a, golden rule 6). No default endpoint: the customer names it
+    # (receiver/README.md).
     enabled: bool = False
     endpoint: str | None = Field(default=None, pattern=r"^https://\S+$")
 

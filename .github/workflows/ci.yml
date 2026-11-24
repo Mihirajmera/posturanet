@@ -36,8 +36,8 @@ jobs:
           terraform_version: "1.9.8"
           terraform_wrapper: false
       - run: python -m pip install -e ".[dev,mcp]"
-      - run: ruff check src tests && ruff format --check src tests
-      - run: mypy src
+      - run: ruff check src tests receiver && ruff format --check src tests receiver
+      - run: mypy src && mypy --strict receiver/api/outcomes.py
       - run: pytest -q
       - run: shellcheck action/entrypoint.sh
       - name: Offline smoke run
