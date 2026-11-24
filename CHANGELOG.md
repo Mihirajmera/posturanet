@@ -4,6 +4,9 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Added (outcome-share receiver, FR-45a)
+- `receiver/`: the one hosted piece, a standard-library Vercel Python function. `POST /api/outcomes` accepts exactly the five shared fields and keeps counters only (no record, time, headers or IP); `GET` returns held/reverted counts per control and fix type. A test keeps its schema in step with `SharedOutcome`. AGENTS.md records the exception to "no hosted services".
+
 ### Changed (listings)
 - The Action and plugin descriptions now name CloudFormation, CDK, Pulumi and the 74 settings controls. `docs/marketplace.md` has the steps to list the Action in GitHub Marketplace and the plugin in Anthropic's directory.
 

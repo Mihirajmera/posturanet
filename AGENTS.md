@@ -38,7 +38,7 @@ If this file conflicts with an older document anywhere else in the repo, **this 
 
 ### 1.4 Scope discipline
 Build only what's in the current release in PRD §5. **Don't build:**
-- dashboards, web UIs, hosted services or databases;
+- dashboards, web UIs, hosted services or databases (one exception, decided 2026-11-24: the outcome-share receiver in `receiver/`, which keeps counters of the five shared fields and nothing else);
 - multi-cloud or Terragrunt support;
 - detection rules beyond re-checking a known finding;
 - a fourth evidence-backed fix type (decided again 2026-11-14: deepen the three first; adding rows to the attribute-fix catalog, `configfix/catalog.json`, is in scope: see architecture §14.1);
