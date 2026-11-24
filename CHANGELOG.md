@@ -4,6 +4,9 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Changed (listings)
+- The Action and plugin descriptions now name CloudFormation, CDK, Pulumi and the 74 settings controls. `docs/marketplace.md` has the steps to list the Action in GitHub Marketplace and the plugin in Anthropic's directory.
+
 ### Changed (Athena.1 is retired in Security Hub)
 - The Athena.1 catalog row now says Security Hub retired the control on 2024-04-10. The fix stays: Checkov `CKV_AWS_159` and Trivy `AWS-0006` findings still reach it, and the note shows in its PR.
 

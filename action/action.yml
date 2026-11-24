@@ -1,5 +1,5 @@
 name: PosturaNet
-description: Evidence-backed Terraform fixes and contract checks for cloud security findings. Read-only in AWS; never merges or applies.
+description: Evidence-backed fixes for AWS security findings in Terraform, CloudFormation, CDK and Pulumi. Read-only in AWS; never merges.
 author: PosturaNet
 branding:
   icon: shield
