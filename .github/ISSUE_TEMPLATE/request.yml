@@ -1,0 +1,11 @@
+name: Request
+description: A control, scanner or IaC tool PosturaNet should support
+labels: [request]
+body:
+  - type: input
+    id: what
+    attributes: { label: What should PosturaNet support?, description: "For example a Security Hub control id, a Checkov check, a scanner" }
+    validations: { required: true }
+  - type: textarea
+    id: why
+    attributes: { label: Why it matters to you, description: "How often you see it, and what you do about it today" }

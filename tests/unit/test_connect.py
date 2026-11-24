@@ -50,3 +50,12 @@ def test_help_has_examples() -> None:
     for cmd in (["fix"], ["connect"], ["findings", "list"], ["contract", "check"], ["verify"]):
         out = runner.invoke(app, [*cmd, "--help"]).output
         assert "Examples:" in out and "$ posturanet" in out, cmd
+
+
+def test_vendor_exports_are_scanners_with_a_plan() -> None:
+    # R5 parsers are built, so connect must not call these "not supported".
+    for name in ("wiz", "orca", "prisma"):
+        t = BY_NAME[name]
+        assert t.kind == "scanner"
+        assert f"posturanet findings list {name}.json" in t.steps
+        assert "not supported" not in t.summary

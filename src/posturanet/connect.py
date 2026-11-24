@@ -53,9 +53,14 @@ TARGETS: tuple[Target, ...] = (
         "trivy config -f json -o trivy.json infra/",
         *_plan("trivy.json"),
     )),
-    Target("wiz", "scanner", "not supported yet", (
-        "export Wiz issues to Security Hub, or open an issue on GitHub to ask for direct support",
-    )),
+    *(
+        Target(name, "scanner", f"{label} JSON from its API (CSV is refused)", (
+            f"export: the {label} request in docs/vendor-exports.md, saved as {name}.json",
+            *_plan(f"{name}.json"),
+            f"map rules the export doesn't name: detectors.{name}.rules in .posturanet.yml",
+        ))
+        for name, label in (("wiz", "Wiz"), ("orca", "Orca"), ("prisma", "Prisma Cloud"))
+    ),
     Target("claude-code", "agent", "plugin: skill, MCP server, a hook after every .tf edit", (
         "in Claude Code: /plugin marketplace add Mihirajmera/posturanet",
         "then: /plugin install posturanet@posturanet",
