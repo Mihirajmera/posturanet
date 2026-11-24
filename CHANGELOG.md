@@ -4,6 +4,8 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-24
+
 ### Added (outcome-share receiver, FR-45a)
 - `receiver/`: the one hosted piece, a standard-library Vercel Python function. `POST /api/outcomes` accepts exactly the five shared fields and keeps counters only (no record, time, headers or IP); `GET` returns held/reverted counts per control and fix type. A test keeps its schema in step with `SharedOutcome`. AGENTS.md records the exception to "no hosted services".
 
