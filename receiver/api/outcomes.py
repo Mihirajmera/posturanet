@@ -144,6 +144,9 @@ class handler(BaseHTTPRequestHandler):  # noqa: N801 (the name Vercel's Python r
         except ValueError:
             length = -1
         if not 0 < length <= MAX_BODY:
+            if length > MAX_BODY:  # read a bounded amount so the client sees 413, not a reset
+                self.rfile.read(min(length, 64 * 1024))
+            self.close_connection = True
             self._send(413 if length > MAX_BODY else 400, {"error": "body size"})
             return
         doc = parse(self.rfile.read(length))
