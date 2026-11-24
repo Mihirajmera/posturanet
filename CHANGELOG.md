@@ -4,6 +4,9 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Changed (Athena.1 is retired in Security Hub)
+- The Athena.1 catalog row now says Security Hub retired the control on 2024-04-10. The fix stays: Checkov `CKV_AWS_159` and Trivy `AWS-0006` findings still reach it, and the note shows in its PR.
+
 ### Changed (docs: audit evidence is built in PosturaNet Pro)
 - PRD R2/R10 and architecture 6.9 and 12 describe the evidence records, `evidence keygen | record | export` (Pro) and the free `evidence verify`. No core code changes.
 
