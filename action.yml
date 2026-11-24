@@ -1,7 +1,7 @@
 # GitHub Marketplace lists only this root file. action/action.yml is the same Action for
 # workflows that use Mihirajmera/posturanet/action@<tag>; keep the two in step (a test checks).
 name: PosturaNet
-description: Evidence-backed Terraform fixes and contract checks for cloud security findings. Read-only in AWS; never merges or applies.
+description: Evidence-backed fixes for AWS security findings in Terraform, CloudFormation, CDK and Pulumi. Read-only in AWS; never merges.
 author: PosturaNet
 branding:
   icon: shield
@@ -59,7 +59,7 @@ inputs:
   version:
     description: PosturaNet version to install from PyPI.
     required: false
-    default: "0.5.0"
+    default: "0.5.1"
 
 outputs:
   result:

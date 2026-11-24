@@ -6,7 +6,7 @@ PosturaNet is a source-available remediation agent for AWS + Terraform. It takes
 
 It also checks every security group, S3 and IAM policy change, written by a person or an AI agent, against those contracts before it merges: a `PosturaNet contract` check on PRs, a step in any CI, a Claude Code plugin, and MCP setups for Cursor, Codex, Copilot, Gemini, Windsurf, Cline, Kiro, Continue, Zed and Goose.
 
-> Status: early access. 0.5.0 is on PyPI: Pulumi YAML, Go, C# and Java, evidence that reads every log the account keeps, and opt-in CloudTrail Lake history for IAM are new.
+> Status: early access. 0.5.1 is on PyPI: the opt-in outcome share now has a receiver, and the GitHub Action and Claude plugin listings are ready.
 >
 > 88 controls: security groups, S3 public access and IAM least privilege from usage evidence, plus 74 settings controls. Findings from Security Hub, Prowler, Checkov or Trivy.
 
@@ -120,7 +120,7 @@ outcome_share:
   enabled: true
   endpoint: https://…            # required; PosturaNet ships no default
 ```
-The receiving service isn't live yet, so there is no endpoint to point at today. Sending is best-effort: a timeout or no network prints a warning and never changes verify's exit code.
+The receiver is [`receiver/`](receiver/): it keeps counters of those five fields and nothing else, and its README says how it's deployed. Sending is best-effort: a timeout or no network prints a warning and never changes verify's exit code.
 
 ## Try it offline (no AWS)
 From a clone of this repo:
