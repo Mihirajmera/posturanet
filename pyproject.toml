@@ -4,14 +4,14 @@ build-backend = "hatchling.build"
 
 [project]
 name = "posturanet"
-version = "0.5.2"
-description = "Evidence-backed remediation agent for AWS + Terraform. Fixes cloud security issues without breaking prod."
+version = "0.5.3"
+description = "Fixes AWS security findings without breaking prod: evidence-backed PRs to Terraform, CloudFormation, CDK and Pulumi. Read-only in AWS."
 readme = "README.md"
 license = "FSL-1.1-ALv2"
 license-files = ["LICENSE.md"]
 requires-python = ">=3.11"
 authors = [{ name = "PosturaNet" }]
-keywords = ["aws", "terraform", "security-groups", "remediation", "cloud-security", "mcp", "z3"]
+keywords = ["aws", "terraform", "cloudformation", "aws-cdk", "pulumi", "security-hub", "iam", "s3", "security-groups", "remediation", "cloud-security", "mcp", "z3"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",
@@ -37,6 +37,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://www.posturanet.com"
+Documentation = "https://www.posturanet.com/docs/"
 Source = "https://github.com/Mihirajmera/posturanet"
 Issues = "https://github.com/Mihirajmera/posturanet/issues"
 Changelog = "https://github.com/Mihirajmera/posturanet/blob/main/CHANGELOG.md"

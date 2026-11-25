@@ -6,7 +6,7 @@ PosturaNet is a source-available remediation agent for AWS, with Terraform, Clou
 
 It also checks every security group, S3 and IAM policy change, written by a person or an AI agent, against those contracts before it merges: a `PosturaNet contract` check on PRs, a step in any CI, a Claude Code plugin, and MCP setups for Cursor, Codex, Copilot, Gemini, Windsurf, Cline, Kiro, Continue, Zed and Goose.
 
-> Status: early access. 0.5.2 is on PyPI: `posturanet connect` now covers Wiz, Orca and Prisma Cloud exports, and the outcome share has a documented receiver.
+> Status: early access. 0.5.3 is on PyPI: a tested sample config, accurate license docs (keys are checked offline and send nothing), and `connect` for Wiz, Orca and Prisma Cloud exports.
 >
 > 88 controls: security groups, S3 public access and IAM least privilege from usage evidence, plus 74 settings controls. Findings from Security Hub, Prowler, Checkov, Trivy, or Wiz, Orca and Prisma Cloud JSON.
 
@@ -175,7 +175,7 @@ posturanet fix tests/fixtures/findings/rds_deletion_protection.json --dry-run --
 
 **It runs where your code runs.** A read-only role, your own LLM if you use one, and no customer data sent anywhere:
 
-![Where PosturaNet runs: inside your environment, with only an optional license heartbeat leaving it](https://raw.githubusercontent.com/Mihirajmera/posturanet/main/docs/media/diagram-trust.svg)
+![Where PosturaNet runs: inside your environment, with only the opt-in outcome share leaving it](https://raw.githubusercontent.com/Mihirajmera/posturanet/main/docs/media/diagram-trust.svg)
 
 Diagrams are drawn by `python docs/media/diagrams.py`; the full design is in [docs/02_ARCHITECTURE_AND_DATA.md](docs/02_ARCHITECTURE_AND_DATA.md). What's next: [reports/coverage-roadmap.md](reports/coverage-roadmap.md).
 
