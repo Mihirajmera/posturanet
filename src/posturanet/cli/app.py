@@ -1110,6 +1110,48 @@ def _load_plugins() -> None:
             ep.load()({"root": app, "contract": contract_app})
         except Exception as exc:  # noqa: BLE001 (a broken plugin must not break core)
             typer.echo(f"warning: plugin {ep.name!r} not loaded: {exc}", err=True)
+    _add_pro_hints()
+
+
+# PosturaNet Pro commands. Without Pro, each name answers with where it comes from instead of
+# "No such command". Hidden, so free --help is unchanged; Pro's real command wins when loaded.
+PRO_COMMANDS = {
+    "root": ("gate", "dispatch", "evidence", "triggers", "notify", "license"),
+    "contract": ("refresh", "live"),
+}
+PRO_URL = "https://posturanet.com/pricing/"
+
+
+def _command_names(t: typer.Typer) -> set[str]:
+    names = {
+        c.name or (c.callback.__name__.replace("_", "-") if c.callback else "")
+        for c in t.registered_commands
+    }
+    return names | {g.name for g in t.registered_groups if g.name}
+
+
+def _add_pro_hints() -> None:
+    for key, target in (("root", app), ("contract", contract_app)):
+        have = _command_names(target)
+        prefix = "" if key == "root" else "contract "
+        for name in PRO_COMMANDS[key]:
+            if name in have:
+                continue
+
+            def hint(ctx: typer.Context, _cmd: str = prefix + name) -> None:
+                typer.echo(
+                    f"`posturanet {_cmd}` is part of PosturaNet Pro, which isn't installed. "
+                    f"Every free command works without it. See {PRO_URL}",
+                    err=True,
+                )
+                raise typer.Exit(6)
+
+            target.command(
+                name,
+                hidden=True,
+                add_help_option=False,
+                context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+            )(hint)
 
 
 def main() -> None:
