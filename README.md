@@ -25,7 +25,7 @@ Python 3.11+. If your shell can't find `posturanet` (common with the Microsoft S
 
 ### 2. Give it a read-only role
 ```bash
-posturanet init > policy.json     # the read-only IAM policy PosturaNet needs; attach it to a role
+posturanet init --s3-bucket <tf-state-bucket> > policy.json  # read-only IAM policy; attach it to a role
 ```
 PosturaNet only reads: flow logs, CloudTrail, IAM last-accessed data, S3 settings and access logs, and Terraform state. It never calls a mutating AWS API, and a person merges every PR.
 

@@ -274,7 +274,9 @@ def test_marketplace_action_matches_action_folder() -> None:
     top = (root / "action.yml").read_text(encoding="utf-8")
     sub = (root / "action/action.yml").read_text(encoding="utf-8")
     body = "\n".join(line for line in top.splitlines() if not line.startswith("#"))
-    assert body.replace("/action/entrypoint.sh", "/entrypoint.sh") == sub.rstrip("\n")
+    assert body.replace("${GITHUB_ACTION_PATH}/action/", "${GITHUB_ACTION_PATH}/") == sub.rstrip(
+        "\n"
+    )
     from posturanet import __version__
 
     assert f'default: "{__version__}"' in sub  # RELEASING.md step 1 bumps both

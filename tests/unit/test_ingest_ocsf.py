@@ -234,3 +234,11 @@ def test_related_controls_from_two_scanners_are_one_row(tmp_path: Path) -> None:
     rows = json.loads(runner.invoke(app, ["findings", "list", str(asff), str(p), "--format", "json"]).output)  # fmt: skip
     assert len(rows) == 1 and rows[0]["control"] == "EC2.19"  # ASFF's EC2.19 on the same group
     assert rows[0]["also"] == "also prowler"
+
+
+def test_terminal_escapes_are_dropped_from_finding_text() -> None:
+    item = _item()
+    item["finding_info"]["title"] = "SSH open\x1b]8;;https://e.vil\x07 click\x1b[2J"
+    f = parse_ocsf_item(item, raw_sha256=SHA)
+    assert "\x1b" not in f.title and "\x07" not in f.title
+    assert f.title.startswith("SSH open")
