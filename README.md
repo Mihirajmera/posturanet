@@ -6,7 +6,7 @@ PosturaNet is a source-available remediation agent for AWS, with Terraform, Clou
 
 It also checks every security group, S3 and IAM policy change, written by a person or an AI agent, against those contracts before it merges: a `PosturaNet contract` check on PRs, a step in any CI, a Claude Code plugin, and MCP setups for Cursor, Codex, Copilot, Gemini, Windsurf, Cline, Kiro, Continue, Zed and Goose.
 
-> Status: early access. 0.5.1 is on PyPI: the opt-in outcome share now has a receiver, and the GitHub Action and Claude plugin listings are ready.
+> Status: early access. 0.5.2 is on PyPI: `posturanet connect` now covers Wiz, Orca and Prisma Cloud exports, and the outcome share has a documented receiver.
 >
 > 88 controls: security groups, S3 public access and IAM least privilege from usage evidence, plus 74 settings controls. Findings from Security Hub, Prowler, Checkov, Trivy, or Wiz, Orca and Prisma Cloud JSON.
 
@@ -118,7 +118,7 @@ To turn it on, add to `.posturanet.yml`:
 ```yaml
 outcome_share:
   enabled: true
-  endpoint: https://…            # required; PosturaNet ships no default
+  endpoint: https://outcomes.posturanet.com/api/outcomes   # PosturaNet's receiver; required, there is no default
 ```
 The receiver is [`receiver/`](receiver/): it keeps counters of those five fields and nothing else, and its README says how it's deployed. Sending is best-effort: a timeout or no network prints a warning and never changes verify's exit code.
 

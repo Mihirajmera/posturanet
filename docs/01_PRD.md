@@ -275,10 +275,14 @@ Shipped in `posturanet-pro`, which adds these commands through the `posturanet.p
 | Living contracts (R11; `posturanet-pro`, `living` flag) | — | ✓ | ✓ | ✓ |
 | Monitoring window | 24h | 72h | 7d | Custom |
 | Slack | — | ✓ | ✓ | ✓ |
-| Signed OSCAL evidence | — | — | ✓ | ✓ |
-| Policy packs, auto-merge for low-risk fixes | — | — | ✓ | ✓ |
-| Org MCP policy for AI agents | — | — | ✓ | ✓ |
-| Control plane, SSO | — | — | — | ✓ |
+| Signed OSCAL evidence (`evidence verify` needs no key) | — | ✓ | ✓ | ✓ |
+| Policy packs, auto-merge for low-risk fixes (planned) | — | — | ✓ | ✓ |
+| Org MCP policy for AI agents (planned) | — | — | ✓ | ✓ |
+| Control plane, SSO (planned) | — | — | — | ✓ |
+
+Signed evidence moved from Business to Team on 2026-11-24, matching the website's Team plan; revisit when Business is priced.
+
+Not enforced yet: the AWS account, contracts-per-account and monitoring-window limits above. License keys carry no `accounts_max` or `contracts_max` today, so every tier runs with no limit until they are built. Rows marked (planned) are not built.
 
 Prices are on the website and never in code. Feature flags in the license key: `triggers`, `gate`, `living`, `slack`, `evidence`, `policy`, `automerge`, `org_mcp`, `accounts_max`, `contracts_max`.
 
