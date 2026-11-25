@@ -2,13 +2,13 @@
 
 **Fixes cloud security issues without breaking prod.**
 
-PosturaNet is a source-available remediation agent for AWS + Terraform. It takes a security finding, locates the owning Terraform and team, learns what actually uses the resource from flow logs and CloudTrail, records that as a *behavior contract*, and opens a pull request with the smallest fix that keeps every observed behavior working. It runs in your CI with a read-only role and never changes production.
+PosturaNet is a source-available remediation agent for AWS, with Terraform, CloudFormation (and SAM), CDK and Pulumi. It takes a security finding, locates the owning code and team, learns what actually uses the resource from flow logs and CloudTrail, records that as a *behavior contract*, and opens a pull request with the smallest fix that keeps every observed behavior working. It runs in your CI with a read-only role and never changes production.
 
 It also checks every security group, S3 and IAM policy change, written by a person or an AI agent, against those contracts before it merges: a `PosturaNet contract` check on PRs, a step in any CI, a Claude Code plugin, and MCP setups for Cursor, Codex, Copilot, Gemini, Windsurf, Cline, Kiro, Continue, Zed and Goose.
 
-> Status: early access. 0.5.1 is on PyPI: the opt-in outcome share now has a receiver, and the GitHub Action and Claude plugin listings are ready.
+> Status: early access. 0.5.2 is on PyPI: `posturanet connect` now covers Wiz, Orca and Prisma Cloud exports, and the outcome share has a documented receiver.
 >
-> 88 controls: security groups, S3 public access and IAM least privilege from usage evidence, plus 74 settings controls. Findings from Security Hub, Prowler, Checkov or Trivy.
+> 88 controls: security groups, S3 public access and IAM least privilege from usage evidence, plus 74 settings controls. Findings from Security Hub, Prowler, Checkov, Trivy, or Wiz, Orca and Prisma Cloud JSON.
 
 ![posturanet: the logo and every command with an example](https://raw.githubusercontent.com/Mihirajmera/posturanet/main/docs/media/start.svg)
 
@@ -118,7 +118,7 @@ To turn it on, add to `.posturanet.yml`:
 ```yaml
 outcome_share:
   enabled: true
-  endpoint: https://…            # required; PosturaNet ships no default
+  endpoint: https://outcomes.posturanet.com/api/outcomes   # PosturaNet's receiver; required, there is no default
 ```
 The receiver is [`receiver/`](receiver/): it keeps counters of those five fields and nothing else, and its README says how it's deployed. Sending is best-effort: a timeout or no network prints a warning and never changes verify's exit code.
 
@@ -145,7 +145,7 @@ PosturaNet doesn't detect; it fixes what your scanner already found. It reads fi
 
 Run several scanners? Pass all their files: `posturanet findings list securityhub.json prowler.ocsf.json`. The same control on the same resource is listed once, with the other scanners noted, and `findings split` writes one file for it. PRs are keyed on the control and the Terraform address, so a problem gets one PR whichever scanner reported it, including Checkov and Trivy.
 
-Wiz, Orca, Prisma Cloud and other platforms can send findings to Security Hub, but with their own rule names. PosturaNet doesn't map those to controls yet, so they show as `none`.
+Wiz, Orca, Prisma Cloud and other platforms can also forward findings to Security Hub, but with their own rule names. PosturaNet doesn't map those forwarded findings to controls, so they show as `none`; pass the vendor's own JSON export (above) instead. `posturanet connect wiz` (or `orca`, `prisma`) prints the steps.
 
 A Security Hub remediation plan targets one resource and groups the exposures one fix would close. PosturaNet reads the controls those exposures link, fixes the ones it supports on that resource as one change (for example `RDS.2+RDS.8`: no public access and deletion protection), and opens one PR for the plan. AWS's own guidance text is shown to you but never used to write the change.
 
@@ -187,6 +187,20 @@ Diagrams are drawn by `python docs/media/diagrams.py`; the full design is in [do
 | [AGENTS.md](AGENTS.md) | Rules for AI coding agents, and for PosturaNet's own runtime agent |
 | [docs/04_DESIGN_SYSTEM.md](docs/04_DESIGN_SYSTEM.md) | CLI, PR, check-run and brand design system |
 | [integrations/](integrations/README.md) | GitHub Action, CI and per-agent setup |
+
+## Team features (PosturaNet Pro)
+
+Everything above is free. A Team license key (the separate `posturanet-pro` package) adds:
+
+| Feature | What it does |
+|---|---|
+| Living contracts | `contract refresh` proposes contract updates from new evidence as PRs; `contract live` opens an issue when a live resource drifts from its contract |
+| Signed audit evidence | `evidence record` keeps a hash-chained, signed record of each fix; `evidence export` writes OSCAL for SOC 2, ISO 27001, CIS AWS or NIST 800-53. `evidence verify` is free |
+| Runs on new findings | an EventBridge rule starts `posturanet dispatch` in your GitHub Actions when Security Hub reports a failed finding |
+| Slack | `notify slack` posts each run's outcome |
+| Org-wide contract gate | one config, required on every repository by a GitHub organization ruleset |
+
+The key is checked offline and sends nothing. See [posturanet.com/docs/license](https://www.posturanet.com/docs/license/) and [pricing](https://www.posturanet.com/pricing/).
 
 ## License
 [Functional Source License 1.1, Apache 2.0 future license](LICENSE.md) (`FSL-1.1-ALv2`).

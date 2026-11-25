@@ -4,6 +4,21 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-11-24
+
+### Changed (docs)
+- The outcome share's endpoint is documented as `https://outcomes.posturanet.com/api/outcomes`, PosturaNet's receiver. The client still has no default: a customer sets it.
+- Benchmark README: 145 cases, with the CDK and Pulumi families in the summary.
+- PRD tiers: signed evidence is in Team (as on the website); the account, contract and monitoring-window limits are marked not enforced yet; unbuilt rows are marked planned.
+
+### Fixed
+- `posturanet connect wiz` said "not supported yet" although Wiz, Orca and Prisma Cloud JSON ingest is built (R5). `connect wiz`, `connect orca` and `connect prisma` now print the export steps.
+
+### Changed (project)
+- GitHub release notes are taken from this file's section for the tag.
+- README names CloudFormation, CDK, Pulumi and the vendor exports, and lists the Team features. PRD release statuses brought up to date.
+- Added SECURITY.md, CONTRIBUTING.md, issue templates and a PR template.
+
 ## [0.5.1] - 2026-11-24
 
 ### Added (outcome-share receiver, FR-45a)

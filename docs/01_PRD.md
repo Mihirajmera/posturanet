@@ -105,13 +105,13 @@ Vendors now generate fix PRs (Wiz, Gomboc, Cloudgeni and others). Their public m
 | **R1.6: Attribute fixes** | `config_attribute` fix type: catalog rows covering Security Hub controls across RDS, Aurora, DocumentDB, Neptune, DynamoDB, KMS, ELB, CloudTrail, ECR, EKS, ElastiCache, DMS, Redshift, SQS, API Gateway, Kinesis, Network Firewall, Athena, EBS, S3, MSK, GuardDuty, Config, Macie, IAM password policy and CodeBuild (FR-48). `posturanet fixes list|show` (FR-49) | Built |
 | **R2: Verify + evidence** | Post-merge verification and revert PR (FR-31..FR-33), S3 public-access fix (FR-17, FR-50), IAM least privilege (FR-16, FR-51), the safety benchmark (`bench/`); signed OSCAL evidence (pro) | Built; evidence built in Pro (2026-11-23) |
 | **R3: Outcomes** | Every failed finding gets fix / runbook / exception / none, with coverage (0.3.0) | Built |
-| **R4: One issue, many detectors** | One PR per issue across scanners and related controls (FR-28); `findings list|split` over several files; PR comment and Marketplace-ready Action; `contract build --all` for SG, S3 and IAM | On `test` |
-| **R5: Detector adapters** | Wiz, Orca, Prisma Cloud JSON ingest (FR-4d, FR-4e). Parsers built; mappings come from the export or the customer, never a built-in table. CSV waits for documented columns or a real export | Parsers built |
-| **R6: CloudFormation + SAM** | Locate, fix, contract check and drift on templates; opt-in change-set preview | Merging into `test` |
-| **R7: AWS CDK** | Fix PRs to CDK program code (TypeScript, Python), mapped from `aws:cdk:path` metadata; `cdk synth` validation with the CloudFormation checks; contract check through the synthesized template | Merging into `test` |
-| **R8: Pulumi** | Fix PRs to Pulumi programs (TypeScript, Python, Go, C#, Java, YAML, AWS Classic), mapped through a `pulumi stack export`; static validation with the CloudFormation checks (`pulumi preview` not run: it needs write-capable credentials); contract check on the program's literals | Merging into `test` |
+| **R4: One issue, many detectors** | One PR per issue across scanners and related controls (FR-28); `findings list|split` over several files; PR comment and Marketplace-ready Action; `contract build --all` for SG, S3 and IAM | Released (in 0.5.1) |
+| **R5: Detector adapters** | Wiz, Orca, Prisma Cloud JSON ingest (FR-4d, FR-4e). Parsers built; mappings come from the export or the customer, never a built-in table. CSV waits for documented columns or a real export | Parsers built; `posturanet connect wiz|orca|prisma` prints the export steps |
+| **R6: CloudFormation + SAM** | Locate, fix, contract check and drift on templates; opt-in change-set preview | Released (in 0.5.1) |
+| **R7: AWS CDK** | Fix PRs to CDK program code (TypeScript, Python), mapped from `aws:cdk:path` metadata; `cdk synth` validation with the CloudFormation checks; contract check through the synthesized template | Released (in 0.5.1) |
+| **R8: Pulumi** | Fix PRs to Pulumi programs (TypeScript, Python, Go, C#, Java, YAML, AWS Classic), mapped through a `pulumi stack export`; static validation with the CloudFormation checks (`pulumi preview` not run: it needs write-capable credentials); contract check on the program's literals | Released (in 0.5.1) |
 | **R9: Outcome share** | Opt-in anonymous outcomes (FR-45a) and the "which fixes break prod" dataset | Client built; receiver built in `receiver/` (2026-11-24), deployed by the founder |
-| **R10: Team plan (Pro)** | Org-wide contract gate, event triggers (US-3), license keys, contract history, audit evidence, team view. Lives in the private `pro` branch of the postura repo | License keys, living contracts (R11) and audit evidence (US-6) built |
+| **R10: Team plan (Pro)** | Org-wide contract gate, event triggers (US-3), license keys, contract history, audit evidence, team view. Lives in the private `pro` branch of the postura repo | License keys, living contracts (R11), audit evidence (US-6), event triggers (US-3), Slack and the org-wide gate built (Pro 0.5.1, 2026-11-24); contract history and team view not yet |
 | **R11: Living contracts (Pro)** | `contract refresh` (new-behavior proposals as contract-update PRs, FR-52), `contract live` (drift of the deployed resource, FR-53), a scheduled workflow (FR-54). Policy packs later | In `posturanet-pro` (private `pro` branch), `living` license flag |
 
 ## 6. User stories with acceptance criteria
@@ -275,10 +275,14 @@ Shipped in `posturanet-pro`, which adds these commands through the `posturanet.p
 | Living contracts (R11; `posturanet-pro`, `living` flag) | — | ✓ | ✓ | ✓ |
 | Monitoring window | 24h | 72h | 7d | Custom |
 | Slack | — | ✓ | ✓ | ✓ |
-| Signed OSCAL evidence | — | — | ✓ | ✓ |
-| Policy packs, auto-merge for low-risk fixes | — | — | ✓ | ✓ |
-| Org MCP policy for AI agents | — | — | ✓ | ✓ |
-| Control plane, SSO | — | — | — | ✓ |
+| Signed OSCAL evidence (`evidence verify` needs no key) | — | ✓ | ✓ | ✓ |
+| Policy packs, auto-merge for low-risk fixes (planned) | — | — | ✓ | ✓ |
+| Org MCP policy for AI agents (planned) | — | — | ✓ | ✓ |
+| Control plane, SSO (planned) | — | — | — | ✓ |
+
+Signed evidence moved from Business to Team on 2026-11-24, matching the website's Team plan; revisit when Business is priced.
+
+Not enforced yet: the AWS account, contracts-per-account and monitoring-window limits above. License keys carry no `accounts_max` or `contracts_max` today, so every tier runs with no limit until they are built. Rows marked (planned) are not built.
 
 Prices are on the website and never in code. Feature flags in the license key: `triggers`, `gate`, `living`, `slack`, `evidence`, `policy`, `automerge`, `org_mcp`, `accounts_max`, `contracts_max`.
 
