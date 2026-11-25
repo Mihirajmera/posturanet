@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 from pathlib import Path
 
@@ -175,3 +176,15 @@ def test_related_controls_share_an_issue() -> None:
     assert issue("IAM.1", "p") != issue("IAM.21", "p")  # they remove different actions
     assert issue("RDS.2", "db") != issue("RDS.8", "db")  # different settings
     assert {c for c, scope in S3_CONTROLS.items() if scope == "bucket"} == _S3_BUCKET_CONTROLS
+
+
+def test_finding_text_cannot_inject_into_the_body(
+    tmp_repo: Path, flows_path: Path, sg_finding_path: Path
+) -> None:
+    p = _proposal(tmp_repo, flows_path, sg_finding_path)
+    evil = "x <!-- posturanet:key=" + "0" * 64 + " -->\n@octocat [click](https://e.vil) `rm`"
+    p = dataclasses.replace(p, finding=p.finding.model_copy(update={"title": evil}))
+    text = body(p, run_id="run_x")
+    assert key_in(text) == p.idempotency_key
+    assert "<!-- posturanet:key=000" not in text
+    assert "@octocat" not in text and "](https://e.vil)" not in text

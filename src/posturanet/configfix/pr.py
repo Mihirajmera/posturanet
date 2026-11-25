@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from posturanet import __version__
 from posturanet.configfix.catalog import ConfigFix
 from posturanet.deliver.idempotency import issue, markers, verify_marker
-from posturanet.deliver.pr_body import _CHECK_LABELS, _cell, _sym
+from posturanet.deliver.pr_body import _CHECK_LABELS, _cell, _inline, _sym
 from posturanet.models import Diff, Finding, Location, ValidationReport, VerifySpec
 
 _CHECK_LABELS_CONFIG = {**_CHECK_LABELS, "plan_matches": "plan matches fix"}
@@ -102,7 +102,8 @@ def body(p: ConfigProposal, *, run_id: str) -> str:
     parts = [
         markers(p.idempotency_key, p.issue),
         verify_marker(verify_spec(p)),
-        f"**PosturaNet** found a fix for **{f.control_id} · {f.title or fix.title}**. It changes "
+        "**PosturaNet** found a fix for "
+        f"**{_inline(f.control_id)} · {_inline(f.title or fix.title)}**. It changes "
         "settings on one resource and nothing else.",
         "",
         "| | |",

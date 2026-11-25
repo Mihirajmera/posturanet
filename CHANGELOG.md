@@ -4,6 +4,10 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Security
+- Finding titles and control IDs come from scanners and are untrusted. In PR bodies they are now one plain line: no HTML or comment markers (which could fake a `posturanet:` marker), no Markdown links or code spans, no `@mentions`, at most 200 characters.
+- The Action and the CI/release workflows pin every third-party action to a commit SHA, so a moved tag can't change what runs with a customer's `GITHUB_TOKEN` and AWS role, or with the PyPI publish token.
+
 ### Fixed (docs)
 - The architecture doc's sample `.posturanet.yml` used seven keys the config refuses (`aws.regions`, `aws.accounts`, `contracts.require_approved_for_auto`, `validation.required`, `delivery.freeze_windows`, `llm`, `license`). It now validates, and a test keeps it that way.
 - No license heartbeat exists: keys are checked offline and send nothing. The PRD, architecture doc, README and trust diagram said otherwise; FR-45 is marked not built.
