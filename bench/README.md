@@ -1,7 +1,7 @@
 # PosturaNet benchmark (v1)
 
 How safe is an automatic fix for an open security group, a public bucket or a wildcard IAM
-policy? This benchmark answers that with 59 cases whose right answer is known in advance, and
+policy? This benchmark answers that with 145 cases whose right answer is known in advance, and
 publishes PosturaNet's misses next to its wins.
 
 | Family | Cases | PosturaNet correct | Stopped (needed / unneeded) | Outage | Fewest outages, any baseline |
@@ -10,6 +10,8 @@ publishes PosturaNet's misses next to its wins.
 | S3 public access (S3.8) | 11 | 4 | 4 / 2 | 1 | 3 |
 | IAM least privilege (IAM.1, IAM.21) | 13 | 7 | 4 / 1 | 1 | 8 |
 | CloudFormation and SAM (all three) | 21 | 9 | 12 / 0 | 0 | - |
+| AWS CDK (all three) | 27 | 12 | 15 / 0 | 0 | - |
+| Pulumi (all three, six languages) | 59 | 23 | 36 / 0 | 0 | - |
 
 "Needed" stops are cases with no safe automatic fix (a public website, a role that passes an
 untracked `iam:PassRole`). "Unneeded" stops are safe fixes PosturaNet declined for lack of
@@ -63,7 +65,7 @@ least privilege.
 
 ## Results today
 
-See [RESULTS.md](RESULTS.md) for every case. In short (PosturaNet 0.5.1):
+See [RESULTS.md](RESULTS.md) for every case. In short (PosturaNet 0.5.2):
 
 | Contender | Correct | Stopped | Outage | Still exposed | Invalid | Addresses opened |
 |---|---|---|---|---|---|---|

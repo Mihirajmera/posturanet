@@ -30,7 +30,8 @@ are a signal, not proof; nothing in PosturaNet acts on them automatically.
    `api/outcomes.py` as a Python function.
 2. In that project, **Storage → Marketplace → Upstash (Redis)**, create a free database and
    connect it to the project. That sets `KV_REST_API_URL` and `KV_REST_API_TOKEN`. Redeploy.
-3. Optional: **Settings → Domains**, add `outcomes.posturanet.com` and the DNS record Vercel
+3. **Settings → Domains**, add `outcomes.posturanet.com` (the address the core README and the
+   website tell customers to use) and the DNS record Vercel
    shows.
 4. Check it: `curl https://<deployment>/api/outcomes` returns `{"schema": "posturanet.outcomes/v1", "rows": [], ...}`.
 
