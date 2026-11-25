@@ -282,6 +282,22 @@ def test_marketplace_action_matches_action_folder() -> None:
     assert f'default: "{__version__}"' in sub  # RELEASING.md step 1 bumps both
 
 
+def test_action_lock_pins_every_runtime_dependency() -> None:
+    import re
+    import tomllib
+
+    def norm(name: str) -> str:  # PEP 503: ruamel.yaml == ruamel-yaml
+        return re.sub(r"[-_.]+", "-", name).lower()
+
+    root = Path(__file__).parents[2]
+    deps = tomllib.loads((root / "pyproject.toml").read_text())["project"]["dependencies"]
+    lock = (root / "action" / "requirements.lock").read_text()
+    pinned = {norm(n) for n in re.findall(r"^([A-Za-z0-9_.-]+)==", lock, re.M)}
+    missing = {norm(re.split(r"[<>=!~\[ ;]", d, maxsplit=1)[0]) for d in deps} - pinned
+    assert not missing, f"regenerate action/requirements.lock: missing {missing}"
+    assert "--hash=sha256:" in lock
+
+
 def test_contract_build_all_lists_every_group(tmp_repo: Path) -> None:
     from posturanet.locate.tfstate import ids_of
 
