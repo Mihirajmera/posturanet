@@ -30,9 +30,8 @@
             │                      GitHub PR/check   evidence files │
             └─────────────────────────────┬───────────────────────────┘
                                           │ license verification is OFFLINE
-                                          ▼ (optional heartbeat: lic_id + version;
-                                          │  opt-in outcome share, FR-45a)
-                              PosturaNet license service (serverless)
+                                          ▼ (opt-in outcome share only, FR-45a)
+                              PosturaNet outcome receiver (receiver/)
 ```
 
 **Trust boundary:** everything inside the box belongs to the customer. PosturaNet hosts only the license service. No customer data crosses the boundary (NFR-3). The one opt-in exception is the outcome share (§11): five fields, no identifiers.
@@ -132,9 +131,8 @@ Reuse from `postura-backend` is described in §13. **Don't** pull in FastAPI, Ce
 version: 1
 aws:
   role_arn: arn:aws:iam::123456789012:role/PosturaNetReadOnly   # optional; else ambient creds
-  regions: [us-east-1]
-  accounts: [123456789012]
-iac: auto                          # auto | terraform | cloudformation | cdk (auto: CDK with a cdk.json
+  region: us-east-1
+iac: auto                          # auto | terraform | cloudformation | cdk | pulumi (auto: CDK with a cdk.json
                                    # and no .tf files; else CloudFormation with a stack-resources
                                    # export, or templates and no .tf files)
 cdk:
@@ -156,7 +154,7 @@ terraform:
   state_path: terraform.tfstate     # local backend only, relative to repo root; --state overrides
   binary: terraform
 evidence:
-  flow_logs: { mode: logs_insights, log_group: /vpc/flowlogs }   # or { mode: athena, database: ..., table: ..., workgroup: ... }
+  flow_logs: { mode: logs_insights, log_group: /vpc/flowlogs }
   window_days: 400                 # look-back cap; the window starts where the logs start
   min_confidence_for_pr: medium     # high | medium   (low/none never open PRs)
   cloudtrail_lake:                  # FR-16b, opt-in IAM history; off by default
@@ -165,30 +163,26 @@ evidence:
     lookback_days: 730
 contracts:
   dir: posturanet/contracts
-  require_approved_for_auto: true   # auto/event mode needs approved contracts
 delivery:
   github: { repo: acme/infra, base: main }
   max_open_prs: 5
-  freeze_windows: [{ cron: "0 0 * * 5", duration_hours: 72 }]
   labels: [posturanet, security]
 detectors:                         # FR-4d: vendor rule id -> control; PosturaNet ships no table
   wiz:    { rules: { "<wiz rule id>": EC2.19 } }
   orca:   { rules: { "S3 bucket allows public access": S3.8 } }   # Orca's rule id is its AlertType
   prisma: { rules: { "<prisma policy id>": S3.8 } }
 validation:
-  required: [fmt, validate, plan_scope, invariants, recheck]
+  timeout_s: 300
+  plan: required                   # required | skip
   optional: [tflint, checkov]
-llm:
-  provider: none                    # none | bedrock | anthropic | openai
-  model: ""                         # e.g. a Bedrock model id
-license:
-  key_env: POSTURANET_LICENSE
-  heartbeat: true
+  allowed_paths: ["**"]
 outcome_share:                      # opt-in (FR-45a); off by default
   enabled: false
   endpoint: null                    # https:// URL; required when enabled, no default
 ```
-Validated by `models/config.py`. An unknown key is an error, not ignored.
+Validated by `models/config.py`. An unknown key is an error, not ignored; `tests/unit/test_docs_config.py` validates this example.
+
+Not built yet, so not accepted: multi-account and multi-region lists, freeze windows, an `llm` section, and a license heartbeat. The license key comes from `POSTURANET_LICENSE` or `~/.posturanet/license` and is checked offline; nothing is sent.
 
 ## 6. Data models
 

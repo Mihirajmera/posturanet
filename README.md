@@ -175,7 +175,7 @@ posturanet fix tests/fixtures/findings/rds_deletion_protection.json --dry-run --
 
 **It runs where your code runs.** A read-only role, your own LLM if you use one, and no customer data sent anywhere:
 
-![Where PosturaNet runs: inside your environment, with only an optional license heartbeat leaving it](https://raw.githubusercontent.com/Mihirajmera/posturanet/main/docs/media/diagram-trust.svg)
+![Where PosturaNet runs: inside your environment, with only the opt-in outcome share leaving it](https://raw.githubusercontent.com/Mihirajmera/posturanet/main/docs/media/diagram-trust.svg)
 
 Diagrams are drawn by `python docs/media/diagrams.py`; the full design is in [docs/02_ARCHITECTURE_AND_DATA.md](docs/02_ARCHITECTURE_AND_DATA.md). What's next: [reports/coverage-roadmap.md](reports/coverage-roadmap.md).
 
