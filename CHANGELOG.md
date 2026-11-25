@@ -4,6 +4,8 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-11-25
+
 ### Fixed (docs)
 - The architecture doc's sample `.posturanet.yml` used seven keys the config refuses (`aws.regions`, `aws.accounts`, `contracts.require_approved_for_auto`, `validation.required`, `delivery.freeze_windows`, `llm`, `license`). It now validates, and a test keeps it that way.
 - No license heartbeat exists: keys are checked offline and send nothing. The PRD, architecture doc, README and trust diagram said otherwise; FR-45 is marked not built.
