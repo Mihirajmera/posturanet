@@ -238,7 +238,7 @@ Shipped in `posturanet-pro`, which adds these commands through the `posturanet.p
 - **FR-42** Verify Ed25519-signed license keys offline. Enable only the features listed in the key.
 - **FR-43** An expired or invalid key disables Pro features only. Community keeps working and contracts and evidence files stay.
 - **FR-44** Show upgrade prompts at most once per run, never blocking a working free feature.
-- **FR-45** The optional heartbeat sends only `{lic_id, agent_version}` and can be disabled.
+- **FR-45** An optional license heartbeat may send only `{lic_id, agent_version}` and can be disabled. Not built: keys are checked offline and nothing is sent.
 - **FR-45a** Opt-in outcome share (client and receiver built; the receiver in `receiver/` keeps counters only). The customer sets the endpoint; there is no default. Off by default. When the customer turns it on, each verify result sends only `{control, fix_type, outcome: held | reverted, evidence_days, agent_version}`: no resource ids, ARNs, IPs, account ids, names, code, state, contracts or finding text. `posturanet outcomes preview` prints exactly what would be sent. `held` is a CONFIRMED verify, `reverted` a REGRESSED one; nothing is sent while a fix is still watching. Sending is best-effort and never changes an exit code. Purpose: learn which fixes break production, across customers.
 
 ### Configuration
@@ -256,7 +256,7 @@ Shipped in `posturanet-pro`, which adds these commands through the `posturanet.p
 | **NFR-5 Determinism** | Same inputs give the same diff and the same idempotency key. LLM output is schema-validated and never executed. |
 | **NFR-6 Performance** | `fix` on one SG with a 30-day window finishes in < 5 min on a standard GitHub runner. |
 | **NFR-7 Cost** | Customer LLM spend < $1 per remediation. Log queries scoped to target ENIs and window. |
-| **NFR-8 Portability** | Python 3.11+, Linux/macOS/Windows. No hosted dependencies except the optional license heartbeat. |
+| **NFR-8 Portability** | Python 3.11+, Linux/macOS/Windows. No hosted dependencies; the opt-in outcome share is the only thing that can leave. |
 | **NFR-9 Observability** | Structured JSON logs (`--log-format json`). Every run writes a run record with inputs' hashes and outcomes. |
 | **NFR-10 Supply chain** | Pinned dependencies, signed releases, SBOM. |
 | **NFR-11 Accessibility of output** | Respect `NO_COLOR`. Meaning is never conveyed by color alone (see design system). |

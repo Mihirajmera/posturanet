@@ -355,8 +355,8 @@ def trust_boundary() -> Diagram:
         cw,
         50,
         [
-            ln("PosturaNet license service", "tx", 13, True),
-            ln("keys are checked offline", "mu", 11.5),
+            ln("PosturaNet outcome receiver", "tx", 13, True),
+            ln("counters only; keys checked offline", "mu", 11.5),
         ],
         edge="bds",
     )
@@ -364,7 +364,7 @@ def trust_boundary() -> Diagram:
     d.text(
         cx + cw / 2 + 12,
         338,
-        "optional heartbeat: license id + version only",
+        "opt-in outcome share: 5 fields, no resource data",
         "mu",
         11.5,
         anchor="start",
