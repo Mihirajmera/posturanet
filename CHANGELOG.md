@@ -4,6 +4,9 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Added (benchmark)
+- `python -m bench.agents`: run any coding agent (Claude Code, Codex, Cursor's CLI and others) on the 14 security-group cases under three conditions (finding only, plus flow logs, plus PosturaNet's contract check) and score its fixes with the same ground truth. Agents run on synthetic files with no `AWS_*` variables. No agent results are published yet.
+
 ### Security
 - Finding titles and control IDs come from scanners and are untrusted. In PR bodies they are now one plain line: no HTML or comment markers (which could fake a `posturanet:` marker), no Markdown links or code spans, no `@mentions`, at most 200 characters.
 - The Action and the CI/release workflows pin every third-party action to a commit SHA, so a moved tag can't change what runs with a customer's `GITHUB_TOKEN` and AWS role, or with the PyPI publish token.
