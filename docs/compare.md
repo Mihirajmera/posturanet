@@ -20,7 +20,7 @@ PosturaNet is not a scanner. It reads findings from Security Hub (including its 
 
 - **AWS Security Hub remediation plans** say what to change. PosturaNet turns a plan into one reviewed PR against your own Terraform modules, with evidence, and verifies it after merge.
 - **Prowler** finds the issue and can suggest a fix. PosturaNet adds the usage evidence, the behavior contract and the post-merge watch.
-- **CNAPPs** (Wiz, Orca, Cortex Cloud, Defender for Cloud, Tenable) can open fix PRs from their console. PosturaNet keeps the evidence and the change in your own CI, and can gate those PRs with its contract check.
+- **CNAPPs** (Wiz, Orca, Cortex Cloud, Defender for Cloud, Tenable) can open fix PRs from their console. PosturaNet keeps the evidence and the change in your own CI, and can gate those PRs with its contract check ([how](check-fix-prs.md)).
 
 ## What PosturaNet doesn't do
 

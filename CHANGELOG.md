@@ -4,6 +4,9 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Added (docs)
+- `docs/check-fix-prs.md`: make the PosturaNet contract check a required check on every fix PR, whoever opened it (Wiz, Prowler, Gomboc, coding agents, people), and protect the contracts and `allow_destroy` with CODEOWNERS.
+
 ### Added (signed releases and SBOM, NFR-10)
 - Each GitHub release now carries a CycloneDX SBOM (`posturanet-<version>.cdx.json`) and signed build-provenance attestations for the wheel, sdist and SBOM. `gh attestation verify <file> --repo Mihirajmera/posturanet` checks them. SECURITY.md says how.
 
