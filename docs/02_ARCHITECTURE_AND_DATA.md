@@ -318,7 +318,7 @@ disruption: none        # none | possible | restart | replacement
 risk: low               # low | medium | high
 residual_risk: ["sources active less than once per 89 days may be missed"]
 unknowns: []
-post_merge: { recheck: true, watch: flowlog_reject_from_must_allow, window: 72h, on_regression: revert_pr }
+post_merge: { recheck: true, watch: flowlog_reject_from_must_allow, window: 192h, on_regression: revert_pr }   # window: evidence-sized, 72h-840h (FR-32)
 status: VALIDATED
 model_scope: "Z3 models SG and NACL rule evaluation for the target ENIs only. Routing, proxies and app behavior are out of scope."
 ```
