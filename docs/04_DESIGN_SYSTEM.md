@@ -17,7 +17,7 @@ PosturaNet is an agent. Its **interface** is text: terminal output, pull request
 3. **Say what you didn't check.** Unknowns and residual risk are always visible, never hidden in a collapsed section.
 4. **Calm and plain.** No hype, no emoji clutter, no exclamation marks. Short sentences.
 5. **Next step always.** Every stop or failure ends with what the human can do.
-6. **Honest scope.** Never "proven safe", "guaranteed", "100%", "zero risk". Use "checked", "holds under the modeled scope", "no regression observed in 72h".
+6. **Honest scope.** Never "proven safe", "guaranteed", "100%", "zero risk". Use "checked", "holds under the modeled scope", "no regression observed in 8 days".
 7. **Readable without color.** Meaning is carried by symbols and words. Color only reinforces it (NFR-11).
 
 ## 2. Voice and terminology

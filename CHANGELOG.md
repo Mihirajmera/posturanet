@@ -4,6 +4,9 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Changed (post-merge watch sized from the evidence, FR-32)
+- `posturanet verify` no longer watches a fixed 72 hours. Security group fixes watch until the least frequent kept source should have come back (daily 72h, weekly 8 days, monthly or rarer 35 days); IAM fixes watch for the longest gap between the last uses of the kept actions (72h to 35 days). The PR says how long and why. `--window` still overrides it. A weekly or monthly job denied after a fix is now caught instead of being reported CONFIRMED after 72h.
+
 ### Added (destructive-change rules, FR-55)
 - `contract check --plan` and MCP `check_change` with a plan now BLOCK a plan that deletes or replaces a resource holding data (RDS, DynamoDB, S3 buckets, EBS, EFS, KMS keys, VPCs, backup vaults, log groups and more), or turns off deletion protection, skips the final snapshot, sets `force_destroy` or sets backup retention to 0. No contract is needed. A human approves by adding the address (or a glob) to `contracts.allow_destroy` in `.posturanet.yml`; `contracts.destructive: false` turns the rules off.
 - The Claude Code plugin adds a PreToolUse hook on Bash: before an agent runs `terraform destroy`, `apply -destroy`, `apply -auto-approve`, `pulumi destroy`, `cdk destroy`, or an AWS CLI delete of stored data, Claude Code asks the user. Plan-only commands (`terraform plan -destroy`) pass.
