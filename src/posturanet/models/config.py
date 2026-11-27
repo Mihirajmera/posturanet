@@ -92,6 +92,10 @@ class EvidenceConfig(_Strict):
 
 class ContractsConfig(_Strict):
     dir: str = "posturanet/contracts"
+    # FR-55: block plans that delete data or turn off its guards, unless the address (or a
+    # glob) is listed here by a human.
+    destructive: bool = True
+    allow_destroy: list[str] = Field(default_factory=list)
 
 
 class SynthesisConfig(_Strict):
