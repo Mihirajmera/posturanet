@@ -163,6 +163,7 @@ evidence:
     lookback_days: 730
 contracts:
   dir: posturanet/contracts
+  allow_destroy: []          # FR-55: addresses (globs) a human approved to delete
 delivery:
   github: { repo: acme/infra, base: main }
   max_open_prs: 5
@@ -460,7 +461,7 @@ posturanet contract build <resource> [--evidence-file flows.json] [--window 90d]
 posturanet contract check --plan tfplan.json          # exit 5 on BLOCK, 3 on UNKNOWN
 posturanet contract check --source [--file x.tf]      # offline, from HCL; same exit codes
            [--github-check --sha <commit>]            # publish a "PosturaNet contract" check run
-posturanet hook claude-code                           # Claude Code PostToolUse hook (stdin event)
+posturanet hook claude-code                           # Claude Code hook (stdin event): PostToolUse on edits, PreToolUse on Bash
 posturanet mcp                                        # read-only MCP server (stdio)
 posturanet verify <pr-url|owner/repo#n|n> [--open-pr] [--state s.json] [--rejects-file r.json] [--applied-at ISO] [--window 72h] [--offline]
 posturanet outcomes preview <run.json>...              # what the opt-in outcome share would send; sends nothing
@@ -478,7 +479,7 @@ posturanet schema export
 |---|---|---|---|
 | `explain_finding` | finding id / resource | Location + evidence summary | none |
 | `propose_fix` | finding id / resource | Diff + SafetyContract + ValidationReport | none |
-| `check_change` | plan JSON, or nothing + optional `files` (source mode) | PASS / BLOCK / UNKNOWN + reasons, contract lines; `network`, `s3_public` and `iam` contracts (`gate.py`, `s3fix/gate.py`, `iamfix/gate.py`) | none |
+| `check_change` | plan JSON, or nothing + optional `files` (source mode) | PASS / BLOCK / UNKNOWN + reasons, contract lines; `network`, `s3_public` and `iam` contracts (`gate.py`, `s3fix/gate.py`, `iamfix/gate.py`); with a plan, also the destructive-change rules (FR-55, `destructive.py`) | none |
 | `open_fix_pr` | proposal id | PR URL | **write. Requires confirmation.** |
 
 ### GitHub Action inputs

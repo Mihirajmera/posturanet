@@ -96,7 +96,9 @@ posturanet verify owner/repo#123 --repo infra/                   # after merge: 
 
 ![the PosturaNet hook reply to Claude Code](https://raw.githubusercontent.com/Mihirajmera/posturanet/main/docs/media/agent-hook.svg)
 
-In Claude Code, add the plugin (skill, MCP server and a hook that checks every `.tf` edit):
+**Before data is deleted.** With a plan, the check also blocks any change that deletes or replaces a database, bucket, volume, key or VPC, or turns off deletion protection or backups, until a person lists it in `contracts.allow_destroy`. In Claude Code, the plugin asks you before an agent runs `terraform destroy`, `apply -auto-approve` or an AWS CLI delete.
+
+In Claude Code, add the plugin (skill, MCP server, a hook that checks every `.tf` edit, and one that asks before destroy commands):
 ```text
 /plugin marketplace add Mihirajmera/posturanet
 /plugin install posturanet@posturanet
