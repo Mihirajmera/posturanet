@@ -207,6 +207,7 @@ Vendors now generate fix PRs (Wiz, Gomboc, Cloudgeni and others). Their public m
 ### Delivery
 - **FR-27** Create a branch and PR with the body defined in the design system (evidence table, safety contract, validation, residual risk, unknowns, reviewer checklist, revert notes).
 - **FR-28** Idempotency key `sha256(issue + contract_sha + diff_sha)`, where `issue` is `control@terraform_address`, so the same problem reported by several scanners maps to one PR. An open PR matches on its issue marker, or on its finding id for PRs opened before 0.3.1. Never open duplicate PRs. `findings list|split` take several files and list each control-on-resource once.
+- **FR-27a** With `delivery.provider: gitlab`, the same fix opens a GitLab merge request (gitlab.com or self-managed, REST API v4) instead of a PR: same body, labels, idempotency (FR-28) and `max_open_prs`, writes only to `posturanet/...` branches, never merges. Token `GITLAB_TOKEN` (api scope, Developer role); project from `delivery.gitlab.project` or `CI_PROJECT_PATH`, server from `delivery.gitlab.url` or `CI_SERVER_URL`. `verify`, the contract-check status (FR-29) and the sticky comment are GitHub only for now.
 - **FR-29** Publish a check run with the summary.
 - **FR-30** Never merge. Never apply.
 

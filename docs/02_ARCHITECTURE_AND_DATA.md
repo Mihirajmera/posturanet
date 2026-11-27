@@ -164,7 +164,9 @@ evidence:
 contracts:
   dir: posturanet/contracts
 delivery:
+  provider: github                 # or gitlab (FR-27a): merge requests on gitlab.com or self-managed
   github: { repo: acme/infra, base: main }
+  gitlab: { project: acme/infra, url: https://gitlab.com, base: main }
   max_open_prs: 5
   labels: [posturanet, security]
 detectors:                         # FR-4d: vendor rule id -> control; PosturaNet ships no table

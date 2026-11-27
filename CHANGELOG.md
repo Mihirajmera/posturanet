@@ -4,6 +4,9 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Added (GitLab merge requests, FR-27a)
+- `delivery.provider: gitlab` opens the fix as a merge request on gitlab.com or self-managed GitLab, with the same body, labels, one-MR-per-finding idempotency and open-MR limit. Needs `GITLAB_TOKEN` (api scope). PosturaNet never merges. `verify` and the contract-check status stay GitHub only for now.
+
 ### Security
 - Finding titles and control IDs come from scanners and are untrusted. In PR bodies they are now one plain line: no HTML or comment markers (which could fake a `posturanet:` marker), no Markdown links or code spans, no `@mentions`, at most 200 characters.
 - The Action and the CI/release workflows pin every third-party action to a commit SHA, so a moved tag can't change what runs with a customer's `GITHUB_TOKEN` and AWS role, or with the PyPI publish token.

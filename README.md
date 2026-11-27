@@ -69,6 +69,8 @@ posturanet fix findings/EC2.13-sg-0a91f3c2.json --repo infra/ --open-pr  # open 
 ```
 If anything is missing (no evidence, an unclear owner, a check that fails), PosturaNet stops, says why and what to do next, and opens no PR.
 
+On GitLab, set `delivery.provider: gitlab` and `GITLAB_TOKEN`: the fix opens as a merge request instead (gitlab.com or self-managed). `verify` and the contract-check status are GitHub only for now.
+
 **A security group with SSH open to the internet.** PosturaNet reads 89 days of flow logs, keeps the four sources that really connect, drops a one-off scanner, flags the outside partner for review, and proposes the smallest change:
 
 ![posturanet fix on a security group](https://raw.githubusercontent.com/Mihirajmera/posturanet/main/docs/media/fix-security-group.svg)
