@@ -90,11 +90,29 @@ def test_allowlisted_calls_pass_through() -> None:
 
 
 def test_iam_policy_matches_allowlist() -> None:
-    actions = iam_policy()["Statement"][0]["Action"]
-    assert sorted(actions) == sorted(ALLOWLIST)
+    statements = iam_policy()["Statement"]
+    actions = [a for s in statements for a in s["Action"]]
+    assert sorted(actions) == sorted(set(ALLOWLIST) - {"sts:AssumeRole"})
     assert not any(
         a.split(":")[1].startswith(("Put", "Delete", "Create", "Update")) for a in actions
     )
+
+
+def test_iam_policy_cannot_chain_roles_and_scopes_object_reads() -> None:
+    unscoped = iam_policy()
+    scoped = iam_policy(["tf-state", "logs", "tf-state"])
+    for policy in (unscoped, scoped):
+        assert all("sts:AssumeRole" not in s["Action"] for s in policy["Statement"])
+    s3 = scoped["Statement"][1]
+    assert s3["Action"] == ["s3:GetObject", "s3:ListBucket"]
+    assert s3["Resource"] == [
+        "arn:aws:s3:::logs",
+        "arn:aws:s3:::logs/*",
+        "arn:aws:s3:::tf-state",
+        "arn:aws:s3:::tf-state/*",
+    ]
+    assert all(s["Resource"] == "*" for s in unscoped["Statement"])
+    assert "s3:GetObject" not in scoped["Statement"][0]["Action"]
 
 
 def test_collectors_only_make_allowlisted_calls() -> None:

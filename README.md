@@ -25,7 +25,7 @@ Python 3.11+. If your shell can't find `posturanet` (common with the Microsoft S
 
 ### 2. Give it a read-only role
 ```bash
-posturanet init > policy.json     # the read-only IAM policy PosturaNet needs; attach it to a role
+posturanet init --s3-bucket <tf-state-bucket> > policy.json  # read-only IAM policy; attach it to a role
 ```
 PosturaNet only reads: flow logs, CloudTrail, IAM last-accessed data, S3 settings and access logs, and Terraform state. It never calls a mutating AWS API, and a person merges every PR.
 
@@ -186,6 +186,7 @@ Diagrams are drawn by `python docs/media/diagrams.py`; the full design is in [do
 | [docs/02_ARCHITECTURE_AND_DATA.md](docs/02_ARCHITECTURE_AND_DATA.md) | Architecture, data models, schemas, queries |
 | [AGENTS.md](AGENTS.md) | Rules for AI coding agents, and for PosturaNet's own runtime agent |
 | [docs/04_DESIGN_SYSTEM.md](docs/04_DESIGN_SYSTEM.md) | CLI, PR, check-run and brand design system |
+| [docs/compare.md](docs/compare.md) | How PosturaNet compares with scanners, CNAPPs and AWS remediation plans |
 | [integrations/](integrations/README.md) | GitHub Action, CI and per-agent setup |
 
 ## Team features (PosturaNet Pro)

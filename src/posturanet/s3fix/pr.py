@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from posturanet import __version__
 from posturanet.configfix.catalog import ConfigFix
 from posturanet.deliver.idempotency import issue, markers, verify_marker
-from posturanet.deliver.pr_body import _CHECK_LABELS, _cell, _sym
+from posturanet.deliver.pr_body import _CHECK_LABELS, _cell, _inline, _sym
 from posturanet.models import Diff, Finding, Location, ValidationReport, VerifySpec
 from posturanet.models.s3 import S3Evidence
 from posturanet.s3fix import S3Target
@@ -139,7 +139,8 @@ def body(p: S3Proposal, *, run_id: str) -> str:
     parts = [
         markers(p.idempotency_key, p.issue),
         verify_marker(verify_spec(p)),
-        f"**PosturaNet** found a fix for **{f.control_id} · {f.title or p.fix.title}**. It "
+        "**PosturaNet** found a fix for "
+        f"**{_inline(f.control_id)} · {_inline(f.title or p.fix.title)}**. It "
         f"{what} all four S3 Block Public Access settings and changes nothing else.",
         "",
         "| | |",

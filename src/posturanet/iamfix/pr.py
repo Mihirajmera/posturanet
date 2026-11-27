@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 from posturanet import __version__
 from posturanet.deliver.idempotency import issue, markers, verify_marker
-from posturanet.deliver.pr_body import _CHECK_LABELS, _cell, _sym
+from posturanet.deliver.pr_body import _CHECK_LABELS, _cell, _inline, _sym
 from posturanet.iamfix.shrink import StatementChange
 from posturanet.models import Diff, Finding, Location, ValidationReport, VerifySpec
 from posturanet.models.iam import IamApproval, IamEvidence
@@ -116,7 +116,8 @@ def body(p: IamProposal, *, run_id: str) -> str:
     parts = [
         markers(p.idempotency_key, p.issue),
         verify_marker(verify_spec(p)),
-        f"**PosturaNet** found a fix for **{f.control_id} · {f.title}**. It replaces "
+        "**PosturaNet** found a fix for "
+        f"**{_inline(f.control_id)} · {_inline(f.title)}**. It replaces "
         f"{', '.join(f'`{r}`' for r in p.removed)} with the actions the attached principals "
         "used, and changes nothing else in the policy.",
         "",

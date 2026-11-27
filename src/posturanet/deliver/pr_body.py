@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import re
 from typing import Any
 
 from ruamel.yaml import YAML
@@ -71,6 +72,12 @@ def _sym(result: CheckResult) -> str:
 
 def _cell(text: str) -> str:
     return text.replace("|", "\\|").replace("\n", " ")
+
+
+def _inline(text: str, limit: int = 200) -> str:
+    """Finding text is untrusted: one plain line, no HTML or comment markers, links or @mentions."""
+    text = re.sub(r"[<>`\[\]]", "", " ".join(text.split())).replace("@", "@\u200b")
+    return text[:limit]
 
 
 def safety_contract(p: Proposal) -> dict[str, Any]:
@@ -197,7 +204,8 @@ def body(p: Proposal, *, run_id: str) -> str:
     parts = [
         markers(p.idempotency_key, p.issue),
         verify_marker(verify_spec(p)),
-        f"**PosturaNet** found a fix for **{f.control_id} · {f.title}** and checked it "
+        "**PosturaNet** found a fix for "
+        f"**{_inline(f.control_id)} · {_inline(f.title)}** and checked it "
         "against real usage.",
         "",
         "| | |",

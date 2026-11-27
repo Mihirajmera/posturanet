@@ -77,3 +77,28 @@ def test_mcp_tools_are_read_only(basic_repo: Path, flows_path: Path, sg_finding_
 
     bad = check_change("{not json", str(basic_repo))
     assert bad["status"] == "UNKNOWN"
+
+
+def test_mcp_tools_refuse_paths_outside_the_workspace(basic_repo: Path, tmp_path: Path) -> None:
+    from posturanet.mcp.server import _confine
+
+    root = basic_repo.resolve()
+    calls: list[dict[str, object]] = []
+
+    def tool(**kw: object) -> dict[str, object]:
+        calls.append(kw)
+        return {"status": "PASS"}
+
+    confined = _confine(tool, root)
+    assert confined(repo=str(root), files=["main.tf"])["status"] == "PASS"
+    for kw in (
+        {"repo": str(tmp_path)},
+        {"repo": str(root), "files": ["../../etc/passwd"]},
+        {"repo": str(root), "evidence_file": str(tmp_path / "x.json")},
+        {"repo": str(root), "plan_json": str(tmp_path / "plan.json")},
+        {"repo": str(root), "target": str(tmp_path / "finding.json")},
+    ):
+        out = confined(**kw)
+        assert out["status"] == "UNKNOWN" and "outside the workspace" in str(out["error"])
+    assert len(calls) == 1
+    assert confined(repo=str(root), target="sg-0abc")["status"] == "PASS"
