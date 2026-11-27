@@ -184,8 +184,10 @@ prompt. The agent edits `modules/bastion/main.tf`, or writes `STOP.md` to declin
 | `check` | Also PosturaNet's draft contract, `posturanet` on PATH and an `.mcp.json` for `check_change`, with an instruction to stop on BLOCK |
 
 ```bash
-python -m bench.agents --name claude-code --condition evidence --runs 3   --agent 'claude -p "$(cat TASK.md)" --permission-mode acceptEdits'
-python -m bench.agents --name codex --condition finding   --agent 'codex exec --full-auto "$(cat TASK.md)"'
+python -m bench.agents --name claude-code --condition evidence --runs 3 \
+  --agent 'claude -p "$(cat TASK.md)" --permission-mode acceptEdits'
+python -m bench.agents --name codex --condition finding \
+  --agent 'codex exec --full-auto "$(cat TASK.md)"'
 ```
 
 Results go to `bench/agents-<name>-<condition>.json`, with a summary table on stdout. Agents
