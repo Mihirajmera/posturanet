@@ -4,6 +4,9 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Added (benchmark)
+- `python -m bench.agents`: run any coding agent (Claude Code, Codex, Cursor's CLI and others) on the 14 security-group cases under three conditions (finding only, plus flow logs, plus PosturaNet's contract check) and score its fixes with the same ground truth. Agents run on synthetic files with no `AWS_*` variables. No agent results are published yet.
+
 ### Added (docs)
 - `docs/check-fix-prs.md`: make the PosturaNet contract check a required check on every fix PR, whoever opened it (Wiz, Prowler, Gomboc, coding agents, people), and protect the contracts and `allow_destroy` with CODEOWNERS.
 
