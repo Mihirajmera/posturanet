@@ -4,6 +4,9 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Added (GitLab merge requests, FR-27a)
+- `delivery.provider: gitlab` opens the fix as a merge request on gitlab.com or self-managed GitLab, with the same body, labels, one-MR-per-finding idempotency and open-MR limit. Needs `GITLAB_TOKEN` (api scope). PosturaNet never merges. `verify` and the contract-check status stay GitHub only for now.
+
 ### Added (benchmark)
 - `python -m bench.agents`: run any coding agent (Claude Code, Codex, Cursor's CLI and others) on the 14 security-group cases under three conditions (finding only, plus flow logs, plus PosturaNet's contract check) and score its fixes with the same ground truth. Agents run on synthetic files with no `AWS_*` variables. No agent results are published yet.
 
