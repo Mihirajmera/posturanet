@@ -186,6 +186,7 @@ Diagrams are drawn by `python docs/media/diagrams.py`; the full design is in [do
 | [docs/02_ARCHITECTURE_AND_DATA.md](docs/02_ARCHITECTURE_AND_DATA.md) | Architecture, data models, schemas, queries |
 | [AGENTS.md](AGENTS.md) | Rules for AI coding agents, and for PosturaNet's own runtime agent |
 | [docs/04_DESIGN_SYSTEM.md](docs/04_DESIGN_SYSTEM.md) | CLI, PR, check-run and brand design system |
+| [docs/compare.md](docs/compare.md) | How PosturaNet compares with scanners, CNAPPs and AWS remediation plans |
 | [integrations/](integrations/README.md) | GitHub Action, CI and per-agent setup |
 
 ## Team features (PosturaNet Pro)
