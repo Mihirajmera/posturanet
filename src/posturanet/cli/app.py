@@ -537,9 +537,11 @@ def contract_check(
     ("/plugin install posturanet@posturanet", "in Claude Code: installs this hook for you"),
 ))  # fmt: skip
 def hook_claude_code(repo: RepoOpt = Path(".")) -> None:
-    """Claude Code PostToolUse hook: check an edited .tf file against the contracts.
+    """Claude Code hook: check edited IaC against the contracts, and ask before destroy commands.
 
-    Reads the hook event from stdin. On BLOCK, tells Claude why so it can fix its own change.
+    Reads the hook event from stdin. After an edit (PostToolUse), on BLOCK it tells Claude why
+    so it can fix its own change. Before a shell command (PreToolUse on Bash) that destroys
+    infrastructure or data, it asks the user to approve.
     Never fails the session on its own errors.
     """
     from posturanet.hooks import claude_code
