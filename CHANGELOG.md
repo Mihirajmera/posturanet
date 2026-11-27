@@ -8,6 +8,9 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 - Finding titles and control IDs come from scanners and are untrusted. In PR bodies they are now one plain line: no HTML or comment markers (which could fake a `posturanet:` marker), no Markdown links or code spans, no `@mentions`, at most 200 characters.
 - The Action and the CI/release workflows pin every third-party action to a commit SHA, so a moved tag can't change what runs with a customer's `GITHUB_TOKEN` and AWS role, or with the PyPI publish token.
 
+### Fixed (docs)
+- The README, PRD, architecture doc, AGENTS.md and the trust diagram described a customer LLM that explains each fix. No LLM is called: rules come from a solver and explanations from templates. An optional customer-owned LLM (FR-19) is now marked planned.
+
 ## [0.5.3] - 2026-11-25
 
 ### Fixed (docs)

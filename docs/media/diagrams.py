@@ -312,7 +312,7 @@ def trust_boundary() -> Diagram:
         ("Security Hub", "the finding (ASFF)"),
         ("Terraform repo", "code, owners, state"),
         ("read-only AWS role", "flow logs, CloudTrail, IAM usage"),
-        ("your LLM (optional)", "Bedrock or your own key"),
+        ("other scanners", "Prowler, Checkov, Trivy, Wiz JSON"),
     ]
     iys = [72 + i * 60 for i in range(4)]
     mid = 72 + 3 * 60 / 2 + ih / 2
@@ -332,7 +332,7 @@ def trust_boundary() -> Diagram:
             ln("in your CI or on a laptop", "mu", 12),
             ln("", "mu", 6),
             ln("no writes to production", "ok", 12, True),
-            ln("the LLM explains; code decides", "mu", 12),
+            ln("no AI model: a solver decides", "mu", 12),
         ],
         edge="acc",
         width=1.75,
