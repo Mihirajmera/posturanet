@@ -4,6 +4,9 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Added (signed releases and SBOM, NFR-10)
+- Each GitHub release now carries a CycloneDX SBOM (`posturanet-<version>.cdx.json`) and signed build-provenance attestations for the wheel, sdist and SBOM. `gh attestation verify <file> --repo Mihirajmera/posturanet` checks them. SECURITY.md says how.
+
 ### Security
 - Finding titles and control IDs come from scanners and are untrusted. In PR bodies they are now one plain line: no HTML or comment markers (which could fake a `posturanet:` marker), no Markdown links or code spans, no `@mentions`, at most 200 characters.
 - The Action and the CI/release workflows pin every third-party action to a commit SHA, so a moved tag can't change what runs with a customer's `GITHUB_TOKEN` and AWS role, or with the PyPI publish token.

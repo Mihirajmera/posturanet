@@ -258,7 +258,7 @@ Shipped in `posturanet-pro`, which adds these commands through the `posturanet.p
 | **NFR-7 Cost** | No LLM spend today; if FR-19 is built, customer LLM spend < $1 per remediation. Log queries scoped to target ENIs and window. |
 | **NFR-8 Portability** | Python 3.11+, Linux/macOS/Windows. No hosted dependencies; the opt-in outcome share is the only thing that can leave. |
 | **NFR-9 Observability** | Structured JSON logs (`--log-format json`). Every run writes a run record with inputs' hashes and outcomes. |
-| **NFR-10 Supply chain** | Pinned dependencies, signed releases, SBOM. |
+| **NFR-10 Supply chain** | Pinned dependencies, signed releases, SBOM. Built: actions pinned to SHAs, PyPI attestations, and from 0.5.4 a CycloneDX SBOM plus build-provenance attestations on every GitHub release (`SECURITY.md`). |
 | **NFR-11 Accessibility of output** | Respect `NO_COLOR`. Meaning is never conveyed by color alone (see design system). |
 | **NFR-12 Honesty** | Every Z3 result states its modeled scope. Never use "proven safe" or "guaranteed" in output. |
 
