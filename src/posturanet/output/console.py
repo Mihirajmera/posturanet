@@ -168,7 +168,7 @@ def render_gate(
         if r.status == "BLOCK":
             if r.caused_by:
                 body.append(style("muted", f"caused by: {r.caused_by}"))
-            fix = (
+            fix = r.fix or (
                 "restore it from code (re-apply), or update the contract with owner approval"
                 if result.mode == "live"
                 else "keep the access, or update the contract in the same PR with owner approval"

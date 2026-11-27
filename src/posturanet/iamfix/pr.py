@@ -8,11 +8,11 @@ from dataclasses import dataclass, field
 from posturanet import __version__
 from posturanet.deliver.idempotency import issue, markers, verify_marker
 from posturanet.deliver.pr_body import _CHECK_LABELS, _cell, _inline, _sym
+from posturanet.evidence import watch
 from posturanet.iamfix.shrink import StatementChange
 from posturanet.models import Diff, Finding, Location, ValidationReport, VerifySpec
 from posturanet.models.iam import IamApproval, IamEvidence
 
-WATCH_HOURS = 72
 _SOURCE = {
     "iam_last_accessed": "IAM last-accessed data",
     "iam_evidence_file": "IAM evidence (file)",
@@ -54,6 +54,14 @@ class IamProposal:
         return "none expected: every used action stays allowed"
 
 
+def watch_hours(p: IamProposal) -> int:
+    """Long enough for the least recently used kept action to be called again."""
+    kept = {a.lower() for c in p.changes for a in c.after}
+    return watch.iam_hours(
+        t.last_seen for s in p.evidence.services for t in s.actions if t.action.lower() in kept
+    )
+
+
 def verify_spec(p: IamProposal) -> VerifySpec:
     return VerifySpec(
         fix_type=p.finding.fix_type.value,
@@ -63,7 +71,7 @@ def verify_spec(p: IamProposal) -> VerifySpec:
         resource_arn=p.finding.resource.arn,
         address=p.location.address,
         key=p.idempotency_key,
-        watch_hours=WATCH_HOURS,
+        watch_hours=watch_hours(p),
         actions_removed=p.removed,
         actions_after=sorted({a for c in p.changes for a in c.after}, key=str.lower),
         principals=p.evidence.principals,
@@ -157,7 +165,8 @@ def body(p: IamProposal, *, run_id: str) -> str:
         "",
         "### After merge",
         f"After apply, `posturanet verify <this PR>` checks the state, re-checks {f.control_id} "
-        f"and watches CloudTrail for {WATCH_HOURS}h for AccessDenied on the removed actions; "
+        f"and watches CloudTrail for {watch.label(watch_hours(p))} (the longest gap between uses "
+        "of a kept action) for AccessDenied on the removed actions; "
         "on a regression it opens a revert PR.",
         "",
         f"<sub>PosturaNet {__version__} · run {run_id} · checks describe the observed signals "
