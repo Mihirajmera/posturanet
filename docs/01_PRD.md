@@ -148,6 +148,7 @@ Vendors now generate fix PRs (Wiz, Gomboc, Cloudgeni and others). Their public m
 **US-7. AI agent checks a change** (Ava)
 - AC1: The MCP tool `check_change` accepts a plan JSON, or checks the Terraform source (optionally only edited files), and returns PASS/BLOCK/UNKNOWN with reasons, for `network`, `s3_public` and `iam` contracts.
 - AC3: In Claude Code, a hook checks every `.tf` edit and hands a BLOCK reason back to the agent before it continues.
+- AC4: A plan that deletes data, or a destroy command the agent is about to run, stops for a human (FR-55).
 - AC2: Read-only tools need no confirmation. `open_fix_pr` requires explicit user confirmation.
 
 ## 7. Functional requirements
@@ -208,6 +209,7 @@ Vendors now generate fix PRs (Wiz, Gomboc, Cloudgeni and others). Their public m
 - **FR-27** Create a branch and PR with the body defined in the design system (evidence table, safety contract, validation, residual risk, unknowns, reviewer checklist, revert notes).
 - **FR-28** Idempotency key `sha256(issue + contract_sha + diff_sha)`, where `issue` is `control@terraform_address`, so the same problem reported by several scanners maps to one PR. An open PR matches on its issue marker, or on its finding id for PRs opened before 0.3.1. Never open duplicate PRs. `findings list|split` take several files and list each control-on-resource once.
 - **FR-29** Publish a check run with the summary.
+- **FR-55** Destructive-change rules (decided 2026-11-27, built): with no contract needed, `contract check --plan` and MCP `check_change` with a plan BLOCK a plan that deletes or replaces a resource holding data (databases, buckets, volumes, file systems, KMS keys, VPCs, backup vaults, log groups and the other types in `destructive.py`), or that turns off deletion protection, skips the final snapshot, sets `force_destroy` or sets backup retention to 0. A human approves by listing the address (or a glob) in `contracts.allow_destroy`; `contracts.destructive: false` turns the rules off. The Claude Code plugin's PreToolUse hook on Bash asks the user before an agent runs `terraform`/`tofu destroy`, `apply -destroy`, `apply -auto-approve`, `pulumi destroy`, `cdk destroy` or AWS CLI deletes of stored data. Source mode can't see deletes, so it doesn't apply these rules.
 - **FR-30** Never merge. Never apply.
 
 ### Living contracts (R11, Pro: `living` license flag)
