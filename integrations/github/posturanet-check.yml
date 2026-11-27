@@ -18,6 +18,9 @@ jobs:
       - uses: actions/checkout@v4
 
       # Option A (exact): check the real plan. Needs terraform and a READ-ONLY role.
+      # terraform plan runs the PR's code with this role: anyone who can push a branch can
+      # use it. Where untrusted people open branches, use Option B, and keep the role's
+      # object reads scoped (`posturanet init --s3-bucket <state bucket>`).
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_wrapper: false

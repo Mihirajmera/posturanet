@@ -2,15 +2,26 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from posturanet.models.common import FixType, Severity
+
+# Finding text comes from scanners. Terminal control characters (ANSI/OSC escapes) in it could
+# rewrite what `posturanet` prints, so they are dropped on the way in; tab and newline stay.
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+def _no_control(v: Any) -> Any:
+    return _CONTROL.sub("", v) if isinstance(v, str) else v
 
 
 class ResourceRef(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    _clean = field_validator("*", mode="before")(_no_control)
 
     type: str
     id: str
@@ -31,6 +42,7 @@ class Provenance(BaseModel):
 
 class Finding(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    _clean = field_validator("*", mode="before")(_no_control)
 
     finding_id: str
     source: str

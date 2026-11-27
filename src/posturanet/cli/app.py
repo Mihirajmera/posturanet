@@ -1007,7 +1007,8 @@ def outcomes_preview(
 
 
 @app.command(epilog=_examples(
-    ("posturanet init > policy.json", "save the policy, then attach it to PosturaNet's role"),
+    ("posturanet init --s3-bucket tf-state --s3-bucket access-logs > policy.json",
+     "save the policy, object reads limited to those buckets; attach it to PosturaNet's role"),
     ("posturanet init --changeset-preview > preview.json",
      "opt-in only: the policy for the separate change-set preview role"),
 ))  # fmt: skip
@@ -1019,10 +1020,24 @@ def init(
             help="Print the opt-in change-set preview policy (separate role) instead.",
         ),
     ] = False,
+    s3_bucket: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--s3-bucket",
+            help="A bucket PosturaNet may read objects from (Terraform state, Athena results, "
+            "access logs). Repeat for each. Without it, object reads cover every bucket.",
+        ),
+    ] = None,
 ) -> None:
     """Print the read-only IAM policy for PosturaNet's role. Writes nothing."""
     _banner(sys.stderr)  # stderr, so `posturanet init > policy.json` stays clean JSON
-    policy = changeset_policy() if changeset_preview else iam_policy()
+    if not changeset_preview and not s3_bucket:
+        typer.echo(
+            "warning: s3:GetObject is on every bucket; pass --s3-bucket for the state, "
+            "Athena results and access-log buckets to limit it",
+            err=True,
+        )
+    policy = changeset_policy() if changeset_preview else iam_policy(s3_bucket or ())
     console.write(json.dumps(policy, indent=2) + "\n")
 
 

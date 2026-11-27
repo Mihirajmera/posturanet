@@ -119,16 +119,34 @@ class ReadOnlyClient:
         return getattr(self._client, name)
 
 
-def iam_policy() -> dict[str, Any]:
-    """IAM policy document a customer attaches to PosturaNet's role."""
+# Not granted to PosturaNet's role: AssumeRole on "*" would let the role chain into any role
+# that trusts it. The identity that *runs* PosturaNet needs it only for `aws.role_arn`.
+_CALLER_ONLY = ("sts:AssumeRole",)
+# Object reads, scoped to named buckets when `init --s3-bucket` gives them.
+_S3_OBJECT_READ = ("s3:GetObject", "s3:ListBucket")
+
+
+def iam_policy(s3_buckets: list[str] | tuple[str, ...] = ()) -> dict[str, Any]:
+    """IAM policy document a customer attaches to PosturaNet's role.
+
+    `s3_buckets`: the Terraform state bucket, Athena results bucket and S3 access-log buckets.
+    Without them, object reads stay on every bucket (the caller warns).
+    """
+    read = sorted(a for a in ALLOWLIST if a not in _CALLER_ONLY + _S3_OBJECT_READ)
+    objects: list[str] | str = (
+        [r for b in sorted(set(s3_buckets)) for r in (f"arn:aws:s3:::{b}", f"arn:aws:s3:::{b}/*")]
+        if s3_buckets
+        else "*"
+    )
     return {
         "Version": "2012-10-17",
         "Statement": [
+            {"Sid": "PosturaNetReadOnly", "Effect": "Allow", "Action": read, "Resource": "*"},
             {
-                "Sid": "PosturaNetReadOnly",
+                "Sid": "PosturaNetS3ObjectRead",
                 "Effect": "Allow",
-                "Action": sorted(ALLOWLIST),
-                "Resource": "*",
-            }
+                "Action": list(_S3_OBJECT_READ),
+                "Resource": objects,
+            },
         ],
     }

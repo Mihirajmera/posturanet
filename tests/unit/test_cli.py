@@ -93,7 +93,15 @@ def test_window_validation(sg_finding_path: Path, basic_repo: Path) -> None:
 def test_init_prints_policy() -> None:
     result = runner.invoke(app, ["init"])
     assert result.exit_code == 0
-    assert json.loads(result.output)["Statement"][0]["Sid"] == "PosturaNetReadOnly"
+    assert json.loads(result.stdout)["Statement"][0]["Sid"] == "PosturaNetReadOnly"
+    assert "pass --s3-bucket" in result.stderr
+
+
+def test_init_scopes_object_reads() -> None:
+    result = runner.invoke(app, ["init", "--s3-bucket", "tf-state"])
+    assert result.exit_code == 0 and "warning" not in result.stderr
+    s3 = json.loads(result.stdout)["Statement"][1]
+    assert s3["Resource"] == ["arn:aws:s3:::tf-state", "arn:aws:s3:::tf-state/*"]
 
 
 def test_usage_error_exit_2(basic_repo: Path) -> None:
