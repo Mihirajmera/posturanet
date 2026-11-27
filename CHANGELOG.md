@@ -4,6 +4,9 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Added (docs)
+- `docs/check-fix-prs.md`: make the PosturaNet contract check a required check on every fix PR, whoever opened it (Wiz, Prowler, Gomboc, coding agents, people), and protect the contracts and `allow_destroy` with CODEOWNERS.
+
 ### Security
 - Finding titles and control IDs come from scanners and are untrusted. In PR bodies they are now one plain line: no HTML or comment markers (which could fake a `posturanet:` marker), no Markdown links or code spans, no `@mentions`, at most 200 characters.
 - The Action and the CI/release workflows pin every third-party action to a commit SHA, so a moved tag can't change what runs with a customer's `GITHUB_TOKEN` and AWS role, or with the PyPI publish token.
