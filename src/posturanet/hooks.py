@@ -1,9 +1,15 @@
-"""AI agent hooks: check an edit against the contracts right after the agent makes it.
+"""AI agent hooks: check an agent's change before or right after it makes it.
 
-Claude Code calls `posturanet hook claude-code` as a PostToolUse hook on Edit/Write. The check
-is `gate.check_source` (offline, no plan, no AWS), limited to the edited file: a `.tf` file or a
-CloudFormation/SAM template; other YAML and JSON files are left alone. The event JSON is
-untrusted data: only `tool_input.file_path` is read from it.
+Claude Code calls `posturanet hook claude-code`:
+- as a PostToolUse hook on Edit/Write. The check is `gate.check_source` (offline, no plan, no
+  AWS), limited to the edited file: a `.tf` file or a CloudFormation/SAM template; other YAML
+  and JSON files are left alone.
+- as a PreToolUse hook on Bash (FR-55). A command that destroys infrastructure or data
+  (`terraform destroy`, `apply -auto-approve`, `aws rds delete-db-instance`, ...) is sent back
+  to the user to approve instead of running on the agent's say-so.
+
+The event JSON is untrusted data: only `hook_event_name`, `tool_name`, `tool_input.file_path`
+and `tool_input.command` are read from it.
 """
 
 from __future__ import annotations
@@ -12,6 +18,7 @@ import json
 from pathlib import Path
 
 from posturanet.cfn import template as cfn_template
+from posturanet.destructive import destructive_command
 from posturanet.errors import PosturaNetError
 from posturanet.gate import GateResult, check_source
 from posturanet.models.config import load_config
@@ -28,13 +35,15 @@ def find_repo(file: Path, fallback: Path) -> Path:
     return fallback
 
 
-def _edited_file(event_text: str) -> Path | None:
+def _event(event_text: str) -> dict[str, object]:
     try:
         event = json.loads(event_text)
     except json.JSONDecodeError:
-        return None
-    if not isinstance(event, dict):
-        return None
+        return {}
+    return event if isinstance(event, dict) else {}
+
+
+def _edited_file(event: dict[str, object]) -> Path | None:
     tool_input = event.get("tool_input")
     path = tool_input.get("file_path") if isinstance(tool_input, dict) else None
     if not isinstance(path, str):
@@ -60,9 +69,32 @@ def check_edit(file: Path, repo: Path) -> GateResult | str:
         return f"PosturaNet could not check {file.name}: {exc}"
 
 
+def _pre_bash(event: dict[str, object]) -> str:
+    tool_input = event.get("tool_input")
+    command = tool_input.get("command") if isinstance(tool_input, dict) else None
+    what = destructive_command(command) if isinstance(command, str) else None
+    if what is None:
+        return ""
+    reason = (
+        f"PosturaNet: this command {what}. A person should approve it after reading the plan. "
+        "Prefer a plan the user reviews (terraform plan -out, then terraform apply of that plan)."
+    )
+    out = {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "ask",
+            "permissionDecisionReason": reason,
+        }
+    }
+    return json.dumps(out) + "\n"
+
+
 def claude_code(event_text: str, repo: Path) -> str:
     """Hook stdout. Empty when there is nothing to say."""
-    file = _edited_file(event_text)
+    event = _event(event_text)
+    if event.get("hook_event_name") == "PreToolUse":
+        return _pre_bash(event) if event.get("tool_name") == "Bash" else ""
+    file = _edited_file(event)
     if file is None or not file.is_file():
         return ""
     result = check_edit(file, repo)
