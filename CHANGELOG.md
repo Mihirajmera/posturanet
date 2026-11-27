@@ -4,6 +4,9 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Added (signed releases and SBOM, NFR-10)
+- Each GitHub release now carries a CycloneDX SBOM (`posturanet-<version>.cdx.json`) and signed build-provenance attestations for the wheel, sdist and SBOM. `gh attestation verify <file> --repo Mihirajmera/posturanet` checks them. SECURITY.md says how.
+
 ### Changed (post-merge watch sized from the evidence, FR-32)
 - `posturanet verify` no longer watches a fixed 72 hours. Security group fixes watch until the least frequent kept source should have come back (daily 72h, weekly 8 days, monthly or rarer 35 days); IAM fixes watch for the longest gap between the last uses of the kept actions (72h to 35 days). The PR says how long and why. `--window` still overrides it. A weekly or monthly job denied after a fix is now caught instead of being reported CONFIRMED after 72h.
 
