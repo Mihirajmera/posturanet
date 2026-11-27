@@ -31,7 +31,7 @@ from pydantic import BaseModel, ValidationError
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
-from posturanet import cdk, cfn, pulumi
+from posturanet import cdk, cfn, destructive, pulumi
 from posturanet.cfn import template as cfn_template
 from posturanet.configfix.hcl_attrs import ABSENT, BLOCK, Unsupported, lookup, resource_block
 from posturanet.errors import StageStop
@@ -70,6 +70,8 @@ class ContractResult:
     source_line: int | None = None
     subject: str = "ingress"  # what changed: ingress, policy, public access block
     live: str | None = None  # Pro `contract live`: the deployed resource that was read
+    rule: Literal["contract", "destructive"] = "contract"
+    fix: str | None = None  # what to do on BLOCK, when it isn't "fix the change or the contract"
 
     @property
     def caused_by(self) -> str | None:
@@ -89,6 +91,7 @@ class ContractResult:
             "violations": [v.__dict__ for v in self.violations],
             "source_file": self.source_file,
             "source_line": self.source_line,
+            "rule": self.rule,
             **({"live": self.live} if self.live is not None else {}),
         }
 
@@ -112,7 +115,7 @@ class GateResult:
                 return "UNKNOWN · some live resources can't be read or judged"
             return f"PASS · {n} contract{s} checked against the live resources"
         if broken:
-            return f"BLOCK · this change would break {n} contract{s}"
+            return f"BLOCK · this change would {_broken_text(broken)}"
         if self.status == "UNKNOWN":
             what = "until apply" if self.mode == "plan" else "from the source alone"
             return f"UNKNOWN · some planned changes can't be judged {what}"
@@ -126,6 +129,16 @@ class GateResult:
             "summary": self.summary,
             "results": [r.to_dict() for r in self.results],
         }
+
+
+def _broken_text(broken: list[ContractResult]) -> str:
+    parts = []
+    kinds = [("contract", "contract", "break"), ("destructive", "resource", "destroy")]
+    for rule, noun, verb in kinds:
+        n = sum(r.rule == rule for r in broken)
+        if n:
+            parts.append(f"{verb} {n} {noun}{'s' * (n != 1)}")
+    return " and ".join(parts)
 
 
 def _overall(results: list[ContractResult]) -> GateStatus:
@@ -262,6 +275,10 @@ def check_plan(plan: dict[str, Any], repo: Path, config: Config) -> GateResult:
             res = _plan_s3(changes, loaded, repo, config)
             if res is not None:
                 results.append(res)
+    if config.contracts.destructive:
+        for res in destructive.judge_plan(changes, config.contracts.allow_destroy):
+            _located(res, repo, config, res.address)
+            results.append(res)
     return GateResult(_overall(results), results, "plan")
 
 

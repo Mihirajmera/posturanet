@@ -96,7 +96,9 @@ posturanet verify owner/repo#123 --repo infra/                   # after merge: 
 
 ![the PosturaNet hook reply to Claude Code](https://raw.githubusercontent.com/Mihirajmera/posturanet/main/docs/media/agent-hook.svg)
 
-In Claude Code, add the plugin (skill, MCP server and a hook that checks every `.tf` edit):
+**Before data is deleted.** With a plan, the check also blocks any change that deletes or replaces a database, bucket, volume, key or VPC, or turns off deletion protection or backups, until a person lists it in `contracts.allow_destroy`. In Claude Code, the plugin asks you before an agent runs `terraform destroy`, `apply -auto-approve` or an AWS CLI delete.
+
+In Claude Code, add the plugin (skill, MCP server, a hook that checks every `.tf` edit, and one that asks before destroy commands):
 ```text
 /plugin marketplace add Mihirajmera/posturanet
 /plugin install posturanet@posturanet
@@ -187,6 +189,7 @@ Diagrams are drawn by `python docs/media/diagrams.py`; the full design is in [do
 | [AGENTS.md](AGENTS.md) | Rules for AI coding agents, and for PosturaNet's own runtime agent |
 | [docs/04_DESIGN_SYSTEM.md](docs/04_DESIGN_SYSTEM.md) | CLI, PR, check-run and brand design system |
 | [docs/compare.md](docs/compare.md) | How PosturaNet compares with scanners, CNAPPs and AWS remediation plans |
+| [docs/check-fix-prs.md](docs/check-fix-prs.md) | Make the contract check a required check on every fix PR: Wiz, Prowler, Gomboc, coding agents or people |
 | [integrations/](integrations/README.md) | GitHub Action, CI and per-agent setup |
 
 ## Team features (PosturaNet Pro)
