@@ -12,6 +12,9 @@ synthetic data: never send real findings, account ids, Terraform state or logs.
 We reply within 3 business days, and tell you when a fix ships. We credit reporters in the
 CHANGELOG unless you'd rather we didn't.
 
+For vendor security reviews, start with the pre-filled answers in
+[docs/security-questionnaire.md](docs/security-questionnaire.md).
+
 ## Supported versions
 
 Only the latest release on PyPI gets security fixes. Upgrade with `pip install -U posturanet`.
