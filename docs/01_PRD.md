@@ -23,7 +23,7 @@ Requirement IDs (`FR-`, `NFR-`) are stable. Reference them in code comments, tes
 
 The same contracts then check every later change, from a person or an agent, so a fix stays fixed.
 
-It runs **in the customer's CI or on an engineer's machine**, with a **read-only** AWS role and **the customer's own LLM**. It never applies changes. Humans review and merge every PR.
+It runs **in the customer's CI or on an engineer's machine**, with a **read-only** AWS role. It calls no AI model today: rules come from a solver and explanations from templates (an optional customer-owned LLM is planned, FR-19). It never applies changes. Humans review and merge every PR.
 
 **One line:** *Fixes cloud security issues without breaking prod, keeps them fixed, and proves it to your auditor.*
 
@@ -187,7 +187,7 @@ Vendors now generate fix PRs (Wiz, Gomboc, Cloudgeni and others). Their public m
 
 ### Synthesis
 - **FR-18** Calculate the minimal SG ingress rule set satisfying `must_allow` and `must_deny` (Z3), within AWS rule quotas.
-- **FR-19** Prefer deterministic templates. Use the LLM only for long-tail cases, and always within policy and validation.
+- **FR-19** *(planned, not built)* Prefer deterministic templates. Use the customer's own LLM only for long-tail cases, and always within policy and validation. Today every fix and explanation is deterministic and no LLM is called.
 - **FR-20** Output a Terraform diff limited to the target resource.
 
 ### Attribute fixes
@@ -255,7 +255,7 @@ Shipped in `posturanet-pro`, which adds these commands through the `posturanet.p
 | **NFR-4 Untrusted input** | Finding text, code comments, tickets and tool outputs are data, never instructions to the LLM. |
 | **NFR-5 Determinism** | Same inputs give the same diff and the same idempotency key. LLM output is schema-validated and never executed. |
 | **NFR-6 Performance** | `fix` on one SG with a 30-day window finishes in < 5 min on a standard GitHub runner. |
-| **NFR-7 Cost** | Customer LLM spend < $1 per remediation. Log queries scoped to target ENIs and window. |
+| **NFR-7 Cost** | No LLM spend today; if FR-19 is built, customer LLM spend < $1 per remediation. Log queries scoped to target ENIs and window. |
 | **NFR-8 Portability** | Python 3.11+, Linux/macOS/Windows. No hosted dependencies; the opt-in outcome share is the only thing that can leave. |
 | **NFR-9 Observability** | Structured JSON logs (`--log-format json`). Every run writes a run record with inputs' hashes and outcomes. |
 | **NFR-10 Supply chain** | Pinned dependencies, signed releases, SBOM. |

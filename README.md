@@ -173,7 +173,7 @@ posturanet fix tests/fixtures/findings/rds_deletion_protection.json --dry-run --
 
 ![PosturaNet contract check: a change goes through the Claude Code hook, MCP or CI, and comes out PASS, UNKNOWN or BLOCK](https://raw.githubusercontent.com/Mihirajmera/posturanet/main/docs/media/diagram-change-check.svg)
 
-**It runs where your code runs.** A read-only role, your own LLM if you use one, and no customer data sent anywhere:
+**It runs where your code runs.** A read-only role, no AI model, and no customer data sent anywhere:
 
 ![Where PosturaNet runs: inside your environment, with only the opt-in outcome share leaving it](https://raw.githubusercontent.com/Mihirajmera/posturanet/main/docs/media/diagram-trust.svg)
 

@@ -4,6 +4,9 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Fixed (docs)
+- The README, PRD, architecture doc, AGENTS.md and the trust diagram described a customer LLM that explains each fix. No LLM is called: rules come from a solver and explanations from templates. An optional customer-owned LLM (FR-19) is now marked planned.
+
 ## [0.5.3] - 2026-11-25
 
 ### Fixed (docs)

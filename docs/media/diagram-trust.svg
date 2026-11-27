@@ -18,15 +18,15 @@
 <text x="170.0" y="229.4" class="f-mu sans" font-size="11.5" text-anchor="middle">flow logs, CloudTrail, IAM usage</text>
 <path d="M288.0,216.0 L364.0,216.0 L364.0,186.0 L386.0,186.0" fill="none" class="s-mu" stroke-width="1.5" stroke-linejoin="round" marker-end="url(#a-mu)"/>
 <rect x="52" y="252" width="236" height="48" rx="10" class="f-surf s-bd" stroke-width="1.25"/>
-<text x="170.0" y="272.2" class="f-tx sans" font-size="13" text-anchor="middle" font-weight="700">your LLM (optional)</text>
-<text x="170.0" y="289.4" class="f-mu sans" font-size="11.5" text-anchor="middle">Bedrock or your own key</text>
+<text x="170.0" y="272.2" class="f-tx sans" font-size="13" text-anchor="middle" font-weight="700">other scanners</text>
+<text x="170.0" y="289.4" class="f-mu sans" font-size="11.5" text-anchor="middle">Prowler, Checkov, Trivy, Wiz JSON</text>
 <path d="M288.0,276.0 L364.0,276.0 L364.0,186.0 L386.0,186.0" fill="none" class="s-mu" stroke-width="1.5" stroke-linejoin="round" marker-end="url(#a-mu)"/>
 <rect x="388" y="108.0" width="284" height="156" rx="10" class="f-surf s-acc" stroke-width="1.75"/>
 <text x="530.0" y="160.8" class="f-tx sans" font-size="15" text-anchor="middle" font-weight="700">PosturaNet agent</text>
 <text x="530.0" y="179.3" class="f-mu sans" font-size="12" text-anchor="middle">in your CI or on a laptop</text>
 <text x="530.0" y="190.3" class="f-mu sans" font-size="6" text-anchor="middle"></text>
 <text x="530.0" y="205.4" class="f-ok sans" font-size="12" text-anchor="middle" font-weight="700">no writes to production</text>
-<text x="530.0" y="222.8" class="f-mu sans" font-size="12" text-anchor="middle">the LLM explains; code decides</text>
+<text x="530.0" y="222.8" class="f-mu sans" font-size="12" text-anchor="middle">no AI model: a solver decides</text>
 <rect x="772" y="116.0" width="236" height="56" rx="10" class="f-surf s-bd" stroke-width="1.25"/>
 <text x="890.0" y="140.2" class="f-tx sans" font-size="13" text-anchor="middle" font-weight="700">GitHub pull request</text>
 <text x="890.0" y="157.4" class="f-mu sans" font-size="11.5" text-anchor="middle">plus a check run; you merge</text>

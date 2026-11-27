@@ -7,7 +7,7 @@
 | Status | Active. This is the source of truth for *how* PosturaNet is built. |
 | Related | [01_PRD.md](01_PRD.md) (what) · [04_DESIGN_SYSTEM.md](04_DESIGN_SYSTEM.md) (output formats) · [../AGENTS.md](../AGENTS.md) (rules for agents) |
 
-> **Core rule:** the LLM may reason. Deterministic code and explicit policy decide what runs. "Unknown" is a valid result. Every failure path fails closed.
+> **Core rule:** deterministic code and explicit policy decide what runs. No LLM is called today (§8.3); if one is added, it may only explain. "Unknown" is a valid result. Every failure path fails closed.
 
 ---
 
@@ -24,8 +24,8 @@
             │                             ▼              ▼          │
             │                     ┌──────── posturanet agent ──────┐│
             │   read-only role ──►│ core (OSS) + pro (licensed)    ││
-            │   customer LLM ────►│                                ││
-            │   (Bedrock / key)   └───────┬───────────────┬────────┘│
+            │                     │                                ││
+            │                     └───────┬───────────────┬────────┘│
             │                             ▼               ▼         │
             │                      GitHub PR/check   evidence files │
             └─────────────────────────────┬───────────────────────────┘
@@ -82,7 +82,7 @@ posturanet/                         # FSL-1.1-ALv2 (this folder; becomes its own
     deliver/      github.py  pr_body.py  check_run.py  idempotency.py
     verify/       postmerge.py  revert.py  iam_signals.py
     record/       run_record.py
-    llm/          client.py  redact.py  prompts/        # optional; never required for deterministic paths
+    llm/          (planned, not built: FR-19, §8.3)
     licensing/    verify.py  features.py
     aws/          session.py  readonly.py  remediation_plans.py   # read-only API allowlist (NFR-2)
     cfn/          template.py  locate.py  params.py  edit.py  validate.py    # CloudFormation and SAM (§14.4)
@@ -414,8 +414,8 @@ Offline export (`--evidence-file`): `{"account", "window": {"from", "to"}, "buck
 ### 8.2 IAM least privilege (R3)
 Minimal (action, resource-pattern) set covering the observed pairs, with wildcard limits (`max_wildcards`, never `*:*`). Verification replays every observed call through `SimulatePrincipalPolicy`. SCPs, resource policies and conditions that aren't modeled → `unknowns`.
 
-### 8.3 LLM use (optional)
-Allowed only for: (a) choosing between equivalent HCL styles when templates don't match the repo, and (b) writing the plain-English explanation in the PR body. The LLM output is schema-validated, the diff still goes through all validation, and the LLM never sees secrets (`llm/redact.py`) and never chooses rules.
+### 8.3 LLM use (planned, not built)
+No LLM is called today: explanations in the PR body come from templates. If one is added, it is allowed only for: (a) choosing between equivalent HCL styles when templates don't match the repo, and (b) writing the plain-English explanation in the PR body. The LLM output is schema-validated, the diff still goes through all validation, and the LLM never sees secrets (`llm/redact.py`) and never chooses rules.
 
 ## 9. Validation runner
 Runs in a temp copy of the repo. Steps: write the diff → `terraform fmt -check` → `terraform init -backend=…` (read-only credentials) → `validate` → `plan -out` → `show -json` → plan-scope analysis → invariants (Z3 on the planned SG config) → finding re-check (the reused check logic on the planned attributes) → optional tflint/checkov → guardrails. Timeouts per step (default 300 s). A timeout means INCOMPLETE.
