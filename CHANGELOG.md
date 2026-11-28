@@ -4,6 +4,9 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Added (docs)
+- `docs/security-questionnaire.md`: pre-filled answers for vendor security reviews (SIG Lite, CAIQ), each pointing at the code or doc that backs it.
+
 ### Added (GitLab merge requests, FR-27a)
 - `delivery.provider: gitlab` opens the fix as a merge request on gitlab.com or self-managed GitLab, with the same body, labels, one-MR-per-finding idempotency and open-MR limit. Needs `GITLAB_TOKEN` (api scope). PosturaNet never merges. `verify` and the contract-check status stay GitHub only for now.
 
