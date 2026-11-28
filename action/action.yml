@@ -57,7 +57,7 @@ inputs:
   version:
     description: PosturaNet version to install from PyPI.
     required: false
-    default: "0.5.3"
+    default: "0.5.4"
 
 outputs:
   result:

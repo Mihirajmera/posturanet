@@ -4,6 +4,8 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-11-27
+
 ### Added (docs)
 - `docs/security-questionnaire.md`: pre-filled answers for vendor security reviews (SIG Lite, CAIQ), each pointing at the code or doc that backs it.
 
