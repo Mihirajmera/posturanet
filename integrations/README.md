@@ -70,6 +70,11 @@ posturanet contract check --plan plan.json        # exit 5 fails the build on BL
 To publish a GitHub check run from another CI, add `--github-check --sha <commit>` and set
 `GITHUB_TOKEN` (with `checks: write`) and `GITHUB_REPOSITORY`.
 
+**GitLab merge requests.** Copy [`gitlab/posturanet-check.gitlab-ci.yml`](gitlab/posturanet-check.gitlab-ci.yml)
+into your `.gitlab-ci.yml`. BLOCK fails the pipeline, UNKNOWN passes with a warning; turn on
+"Pipelines must succeed" to make it required. Fix merge requests: `delivery.provider: gitlab`
+(see the README).
+
 ## 3. Claude Code
 Install the plugin (skill, MCP server and hook) from this repo's marketplace, after
 `pip install "posturanet[mcp]"`:

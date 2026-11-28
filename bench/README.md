@@ -206,7 +206,8 @@ agent results are published here yet.
   separately (last-accessed is per policy).
 - Terraform is the provider-less double from `tests/fakes.py`; plan scope is checked by parsing
   the patched HCL, not by the AWS provider.
-- No LLM-based contender yet: one needs a model and a fixed prompt to be reproducible.
+- No AI agent results are published yet: `bench/agents.py` runs them, but each run spends
+  model usage, and a result is only reproducible with the agent's version and prompt recorded.
 - The cases are synthetic. Real accounts have messier traffic; results here are a floor on
   what to check, not a promise.
 
