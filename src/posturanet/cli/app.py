@@ -537,9 +537,11 @@ def contract_check(
     ("/plugin install posturanet@posturanet", "in Claude Code: installs this hook for you"),
 ))  # fmt: skip
 def hook_claude_code(repo: RepoOpt = Path(".")) -> None:
-    """Claude Code PostToolUse hook: check an edited .tf file against the contracts.
+    """Claude Code hook: check edited IaC against the contracts, and ask before destroy commands.
 
-    Reads the hook event from stdin. On BLOCK, tells Claude why so it can fix its own change.
+    Reads the hook event from stdin. After an edit (PostToolUse), on BLOCK it tells Claude why
+    so it can fix its own change. Before a shell command (PreToolUse on Bash) that destroys
+    infrastructure or data, it asks the user to approve.
     Never fails the session on its own errors.
     """
     from posturanet.hooks import claude_code
@@ -1007,7 +1009,8 @@ def outcomes_preview(
 
 
 @app.command(epilog=_examples(
-    ("posturanet init > policy.json", "save the policy, then attach it to PosturaNet's role"),
+    ("posturanet init --s3-bucket tf-state --s3-bucket access-logs > policy.json",
+     "save the policy, object reads limited to those buckets; attach it to PosturaNet's role"),
     ("posturanet init --changeset-preview > preview.json",
      "opt-in only: the policy for the separate change-set preview role"),
 ))  # fmt: skip
@@ -1019,10 +1022,24 @@ def init(
             help="Print the opt-in change-set preview policy (separate role) instead.",
         ),
     ] = False,
+    s3_bucket: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--s3-bucket",
+            help="A bucket PosturaNet may read objects from (Terraform state, Athena results, "
+            "access logs). Repeat for each. Without it, object reads cover every bucket.",
+        ),
+    ] = None,
 ) -> None:
     """Print the read-only IAM policy for PosturaNet's role. Writes nothing."""
     _banner(sys.stderr)  # stderr, so `posturanet init > policy.json` stays clean JSON
-    policy = changeset_policy() if changeset_preview else iam_policy()
+    if not changeset_preview and not s3_bucket:
+        typer.echo(
+            "warning: s3:GetObject is on every bucket; pass --s3-bucket for the state, "
+            "Athena results and access-log buckets to limit it",
+            err=True,
+        )
+    policy = changeset_policy() if changeset_preview else iam_policy(s3_bucket or ())
     console.write(json.dumps(policy, indent=2) + "\n")
 
 
@@ -1110,6 +1127,48 @@ def _load_plugins() -> None:
             ep.load()({"root": app, "contract": contract_app})
         except Exception as exc:  # noqa: BLE001 (a broken plugin must not break core)
             typer.echo(f"warning: plugin {ep.name!r} not loaded: {exc}", err=True)
+    _add_pro_hints()
+
+
+# PosturaNet Pro commands. Without Pro, each name answers with where it comes from instead of
+# "No such command". Hidden, so free --help is unchanged; Pro's real command wins when loaded.
+PRO_COMMANDS = {
+    "root": ("gate", "dispatch", "evidence", "triggers", "notify", "license"),
+    "contract": ("refresh", "live"),
+}
+PRO_URL = "https://posturanet.com/pricing/"
+
+
+def _command_names(t: typer.Typer) -> set[str]:
+    names = {
+        c.name or (c.callback.__name__.replace("_", "-") if c.callback else "")
+        for c in t.registered_commands
+    }
+    return names | {g.name for g in t.registered_groups if g.name}
+
+
+def _add_pro_hints() -> None:
+    for key, target in (("root", app), ("contract", contract_app)):
+        have = _command_names(target)
+        prefix = "" if key == "root" else "contract "
+        for name in PRO_COMMANDS[key]:
+            if name in have:
+                continue
+
+            def hint(ctx: typer.Context, _cmd: str = prefix + name) -> None:
+                typer.echo(
+                    f"`posturanet {_cmd}` is part of PosturaNet Pro, which isn't installed. "
+                    f"Every free command works without it. See {PRO_URL}",
+                    err=True,
+                )
+                raise typer.Exit(6)
+
+            target.command(
+                name,
+                hidden=True,
+                add_help_option=False,
+                context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+            )(hint)
 
 
 def main() -> None:

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import io
+import re
 from typing import Any
 
 from ruamel.yaml import YAML
 
 from posturanet import __version__
 from posturanet.deliver.idempotency import markers, verify_marker
+from posturanet.evidence import watch
 from posturanet.evidence.periodicity import describe
 from posturanet.models import CheckResult, VerifySpec
 from posturanet.proposal import Proposal
@@ -24,7 +26,6 @@ PORT_NAMES = {
     9200: "Elasticsearch",
     27017: "MongoDB",
 }
-_WATCH_WINDOW = "72h"
 _CHECK_LABELS = {
     "guardrails": "guardrails",
     "fmt": "fmt",
@@ -73,6 +74,12 @@ def _cell(text: str) -> str:
     return text.replace("|", "\\|").replace("\n", " ")
 
 
+def _inline(text: str, limit: int = 200) -> str:
+    """Finding text is untrusted: one plain line, no HTML or comment markers, links or @mentions."""
+    text = re.sub(r"[<>`\[\]]", "", " ".join(text.split())).replace("@", "@\u200b")
+    return text[:limit]
+
+
 def safety_contract(p: Proposal) -> dict[str, Any]:
     f, loc, obs = p.finding, p.location, p.observations
     return {
@@ -101,12 +108,20 @@ def safety_contract(p: Proposal) -> dict[str, Any]:
         "post_merge": {
             "recheck": True,
             "watch": "flowlog_reject_from_must_allow",
-            "window": _WATCH_WINDOW,
+            "window": f"{watch_hours(p)}h",
             "on_regression": "revert_pr",
         },
         "status": "VALIDATED" if p.validated else p.report.status.value,
         "model_scope": MODEL_SCOPE,
     }
+
+
+def watch_hours(p: Proposal) -> int:
+    """Long enough for the least frequent kept source to come back (`evidence/watch.py`)."""
+    kept = {(r.cidr, r.port, r.proto) for r in p.contract.must_allow}
+    return watch.sg_hours(
+        i.period for i in p.observations.items if (i.cidr, i.port, i.proto) in kept
+    )
 
 
 def verify_spec(p: Proposal) -> VerifySpec:
@@ -119,7 +134,7 @@ def verify_spec(p: Proposal) -> VerifySpec:
         resource_arn=p.finding.resource.arn,
         address=p.location.address,
         key=p.idempotency_key,
-        watch_hours=int(_WATCH_WINDOW.rstrip("h")),
+        watch_hours=watch_hours(p),
         rules=[(r.cidr, r.from_port, r.to_port, r.proto) for r in rules],
         must_allow=[(r.cidr, r.port, r.proto) for r in p.contract.must_allow],
     )
@@ -197,7 +212,8 @@ def body(p: Proposal, *, run_id: str) -> str:
     parts = [
         markers(p.idempotency_key, p.issue),
         verify_marker(verify_spec(p)),
-        f"**PosturaNet** found a fix for **{f.control_id} · {f.title}** and checked it "
+        "**PosturaNet** found a fix for "
+        f"**{_inline(f.control_id)} · {_inline(f.title)}** and checked it "
         "against real usage.",
         "",
         "| | |",
@@ -235,8 +251,8 @@ def body(p: Proposal, *, run_id: str) -> str:
         "",
         "### After merge",
         "`posturanet verify <this PR>` re-checks the finding and watches for blocked traffic "
-        f"from kept sources for **{_WATCH_WINDOW}**. If it sees a regression, it opens a "
-        "revert PR.",
+        f"from kept sources for **{watch.label(watch_hours(p))}** (long enough for the least "
+        "frequent one to come back). If it sees a regression, it opens a revert PR.",
         "",
         "<details><summary>Safety contract (machine-readable)</summary>",
         "",

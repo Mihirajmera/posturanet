@@ -12,9 +12,25 @@ synthetic data: never send real findings, account ids, Terraform state or logs.
 We reply within 3 business days, and tell you when a fix ships. We credit reporters in the
 CHANGELOG unless you'd rather we didn't.
 
+For vendor security reviews, start with the pre-filled answers in
+[docs/security-questionnaire.md](docs/security-questionnaire.md).
+
 ## Supported versions
 
 Only the latest release on PyPI gets security fixes. Upgrade with `pip install -U posturanet`.
+
+## Verifying a release
+
+Every release from 0.5.4 on is built by `.github/workflows/release.yml` from the tagged commit:
+
+- PyPI holds signed attestations for the wheel and sdist (trusted publishing, no stored token).
+- The GitHub release has the wheel, the sdist and a CycloneDX SBOM
+  (`posturanet-<version>.cdx.json`: the package and every dependency it installs), each with a
+  signed build-provenance attestation. Check a downloaded file with:
+
+  ```bash
+  gh attestation verify posturanet-0.5.4-py3-none-any.whl --repo Mihirajmera/posturanet
+  ```
 
 ## What is in scope
 

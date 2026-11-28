@@ -274,10 +274,28 @@ def test_marketplace_action_matches_action_folder() -> None:
     top = (root / "action.yml").read_text(encoding="utf-8")
     sub = (root / "action/action.yml").read_text(encoding="utf-8")
     body = "\n".join(line for line in top.splitlines() if not line.startswith("#"))
-    assert body.replace("/action/entrypoint.sh", "/entrypoint.sh") == sub.rstrip("\n")
+    assert body.replace("${GITHUB_ACTION_PATH}/action/", "${GITHUB_ACTION_PATH}/") == sub.rstrip(
+        "\n"
+    )
     from posturanet import __version__
 
     assert f'default: "{__version__}"' in sub  # RELEASING.md step 1 bumps both
+
+
+def test_action_lock_pins_every_runtime_dependency() -> None:
+    import re
+    import tomllib
+
+    def norm(name: str) -> str:  # PEP 503: ruamel.yaml == ruamel-yaml
+        return re.sub(r"[-_.]+", "-", name).lower()
+
+    root = Path(__file__).parents[2]
+    deps = tomllib.loads((root / "pyproject.toml").read_text())["project"]["dependencies"]
+    lock = (root / "action" / "requirements.lock").read_text()
+    pinned = {norm(n) for n in re.findall(r"^([A-Za-z0-9_.-]+)==", lock, re.M)}
+    missing = {norm(re.split(r"[<>=!~\[ ;]", d, maxsplit=1)[0]) for d in deps} - pinned
+    assert not missing, f"regenerate action/requirements.lock: missing {missing}"
+    assert "--hash=sha256:" in lock
 
 
 def test_contract_build_all_lists_every_group(tmp_repo: Path) -> None:

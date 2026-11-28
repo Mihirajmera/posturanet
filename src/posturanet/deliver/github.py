@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import base64
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -16,6 +16,9 @@ from posturanet.deliver import pr_body
 from posturanet.deliver.idempotency import finding_in, finding_tag, key_in
 from posturanet.errors import StageStop
 from posturanet.proposal import Proposal
+
+if TYPE_CHECKING:
+    from posturanet.deliver.gitlab import GitLab
 
 API = "https://api.github.com"
 
@@ -297,7 +300,7 @@ def branch_name(p: Proposal) -> str:
 
 
 def deliver(
-    gh: GitHub,
+    gh: GitHub | GitLab,
     p: Proposal,
     *,
     base: str,
@@ -344,7 +347,7 @@ class PullRequest:
 
 
 def push_pr(
-    gh: GitHub,
+    gh: GitHub | GitLab,
     pr_in: PullRequest,
     *,
     base: str,

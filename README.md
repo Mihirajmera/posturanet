@@ -6,7 +6,7 @@ PosturaNet is a source-available remediation agent for AWS, with Terraform, Clou
 
 It also checks every security group, S3 and IAM policy change, written by a person or an AI agent, against those contracts before it merges: a `PosturaNet contract` check on PRs, a step in any CI, a Claude Code plugin, and MCP setups for Cursor, Codex, Copilot, Gemini, Windsurf, Cline, Kiro, Continue, Zed and Goose.
 
-> Status: early access. 0.5.3 is on PyPI: a tested sample config, accurate license docs (keys are checked offline and send nothing), and `connect` for Wiz, Orca and Prisma Cloud exports.
+> Status: early access. 0.5.4 is on PyPI: plans that delete data are blocked unless a human allows them, the post-merge watch is sized from the evidence, GitLab merge requests, and an SBOM with signed provenance on every release.
 >
 > 88 controls: security groups, S3 public access and IAM least privilege from usage evidence, plus 74 settings controls. Findings from Security Hub, Prowler, Checkov, Trivy, or Wiz, Orca and Prisma Cloud JSON.
 
@@ -25,7 +25,7 @@ Python 3.11+. If your shell can't find `posturanet` (common with the Microsoft S
 
 ### 2. Give it a read-only role
 ```bash
-posturanet init > policy.json     # the read-only IAM policy PosturaNet needs; attach it to a role
+posturanet init --s3-bucket <tf-state-bucket> > policy.json  # read-only IAM policy; attach it to a role
 ```
 PosturaNet only reads: flow logs, CloudTrail, IAM last-accessed data, S3 settings and access logs, and Terraform state. It never calls a mutating AWS API, and a person merges every PR.
 
@@ -69,6 +69,8 @@ posturanet fix findings/EC2.13-sg-0a91f3c2.json --repo infra/ --open-pr  # open 
 ```
 If anything is missing (no evidence, an unclear owner, a check that fails), PosturaNet stops, says why and what to do next, and opens no PR.
 
+On GitLab, set `delivery.provider: gitlab` and `GITLAB_TOKEN`: the fix opens as a merge request instead (gitlab.com or self-managed). `verify` and the contract-check status are GitHub only for now.
+
 **A security group with SSH open to the internet.** PosturaNet reads 89 days of flow logs, keeps the four sources that really connect, drops a one-off scanner, flags the outside partner for review, and proposes the smallest change:
 
 ![posturanet fix on a security group](https://raw.githubusercontent.com/Mihirajmera/posturanet/main/docs/media/fix-security-group.svg)
@@ -96,7 +98,9 @@ posturanet verify owner/repo#123 --repo infra/                   # after merge: 
 
 ![the PosturaNet hook reply to Claude Code](https://raw.githubusercontent.com/Mihirajmera/posturanet/main/docs/media/agent-hook.svg)
 
-In Claude Code, add the plugin (skill, MCP server and a hook that checks every `.tf` edit):
+**Before data is deleted.** With a plan, the check also blocks any change that deletes or replaces a database, bucket, volume, key or VPC, or turns off deletion protection or backups, until a person lists it in `contracts.allow_destroy`. In Claude Code, the plugin asks you before an agent runs `terraform destroy`, `apply -auto-approve` or an AWS CLI delete.
+
+In Claude Code, add the plugin (skill, MCP server, a hook that checks every `.tf` edit, and one that asks before destroy commands):
 ```text
 /plugin marketplace add Mihirajmera/posturanet
 /plugin install posturanet@posturanet
@@ -173,7 +177,7 @@ posturanet fix tests/fixtures/findings/rds_deletion_protection.json --dry-run --
 
 ![PosturaNet contract check: a change goes through the Claude Code hook, MCP or CI, and comes out PASS, UNKNOWN or BLOCK](https://raw.githubusercontent.com/Mihirajmera/posturanet/main/docs/media/diagram-change-check.svg)
 
-**It runs where your code runs.** A read-only role, your own LLM if you use one, and no customer data sent anywhere:
+**It runs where your code runs.** A read-only role, no AI model, and no customer data sent anywhere:
 
 ![Where PosturaNet runs: inside your environment, with only the opt-in outcome share leaving it](https://raw.githubusercontent.com/Mihirajmera/posturanet/main/docs/media/diagram-trust.svg)
 
@@ -186,6 +190,9 @@ Diagrams are drawn by `python docs/media/diagrams.py`; the full design is in [do
 | [docs/02_ARCHITECTURE_AND_DATA.md](docs/02_ARCHITECTURE_AND_DATA.md) | Architecture, data models, schemas, queries |
 | [AGENTS.md](AGENTS.md) | Rules for AI coding agents, and for PosturaNet's own runtime agent |
 | [docs/04_DESIGN_SYSTEM.md](docs/04_DESIGN_SYSTEM.md) | CLI, PR, check-run and brand design system |
+| [docs/compare.md](docs/compare.md) | How PosturaNet compares with scanners, CNAPPs and AWS remediation plans |
+| [docs/security-questionnaire.md](docs/security-questionnaire.md) | Pre-filled answers for vendor security reviews: access, data, AI, supply chain |
+| [docs/check-fix-prs.md](docs/check-fix-prs.md) | Make the contract check a required check on every fix PR: Wiz, Prowler, Gomboc, coding agents or people |
 | [integrations/](integrations/README.md) | GitHub Action, CI and per-agent setup |
 
 ## Team features (PosturaNet Pro)

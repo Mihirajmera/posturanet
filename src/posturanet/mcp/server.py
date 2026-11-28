@@ -8,7 +8,9 @@ credentials and raw log rows are never returned.
 
 from __future__ import annotations
 
+import functools
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -104,6 +106,36 @@ def check_change(
     return result.to_dict()
 
 
+def _outside(root: Path, kw: dict[str, Any]) -> Path | None:
+    """The first path argument that resolves outside `root`, else None."""
+    repo = (root / str(kw.get("repo") or ".")).resolve()
+    paths = [repo, *(repo / f for f in kw.get("files") or [])]
+    if kw.get("evidence_file"):
+        paths.append(root / str(kw["evidence_file"]))
+    plan = str(kw.get("plan_json") or "")
+    if len(plan) < 1024 and plan.endswith(".json"):
+        paths.append(root / plan)
+    target = str(kw.get("target") or "")
+    if "/" in target or "\\" in target or target.endswith(".json"):
+        paths.append(root / target)
+    return next((p for p in (q.resolve() for q in paths) if not p.is_relative_to(root)), None)
+
+
+def _confine(fn: Callable[..., dict[str, Any]], root: Path) -> Callable[..., dict[str, Any]]:
+    """Tool calls come from an agent, which text in a repo or a finding can steer: refuse any
+    path outside the directory the server was started in."""
+
+    @functools.wraps(fn)
+    def tool(**kw: Any) -> dict[str, Any]:
+        bad = _outside(root, kw)
+        if bad is not None:
+            why = f"{bad} is outside the workspace {root}; start the server in that repo"
+            return {"status": "UNKNOWN", "error": why, "summary": f"UNKNOWN · {why}"}
+        return fn(**kw)
+
+    return tool
+
+
 def build_server() -> Any:
     from mcp.server.mcpserver import MCPServer
     from mcp.types import ToolAnnotations
@@ -112,8 +144,9 @@ def build_server() -> Any:
 
     server = MCPServer(name="posturanet", version=__version__, instructions=INSTRUCTIONS)
     read_only = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False)
+    root = Path.cwd().resolve()
     for fn in (explain_finding, propose_fix, check_change):
-        server.tool(annotations=read_only)(fn)
+        server.tool(annotations=read_only)(_confine(fn, root))
     return server
 
 

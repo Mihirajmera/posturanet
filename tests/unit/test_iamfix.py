@@ -255,7 +255,7 @@ def test_open_pr_body_and_spec(repo: Path) -> None:
     spec = spec_in(pr["body"])
     assert spec is not None and spec.fix_type == "iam_least_privilege"
     assert spec.actions_removed == ["ec2:*"] and spec.principals == ["role/app"]
-    assert spec.watch_hours == 72
+    assert spec.watch_hours == 28 * 24  # kept actions last used 28 days apart
     assert pr["head"]["ref"].startswith("posturanet/iam/iam-21-app-")
 
 
@@ -277,8 +277,13 @@ def test_verify_watches_then_confirms(repo: Path, tmp_path: Path) -> None:
     )
     watching = run_verify("acme/infra#412", repo, config, early)
     assert watching.result == "WATCHING", watching.stages
-    late = VerifyContext(
+    day4 = VerifyContext(
         github=gh, clock=lambda: at(80), state_path=state, rejects=RejectFile(denied)
+    )
+    # the watch is sized to the 28-day gap between kept actions' uses, not a fixed 72h
+    assert run_verify("acme/infra#412", repo, config, day4).result == "WATCHING"
+    late = VerifyContext(
+        github=gh, clock=lambda: at(28 * 24 + 1), state_path=state, rejects=RejectFile(denied)
     )
     done = run_verify("acme/infra#412", repo, config, late)
     assert done.result == "CONFIRMED", done.stages

@@ -11,7 +11,7 @@ If this file conflicts with an older document anywhere else in the repo, **this 
 ### 1.1 What this project is (30 seconds)
 - **PosturaNet** (always spelled "PosturaNet", never "Postura") is the **remediation layer** for cloud security: it sits after every detector (Security Hub, Prowler, Checkov, Trivy, Wiz, Orca, Prisma Cloud) and every AI coding agent, on AWS with Terraform, CloudFormation, CDK and Pulumi (§1.4). Every failed finding must end in an outcome: a fix PR, a runbook, an accepted exception, or a stated reason (PRD §1, G4).
 - Finding in → owner and code located → **usage evidence** (flow logs / CloudTrail) → **behavior contract** → **computed minimal fix** (Z3) → validated **GitHub PR** → post-merge **verification** → signed **audit evidence** (paid).
-- Runs in the **customer's CI or laptop**, with a **read-only** AWS role and the **customer's LLM**. It **never writes to production**. Humans merge.
+- Runs in the **customer's CI or laptop**, with a **read-only** AWS role. No LLM is called today (an optional customer-owned one is planned, PRD FR-19). It **never writes to production**. Humans merge.
 - Source-available core under FSL-1.1-ALv2 (free to use, no competing products; each version becomes Apache 2.0 after two years) in `posturanet/`. Paid features live in a separate `posturanet-pro` package, unlocked by a signed license key.
 - The old SaaS (`postura-backend/`, `postura-frontend/`) is **dormant**. Copy useful code from it. Never import from it, and don't extend it unless asked.
 
@@ -43,6 +43,8 @@ Build only what's in the current release in PRD §5. **Don't build:**
 - detection rules beyond re-checking a known finding;
 - a fourth evidence-backed fix type (decided again 2026-11-14: deepen the three first; adding rows to the attribute-fix catalog, `configfix/catalog.json`, is in scope: see architecture §14.1);
 - auto-apply or auto-merge (auto-merge is a later, licensed, policy-gated feature).
+
+**In scope since 2026-11-27 (decided by the human):** destructive-change rules in the gate (PRD FR-55, `destructive.py`). They judge only the change in front of them (a plan that deletes data or turns off its guards, a destroy command an agent is about to run). That is change review, not detection: PosturaNet still never scans an account for new issues.
 
 If a task seems to need any of these, stop and ask the human.
 
@@ -110,7 +112,7 @@ Prefer the narrower, safer behavior. Stop and ask the human rather than inventin
 
 ## Part 2: How PosturaNet's runtime agent must behave
 
-These rules are encoded in code **and** in the system prompt used by `llm/prompts/`. They also apply to the Claude skill (`plugin/skills/posturanet/SKILL.md`) and the MCP server.
+These rules are encoded in code (and, once FR-19 adds an LLM, in its system prompt under `llm/prompts/`). They also apply to the Claude skill (`plugin/skills/posturanet/SKILL.md`) and the MCP server.
 
 ### 2.1 Identity and job
 You are **PosturaNet**, a remediation agent. Your job is to turn a supported cloud security finding into a **reviewable, evidence-backed Terraform pull request**, or to explain clearly why you stopped. You don't apply changes, you don't merge, and you don't change production.
