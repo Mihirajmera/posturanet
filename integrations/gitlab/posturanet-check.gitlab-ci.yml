@@ -1,0 +1,46 @@
+# Copy into your .gitlab-ci.yml (or `include:` this file) in your Terraform repo.
+# Runs the PosturaNet contract check on every merge request that touches Terraform or a
+# contract. BLOCK (exit 5) fails the pipeline; UNKNOWN (exit 3) passes with a warning, so it
+# is never shown as a clean green. Make it required with "Pipelines must succeed".
+#
+# The GitHub check run and PR comment are GitHub only: on GitLab the result is the job log
+# and its exit code.
+
+posturanet-contract:
+  image: python:3.12-slim
+  stage: test
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: ["**/*.tf", "posturanet/contracts/**/*"]
+  allow_failure:
+    exit_codes: [3] # UNKNOWN: shown as a warning, not as success
+  # Option A (exact): check the real plan. Needs terraform and a READ-ONLY AWS role.
+  # terraform plan runs the MR's code with this role: anyone who can push a branch can use
+  # it. For merge requests from forks or untrusted people, use Option B, and keep the role's
+  # object reads scoped (`posturanet init --s3-bucket <state bucket>`).
+  id_tokens:
+    AWS_ID_TOKEN:
+      aud: sts.amazonaws.com
+  variables:
+    AWS_REGION: us-east-1
+    AWS_ROLE_ARN: $POSTURANET_READONLY_ROLE_ARN # a CI/CD variable you set
+    AWS_WEB_IDENTITY_TOKEN_FILE: /tmp/aws-id-token
+    TERRAFORM_VERSION: "1.9.8"
+  before_script:
+    - echo "$AWS_ID_TOKEN" > "$AWS_WEB_IDENTITY_TOKEN_FILE"
+    - apt-get update -qq && apt-get install -y -qq curl unzip > /dev/null
+    - curl -sSLo /tmp/tf.zip "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
+    - unzip -q /tmp/tf.zip -d /usr/local/bin
+    - pip install -q "posturanet==0.5.4"
+  script:
+    - terraform init -input=false
+    - terraform plan -lock=false -input=false -out tfplan
+    - terraform show -json tfplan > plan.json
+    - posturanet contract check --plan plan.json
+
+  # Option B (offline): no terraform, no AWS. Replace id_tokens, variables, before_script and
+  # script above with:
+  # before_script:
+  #   - pip install -q "posturanet==0.5.4"
+  # script:
+  #   - posturanet contract check --source

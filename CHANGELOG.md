@@ -4,6 +4,13 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Added (docs)
+- `integrations/gitlab/posturanet-check.gitlab-ci.yml`: the contract check on GitLab merge requests (plan with a read-only OIDC role, or offline `--source`).
+- `CODE_OF_CONDUCT.md`.
+
+### Fixed (docs)
+- A broken link to the change-set preview design in the architecture doc, and a line in `bench/README.md` that said no AI agent contender exists (the harness does; no results are published yet).
+
 ## [0.5.4] - 2026-11-27
 
 ### Added (docs)
