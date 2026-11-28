@@ -44,6 +44,8 @@ Build only what's in the current release in PRD §5. **Don't build:**
 - a fourth evidence-backed fix type (decided again 2026-11-14: deepen the three first; adding rows to the attribute-fix catalog, `configfix/catalog.json`, is in scope: see architecture §14.1);
 - auto-apply or auto-merge (auto-merge is a later, licensed, policy-gated feature).
 
+**In scope since 2026-11-27 (decided by the human):** destructive-change rules in the gate (PRD FR-55, `destructive.py`). They judge only the change in front of them (a plan that deletes data or turns off its guards, a destroy command an agent is about to run). That is change review, not detection: PosturaNet still never scans an account for new issues.
+
 If a task seems to need any of these, stop and ask the human.
 
 **In scope since 2026-11-14:** CloudFormation (including SAM), AWS CDK and Pulumi, alongside Terraform, so no customer hears "we don't support your IaC". Each one must keep every golden rule: the fix is a reviewed diff to the customer's own source (CDK and Pulumi program code, not only the synthesized template), validation runs that tool's own preview read-only (`cdk synth` with no AWS credentials, a CloudFormation change set; `cdk diff` and `pulumi preview` only if they ever run without write-capable credentials, otherwise static checks and the PR says the preview was not run), and anything PosturaNet can't map back to a source line stops with UNKNOWN. Build order: CloudFormation, then CDK (it synthesizes to CloudFormation), then Pulumi.

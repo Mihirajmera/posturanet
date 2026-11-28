@@ -92,6 +92,10 @@ class EvidenceConfig(_Strict):
 
 class ContractsConfig(_Strict):
     dir: str = "posturanet/contracts"
+    # FR-55: block plans that delete data or turn off its guards, unless the address (or a
+    # glob) is listed here by a human.
+    destructive: bool = True
+    allow_destroy: list[str] = Field(default_factory=list)
 
 
 class SynthesisConfig(_Strict):
@@ -114,8 +118,16 @@ class GithubConfig(_Strict):
     base: str = "main"
 
 
+class GitlabConfig(_Strict):
+    project: str | None = None  # group/name; CI_PROJECT_PATH when unset
+    url: str | None = None  # self-managed GitLab; CI_SERVER_URL, else https://gitlab.com
+    base: str = "main"
+
+
 class DeliveryConfig(_Strict):
+    provider: Literal["github", "gitlab"] = "github"
     github: GithubConfig = Field(default_factory=GithubConfig)
+    gitlab: GitlabConfig = Field(default_factory=GitlabConfig)
     labels: list[str] = Field(default_factory=lambda: ["posturanet", "security"])
     max_open_prs: int = Field(default=5, ge=1)
 

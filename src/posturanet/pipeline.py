@@ -37,6 +37,7 @@ from posturanet.contracts import (
 )
 from posturanet.deliver import GitHub, deliver, idempotency_key
 from posturanet.deliver.github import PullRequest, push_pr
+from posturanet.deliver.gitlab import DEFAULT_URL, GitLab
 from posturanet.deliver.idempotency import issue
 from posturanet.errors import StageStop
 from posturanet.evidence import FlowSource, LogsInsightsSource, collect
@@ -106,7 +107,7 @@ class Context:
     changeset: ChangeSetClient | None = None  # opt-in only (cloudformation.changeset_preview)
     terraform: TerraformRunner | None = None
     cdk: cdk.CdkRunner | None = None
-    github: GitHub | None = None
+    github: GitHub | GitLab | None = None  # the fix-PR forge, GitLab too (FR-27)
     window_days: int | None = None
     stop_after: Literal["contract"] | None = None
     approval: IamApproval | None = None  # approved at the terminal (IAM fixes)
@@ -525,7 +526,7 @@ def _run_sg(
             record.next_steps.insert(0, f"confirm the owner of {review} needs-review source(s)")
         return record, proposal
 
-    gh = ctx.github or _github(config, ctx)
+    gh = ctx.github or _forge(config, ctx)
     original = target.original if target is not None else sg.text
     local_originals: dict[str, str | None] = {f.path: original for f in diff.files}
     if pul is not None:
@@ -535,7 +536,7 @@ def _run_sg(
     result = deliver(
         gh,
         proposal,
-        base=config.delivery.github.base,
+        base=_base(config),
         labels=config.delivery.labels,
         max_open=config.delivery.max_open_prs,
         local_originals=local_originals,
@@ -790,7 +791,7 @@ def _run_config(
         )
         return record, None
 
-    gh = ctx.github or _github(config, ctx)
+    gh = ctx.github or _forge(config, ctx)
     result = push_pr(
         gh,
         PullRequest(
@@ -810,7 +811,7 @@ def _run_config(
                 for fc in diff.files
             ],
         ),
-        base=config.delivery.github.base,
+        base=_base(config),
         max_open=config.delivery.max_open_prs,
         local_originals={loc.file: original},
     )
@@ -1147,7 +1148,7 @@ def _run_s3(
         )
         return record, None
 
-    gh = ctx.github or _github(config, ctx)
+    gh = ctx.github or _forge(config, ctx)
     message = f"fix(security): {control} {target.address} [posturanet]"
     writes = [(fc.path, fc.new_content, message) for fc in diff.files]
     originals: dict[str, str | None] = {target.file: original}
@@ -1166,7 +1167,7 @@ def _run_s3(
             labels=s3pr.labels(proposal, config.delivery.labels),
             writes=writes,
         ),
-        base=config.delivery.github.base,
+        base=_base(config),
         max_open=config.delivery.max_open_prs,
         local_originals=originals,
     )
@@ -1529,7 +1530,7 @@ def _run_iam(
         )
         return record, None
 
-    gh = ctx.github or _github(config, ctx)
+    gh = ctx.github or _forge(config, ctx)
     message = f"fix(security): {control} {loc.address} [posturanet]"
     writes = [(fc.path, fc.new_content, message) for fc in diff.files]
     originals: dict[str, str | None] = {doc_file: doc_original}
@@ -1548,7 +1549,7 @@ def _run_iam(
             labels=iampr.labels(proposal, config.delivery.labels),
             writes=writes,
         ),
-        base=config.delivery.github.base,
+        base=_base(config),
         max_open=config.delivery.max_open_prs,
         local_originals=originals,
     )
@@ -1606,6 +1607,34 @@ def _logs_insights(config: Config, ctx: Context) -> FlowSource:
     if ctx.aws is None:
         raise StageStop("evidence", "no AWS access configured")
     return LogsInsightsSource(ctx.aws("ec2"), ctx.aws("logs"), group)
+
+
+def _base(config: Config) -> str:
+    d = config.delivery
+    return d.gitlab.base if d.provider == "gitlab" else d.github.base
+
+
+def _forge(config: Config, ctx: Context) -> GitHub | GitLab:
+    return _gitlab(config, ctx) if config.delivery.provider == "gitlab" else _github(config, ctx)
+
+
+def _gitlab(config: Config, ctx: Context) -> GitLab:
+    token = ctx.env.get("GITLAB_TOKEN")
+    project = config.delivery.gitlab.project or ctx.env.get("CI_PROJECT_PATH")
+    url = config.delivery.gitlab.url or ctx.env.get("CI_SERVER_URL") or DEFAULT_URL
+    if not token:
+        raise StageStop(
+            "deliver",
+            "GITLAB_TOKEN is not set; not authorized to open a merge request",
+            ["set GITLAB_TOKEN to a project access token with the api scope (Developer role)"],
+        )
+    if not project:
+        raise StageStop(
+            "deliver",
+            "target project unknown",
+            ["set delivery.gitlab.project in .posturanet.yml (group/name)"],
+        )
+    return GitLab(token, project, url)
 
 
 def _github(config: Config, ctx: Context) -> GitHub:

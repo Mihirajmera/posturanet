@@ -69,6 +69,8 @@ posturanet fix findings/EC2.13-sg-0a91f3c2.json --repo infra/ --open-pr  # open 
 ```
 If anything is missing (no evidence, an unclear owner, a check that fails), PosturaNet stops, says why and what to do next, and opens no PR.
 
+On GitLab, set `delivery.provider: gitlab` and `GITLAB_TOKEN`: the fix opens as a merge request instead (gitlab.com or self-managed). `verify` and the contract-check status are GitHub only for now.
+
 **A security group with SSH open to the internet.** PosturaNet reads 89 days of flow logs, keeps the four sources that really connect, drops a one-off scanner, flags the outside partner for review, and proposes the smallest change:
 
 ![posturanet fix on a security group](https://raw.githubusercontent.com/Mihirajmera/posturanet/main/docs/media/fix-security-group.svg)
@@ -96,7 +98,9 @@ posturanet verify owner/repo#123 --repo infra/                   # after merge: 
 
 ![the PosturaNet hook reply to Claude Code](https://raw.githubusercontent.com/Mihirajmera/posturanet/main/docs/media/agent-hook.svg)
 
-In Claude Code, add the plugin (skill, MCP server and a hook that checks every `.tf` edit):
+**Before data is deleted.** With a plan, the check also blocks any change that deletes or replaces a database, bucket, volume, key or VPC, or turns off deletion protection or backups, until a person lists it in `contracts.allow_destroy`. In Claude Code, the plugin asks you before an agent runs `terraform destroy`, `apply -auto-approve` or an AWS CLI delete.
+
+In Claude Code, add the plugin (skill, MCP server, a hook that checks every `.tf` edit, and one that asks before destroy commands):
 ```text
 /plugin marketplace add Mihirajmera/posturanet
 /plugin install posturanet@posturanet
@@ -188,6 +192,7 @@ Diagrams are drawn by `python docs/media/diagrams.py`; the full design is in [do
 | [docs/04_DESIGN_SYSTEM.md](docs/04_DESIGN_SYSTEM.md) | CLI, PR, check-run and brand design system |
 | [docs/compare.md](docs/compare.md) | How PosturaNet compares with scanners, CNAPPs and AWS remediation plans |
 | [docs/security-questionnaire.md](docs/security-questionnaire.md) | Pre-filled answers for vendor security reviews: access, data, AI, supply chain |
+| [docs/check-fix-prs.md](docs/check-fix-prs.md) | Make the contract check a required check on every fix PR: Wiz, Prowler, Gomboc, coding agents or people |
 | [integrations/](integrations/README.md) | GitHub Action, CI and per-agent setup |
 
 ## Team features (PosturaNet Pro)

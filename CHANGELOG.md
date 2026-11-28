@@ -7,6 +7,25 @@ All notable changes to PosturaNet. Format: [Keep a Changelog](https://keepachang
 ### Added (docs)
 - `docs/security-questionnaire.md`: pre-filled answers for vendor security reviews (SIG Lite, CAIQ), each pointing at the code or doc that backs it.
 
+### Added (GitLab merge requests, FR-27a)
+- `delivery.provider: gitlab` opens the fix as a merge request on gitlab.com or self-managed GitLab, with the same body, labels, one-MR-per-finding idempotency and open-MR limit. Needs `GITLAB_TOKEN` (api scope). PosturaNet never merges. `verify` and the contract-check status stay GitHub only for now.
+
+### Added (benchmark)
+- `python -m bench.agents`: run any coding agent (Claude Code, Codex, Cursor's CLI and others) on the 14 security-group cases under three conditions (finding only, plus flow logs, plus PosturaNet's contract check) and score its fixes with the same ground truth. Agents run on synthetic files with no `AWS_*` variables. No agent results are published yet.
+
+### Added (docs)
+- `docs/check-fix-prs.md`: make the PosturaNet contract check a required check on every fix PR, whoever opened it (Wiz, Prowler, Gomboc, coding agents, people), and protect the contracts and `allow_destroy` with CODEOWNERS.
+
+### Added (signed releases and SBOM, NFR-10)
+- Each GitHub release now carries a CycloneDX SBOM (`posturanet-<version>.cdx.json`) and signed build-provenance attestations for the wheel, sdist and SBOM. `gh attestation verify <file> --repo Mihirajmera/posturanet` checks them. SECURITY.md says how.
+
+### Changed (post-merge watch sized from the evidence, FR-32)
+- `posturanet verify` no longer watches a fixed 72 hours. Security group fixes watch until the least frequent kept source should have come back (daily 72h, weekly 8 days, monthly or rarer 35 days); IAM fixes watch for the longest gap between the last uses of the kept actions (72h to 35 days). The PR says how long and why. `--window` still overrides it. A weekly or monthly job denied after a fix is now caught instead of being reported CONFIRMED after 72h.
+
+### Added (destructive-change rules, FR-55)
+- `contract check --plan` and MCP `check_change` with a plan now BLOCK a plan that deletes or replaces a resource holding data (RDS, DynamoDB, S3 buckets, EBS, EFS, KMS keys, VPCs, backup vaults, log groups and more), or turns off deletion protection, skips the final snapshot, sets `force_destroy` or sets backup retention to 0. No contract is needed. A human approves by adding the address (or a glob) to `contracts.allow_destroy` in `.posturanet.yml`; `contracts.destructive: false` turns the rules off.
+- The Claude Code plugin adds a PreToolUse hook on Bash: before an agent runs `terraform destroy`, `apply -destroy`, `apply -auto-approve`, `pulumi destroy`, `cdk destroy`, or an AWS CLI delete of stored data, Claude Code asks the user. Plan-only commands (`terraform plan -destroy`) pass.
+
 ### Security
 - Finding titles and control IDs come from scanners and are untrusted. In PR bodies they are now one plain line: no HTML or comment markers (which could fake a `posturanet:` marker), no Markdown links or code spans, no `@mentions`, at most 200 characters.
 - The Action and the CI/release workflows pin every third-party action to a commit SHA, so a moved tag can't change what runs with a customer's `GITHUB_TOKEN` and AWS role, or with the PyPI publish token.

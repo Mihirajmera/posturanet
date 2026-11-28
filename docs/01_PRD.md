@@ -148,6 +148,7 @@ Vendors now generate fix PRs (Wiz, Gomboc, Cloudgeni and others). Their public m
 **US-7. AI agent checks a change** (Ava)
 - AC1: The MCP tool `check_change` accepts a plan JSON, or checks the Terraform source (optionally only edited files), and returns PASS/BLOCK/UNKNOWN with reasons, for `network`, `s3_public` and `iam` contracts.
 - AC3: In Claude Code, a hook checks every `.tf` edit and hands a BLOCK reason back to the agent before it continues.
+- AC4: A plan that deletes data, or a destroy command the agent is about to run, stops for a human (FR-55).
 - AC2: Read-only tools need no confirmation. `open_fix_pr` requires explicit user confirmation.
 
 ## 7. Functional requirements
@@ -193,7 +194,7 @@ Vendors now generate fix PRs (Wiz, Gomboc, Cloudgeni and others). Their public m
 ### Attribute fixes
 - **FR-48** For controls in `configfix/catalog.json`, set literal attributes on the located resource in place, with no usage evidence or contract, because the catalog only holds settings that remove no access or traffic. Each row names the control, resource type, changes (`set`, `at_least`, `one_of`, `includes`), preconditions (`when`) and scope (`resource`, or `account` for the one resource of that type in state). Fail closed on non-literal values, `dynamic` or repeated blocks, heredocs, `lifecycle.ignore_changes` covering the attribute, `count`/`for_each` instances, and code that already complies (drift). Validation: guardrails, fmt, init/validate, plan scope, re-check of the edited code, and a plan check that the planned values meet the control and nothing else on the target changes. A row is added only with a round-trip test and a real `terraform fmt` pass.
 - **FR-50** For S3.2, S3.3 and S3.8, turn on all four Block Public Access settings on the bucket's `aws_s3_bucket_public_access_block`, editing it in place or adding one next to the bucket; for S3.1, the same on `aws_s3_account_public_access_block`. Only when the evidence (FR-17) shows no anonymous use, no cross-account use through a public policy, no static website and no CloudFront origin without origin access control on a public bucket. A bucket that is private today with ACLs disabled needs no logs; a public one, or one with ACLs enabled, needs server access logs over the window (confidence rules as FR-12). S3.1 needs every bucket in the account private with ACLs disabled. Requesters PosturaNet can't tie to an account go to `needs_review` in an `s3_public` contract; a human approves them by moving them to `must_keep`. Plan scope allows exactly one `create` of the new block, or an in-place update. S3.19 (access points) is out: the setting forces replacement.
-- **FR-51** For IAM.1 (`"*"`) and IAM.21 (`service:*`) on customer-managed `aws_iam_policy` resources, replace each targeted wildcard with the actions the evidence (FR-16) shows were used, in `jsonencode`, heredoc JSON or `aws_iam_policy_document` form. Resources, conditions and Deny statements are never changed; explicit actions and partial wildcards stay. Stop on `NotAction`, on a used service with no action-level data, on a statement left with no actions, and on data-plane services (S3, Lambda, DynamoDB, SQS, SNS, Kinesis, Bedrock and others, whose data actions aren't tracked) until a human lists them in `reviewed_services` of an approved `iam` contract. Humans add actions back with `must_allow` (`source: human`). `iam:PassRole` isn't in last-accessed data, so removing a wildcard that covers it stops until a human keeps it in `must_allow` or lists `iam` in `reviewed_services`. Last-accessed data counts denied attempts as use; the PR states that kept actions may include some another control already denies. Invariants: the new statements allow nothing the old ones didn't, and every used action is still allowed. `plan_matches` reads the planned policy JSON. Verify watches CloudTrail AccessDenied for the attached principals on removed actions for 72h.
+- **FR-51** For IAM.1 (`"*"`) and IAM.21 (`service:*`) on customer-managed `aws_iam_policy` resources, replace each targeted wildcard with the actions the evidence (FR-16) shows were used, in `jsonencode`, heredoc JSON or `aws_iam_policy_document` form. Resources, conditions and Deny statements are never changed; explicit actions and partial wildcards stay. Stop on `NotAction`, on a used service with no action-level data, on a statement left with no actions, and on data-plane services (S3, Lambda, DynamoDB, SQS, SNS, Kinesis, Bedrock and others, whose data actions aren't tracked) until a human lists them in `reviewed_services` of an approved `iam` contract. Humans add actions back with `must_allow` (`source: human`). `iam:PassRole` isn't in last-accessed data, so removing a wildcard that covers it stops until a human keeps it in `must_allow` or lists `iam` in `reviewed_services`. Last-accessed data counts denied attempts as use; the PR states that kept actions may include some another control already denies. Invariants: the new statements allow nothing the old ones didn't, and every used action is still allowed. `plan_matches` reads the planned policy JSON. Verify watches CloudTrail AccessDenied for the attached principals on removed actions for the evidence-sized window (FR-32).
 - **FR-49** `posturanet fixes list [--service] [--format json]` and `posturanet fixes show <control>` list every control PosturaNet fixes and exactly what each changes.
 
 ### Validation (all required, fail closed)
@@ -207,7 +208,9 @@ Vendors now generate fix PRs (Wiz, Gomboc, Cloudgeni and others). Their public m
 ### Delivery
 - **FR-27** Create a branch and PR with the body defined in the design system (evidence table, safety contract, validation, residual risk, unknowns, reviewer checklist, revert notes).
 - **FR-28** Idempotency key `sha256(issue + contract_sha + diff_sha)`, where `issue` is `control@terraform_address`, so the same problem reported by several scanners maps to one PR. An open PR matches on its issue marker, or on its finding id for PRs opened before 0.3.1. Never open duplicate PRs. `findings list|split` take several files and list each control-on-resource once.
+- **FR-27a** With `delivery.provider: gitlab`, the same fix opens a GitLab merge request (gitlab.com or self-managed, REST API v4) instead of a PR: same body, labels, idempotency (FR-28) and `max_open_prs`, writes only to `posturanet/...` branches, never merges. Token `GITLAB_TOKEN` (api scope, Developer role); project from `delivery.gitlab.project` or `CI_PROJECT_PATH`, server from `delivery.gitlab.url` or `CI_SERVER_URL`. `verify`, the contract-check status (FR-29) and the sticky comment are GitHub only for now.
 - **FR-29** Publish a check run with the summary.
+- **FR-55** Destructive-change rules (decided 2026-11-27, built): with no contract needed, `contract check --plan` and MCP `check_change` with a plan BLOCK a plan that deletes or replaces a resource holding data (databases, buckets, volumes, file systems, KMS keys, VPCs, backup vaults, log groups and the other types in `destructive.py`), or that turns off deletion protection, skips the final snapshot, sets `force_destroy` or sets backup retention to 0. A human approves by listing the address (or a glob) in `contracts.allow_destroy`; `contracts.destructive: false` turns the rules off. The Claude Code plugin's PreToolUse hook on Bash asks the user before an agent runs `terraform`/`tofu destroy`, `apply -destroy`, `apply -auto-approve`, `pulumi destroy`, `cdk destroy` or AWS CLI deletes of stored data. Source mode can't see deletes, so it doesn't apply these rules.
 - **FR-30** Never merge. Never apply.
 
 ### Living contracts (R11, Pro: `living` license flag)
@@ -219,7 +222,7 @@ Shipped in `posturanet-pro`, which adds these commands through the `posturanet.p
 
 ### Verification
 - **FR-31** After apply, re-run the finding check on live state.
-- **FR-32** Watch REJECT (network) or AccessDenied (IAM) signals from contracted sources for the tier window (24h / 72h / 7d).
+- **FR-32** Watch REJECT (network) or AccessDenied (IAM) signals from contracted sources. The window is sized from the evidence (built, `evidence/watch.py`): long enough for the least frequent kept user to come back, from 72h to 35 days. Security groups use each kept source's periodicity (daily 72h, weekly 8 days, monthly, irregular or rare 35 days); IAM uses the longest gap between the last uses of the kept actions. Anything rarer than 35 days stays residual risk in the PR. `verify --window` overrides it. S3 and attribute fixes aren't watched (the S3 fix needs evidence of no public use; attribute fixes remove no access).
 - **FR-33** On a regression → revert PR, notify the owner, set outcome REGRESSED.
 - **FR-34** Set CONFIRMED only when FR-31 passes and no regression occurred in the window.
 
@@ -258,7 +261,7 @@ Shipped in `posturanet-pro`, which adds these commands through the `posturanet.p
 | **NFR-7 Cost** | No LLM spend today; if FR-19 is built, customer LLM spend < $1 per remediation. Log queries scoped to target ENIs and window. |
 | **NFR-8 Portability** | Python 3.11+, Linux/macOS/Windows. No hosted dependencies; the opt-in outcome share is the only thing that can leave. |
 | **NFR-9 Observability** | Structured JSON logs (`--log-format json`). Every run writes a run record with inputs' hashes and outcomes. |
-| **NFR-10 Supply chain** | Pinned dependencies, signed releases, SBOM. |
+| **NFR-10 Supply chain** | Pinned dependencies, signed releases, SBOM. Built: actions pinned to SHAs, PyPI attestations, and from 0.5.4 a CycloneDX SBOM plus build-provenance attestations on every GitHub release (`SECURITY.md`). |
 | **NFR-11 Accessibility of output** | Respect `NO_COLOR`. Meaning is never conveyed by color alone (see design system). |
 | **NFR-12 Honesty** | Every Z3 result states its modeled scope. Never use "proven safe" or "guaranteed" in output. |
 
@@ -273,7 +276,7 @@ Shipped in `posturanet-pro`, which adds these commands through the `posturanet.p
 | Contract check: CLI, CI, PR check run (per repo), agent hooks | ✓ | ✓ | ✓ | ✓ |
 | Org-wide contract gate (one config, all repos) | — | ✓ | ✓ | ✓ |
 | Living contracts (R11; `posturanet-pro`, `living` flag) | — | ✓ | ✓ | ✓ |
-| Monitoring window | 24h | 72h | 7d | Custom |
+| Monitoring window (not enforced: every tier gets the evidence-sized window, FR-32) | 24h | 72h | 7d | Custom |
 | Slack | — | ✓ | ✓ | ✓ |
 | Signed OSCAL evidence (`evidence verify` needs no key) | — | ✓ | ✓ | ✓ |
 | Policy packs, auto-merge for low-risk fixes (planned) | — | — | ✓ | ✓ |

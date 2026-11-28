@@ -171,6 +171,31 @@ resource, a program that differs from the export, and drift between the export's
 outputs. Fixes are scored on the edited program's literals. `python -m bench` exits 1 if this
 family reports anything **wrongly safe**.
 
+## AI coding agents (harness, no published results yet)
+
+`bench/agents.py` gives a coding agent the same 14 security-group cases and scores its fix
+with the same ground truth. Each run starts from a fresh copy of the case with a `TASK.md`
+prompt. The agent edits `modules/bastion/main.tf`, or writes `STOP.md` to decline.
+
+| Condition | The agent gets |
+|---|---|
+| `finding` | The Terraform repo and `finding.json`, as a developer would hand it over |
+| `evidence` | Also `flows.json`: the same 90 days of flow logs PosturaNet reads |
+| `check` | Also PosturaNet's draft contract, `posturanet` on PATH and an `.mcp.json` for `check_change`, with an instruction to stop on BLOCK |
+
+```bash
+python -m bench.agents --name claude-code --condition evidence --runs 3 \
+  --agent 'claude -p "$(cat TASK.md)" --permission-mode acceptEdits'
+python -m bench.agents --name codex --condition finding \
+  --agent 'codex exec --full-auto "$(cat TASK.md)"'
+```
+
+Results go to `bench/agents-<name>-<condition>.json`, with a summary table on stdout. Agents
+run in a temporary directory of synthetic files, with every `AWS_*` variable removed from
+their environment. The command is yours: the harness runs it with a shell, in the case
+directory, so only pass commands you'd run yourself. Running a model costs API usage, so no
+agent results are published here yet.
+
 ## Limits
 
 - CDK: no real `cdk synth` yet (aws-cdk isn't installed in CI); `MiniSynth` reads only the
